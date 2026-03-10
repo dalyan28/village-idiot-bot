@@ -30,16 +30,16 @@ class Overview(commands.Cog):
         cfg["last_overview_message_id"] = new_msg.id
         save_config(cfg)
 
-    def resolve_channels(self, cfg: dict, event_channel=None, summary_channel=None):
-        # Event-Channel: Parameter → config → None
+    def resolve_channels(self, cfg: dict, event_channel=None, overview_channel=None):
+        # Event-Channel: Parameter -> config -> None
         resolved_event = event_channel or (
             self.bot.get_channel(cfg["event_channel_id"]) if cfg.get("event_channel_id") else None
         )
-        # Summary-Channel: Parameter → config → None
-        resolved_summary = summary_channel or (
+        # Overveiw-Channel: Parameter -> config -> None
+        resolved_overview = overview_channel or (
             self.bot.get_channel(cfg["overview_channel_id"]) if cfg.get("overview_channel_id") else None
         )
-        return resolved_event, resolved_summary
+        return resolved_event, resolved_overview
 
     @app_commands.command(name="overview_events", description="Erstellt eine Übersicht der Events")
     async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
@@ -75,17 +75,17 @@ class Overview(commands.Cog):
         interaction: discord.Interaction,
         frequenz: int,
         event_channel: discord.TextChannel = None,
-        summary_channel: discord.TextChannel = None
+        overview_channel: discord.TextChannel = None
     ):
         cfg = load_config()
-        resolved_event, resolved_summary = self.resolve_channels(cfg, event_channel, summary_channel)
+        resolved_event, resolved_overview = self.resolve_channels(cfg, event_channel, overview_channel)
 
         # Fehlermeldung wenn einer der beiden Channel fehlt
         missing = []
         if not resolved_event:
             missing.append("`event_channel` (oder `/set_event_channel` nutzen)")
-        if not resolved_summary:
-            missing.append("`summary_channel` (oder `/set_overview_channel` nutzen)")
+        if not resolved_overview:
+            missing.append("`overview_channel` (oder `/set_overview_channel` nutzen)")
 
         if missing:
             await interaction.response.send_message(
@@ -101,12 +101,12 @@ class Overview(commands.Cog):
         if frequenz == 0:
             @tasks.loop(seconds=3)
             async def auto_job():
-                await self.fetch_and_post(resolved_event, resolved_summary)
+                await self.fetch_and_post(resolved_event, resolved_overview)
             label = "3 Sekunden (Test)"
         else:
             @tasks.loop(hours=frequenz)
             async def auto_job():
-                await self.fetch_and_post(resolved_event, resolved_summary)
+                await self.fetch_and_post(resolved_event, resolved_overview)
             label = f"{frequenz} Stunden"
 
         self.auto_task = auto_job
@@ -117,7 +117,7 @@ class Overview(commands.Cog):
 
         await interaction.response.send_message(
             f"Automatische Übersicht alle {label}.\n"
-            f"Events aus: {resolved_event.mention} → Übersicht in: {resolved_summary.mention}",
+            f"Events aus: {resolved_event.mention} → Übersicht in: {resolved_overview.mention}",
             ephemeral=True
         )
     @app_commands.command(name="stop_automate", description="Stoppt alle laufenden automatischen Übersichten")
