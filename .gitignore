@@ -2,8 +2,4 @@ venv/
 .env
 __pycache__/
 *.pyc
-<<<<<<< HEAD
 config.json
-=======
-config.json
->>>>>>> 2498b92e5ff18a0e1be3485a65dcd25743a8dfe3
