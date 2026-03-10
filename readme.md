@@ -1,0 +1,143 @@
+# Village Idiot Bot
+
+Ein Discord-Bot, der Events aus einem Apollo-Bot-Channel ausliest und automatisch eine Übersicht postet.
+
+---
+
+## Deutsch
+
+### Voraussetzungen
+
+- Python 3.10+
+- Ein Discord-Bot-Token ([Discord Developer Portal](https://discord.com/developers/applications))
+- Der Bot muss auf dem Server eingeladen sein mit folgenden Berechtigungen:
+  - Nachrichten senden
+  - Nachrichten verwalten
+  - Nachrichtenverlauf anzeigen
+  - Kanäle ansehen
+
+### Installation
+
+```bash
+git clone https://github.com/deinname/village-idiot-bot.git
+cd village-idiot-bot
+python -m venv venv
+venv\Scripts\activate        # Windows
+source venv/bin/activate     # Mac/Linux
+pip install -r requirements.txt
+```
+
+`.env` Datei anlegen:
+```
+DISCORD_TOKEN=dein_token_hier
+```
+
+Bot starten:
+```bash
+python bot.py
+```
+
+### Projektstruktur
+
+```
+village-idiot-bot/
+├── bot.py              # Einstiegspunkt
+├── config.py           # Config laden/speichern
+├── commands/
+│   ├── settings.py     # /set_event_channel, /set_overview_channel
+│   └── overview.py     # /overview_events, /automate_overview
+├── logic/
+│   └── parser.py       # Apollo-Nachrichten parsen & Übersicht bauen
+├── requirements.txt
+├── .env                # nicht in Git
+└── config.json         # wird automatisch erstellt, nicht in Git
+```
+
+### Commands
+
+| Command | Parameter | Beschreibung |
+|---|---|---|
+| `/set_event_channel` | `channel` | Setzt den Channel, aus dem Apollo-Events ausgelesen werden |
+| `/set_overview_channel` | `channel` | Setzt den Channel, in dem die Übersicht gepostet wird |
+| `/overview_events` | `channel` (optional) | Postet die aktuelle Übersicht. Priorität: angegebener Channel → set_overview_channel → aktueller Channel |
+| `/automate_overview` | `frequenz` | Postet die Übersicht automatisch im gewählten Intervall und löscht die vorherige |
+
+**Verfügbare Intervalle für `/automate_overview`:**
+- 30 Sekunden (nur zum Testen)
+- 2 / 4 / 8 / 12 / 24 Stunden
+
+### Hinweise
+
+- `.env` und `config.json` niemals in Git committen – sie enthalten sensible Daten
+- Der Bot löscht beim automatischen Update **nur seine eigene** zuletzt gepostete Übersicht, nie andere Nachrichten
+- Apollo-Events müssen als Embeds mit einem `Time`-Feld vorliegen, damit der Parser sie erkennt
+
+---
+
+## English
+
+### Requirements
+
+- Python 3.10+
+- A Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
+- The bot must be invited to the server with the following permissions:
+  - Send Messages
+  - Manage Messages
+  - Read Message History
+  - View Channels
+
+### Installation
+
+```bash
+git clone https://github.com/deinname/village-idiot-bot.git
+cd village-idiot-bot
+python -m venv venv
+venv\Scripts\activate        # Windows
+source venv/bin/activate     # Mac/Linux
+pip install -r requirements.txt
+```
+
+Create a `.env` file:
+```
+DISCORD_TOKEN=your_token_here
+```
+
+Start the bot:
+```bash
+python bot.py
+```
+
+### Project Structure
+
+```
+village-idiot-bot/
+├── bot.py              # Entry point
+├── config.py           # Load/save config
+├── commands/
+│   ├── settings.py     # /set_event_channel, /set_overview_channel
+│   └── overview.py     # /overview_events, /automate_overview
+├── logic/
+│   └── parser.py       # Parse Apollo messages & build overview
+├── requirements.txt
+├── .env                # not in Git
+└── config.json         # auto-generated, not in Git
+```
+
+### Commands
+
+| Command | Parameter | Description |
+|---|---|---|
+| `/set_event_channel` | `channel` | Sets the channel from which Apollo events are read |
+| `/set_overview_channel` | `channel` | Sets the channel where the overview will be posted |
+| `/overview_events` | `channel` (optional) | Posts the current overview. Priority: given channel → set_overview_channel → current channel |
+| `/automate_overview` | `frequency` | Automatically posts the overview at the chosen interval and deletes the previous one |
+
+**Available intervals for `/automate_overview`:**
+- 30 seconds (testing only)
+- 2 / 4 / 8 / 12 / 24 hours
+
+### Notes
+
+- Never commit `.env` or `config.json` to Git – they contain sensitive data
+- The bot only deletes **its own** last posted overview, never any other messages
+- Apollo events must be posted as embeds with a `Time` field for the parser to detect them
