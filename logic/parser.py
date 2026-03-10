@@ -76,7 +76,7 @@ def build_overview(events: list[dict]) -> discord.Embed:
         if len(title) > 40:
             title = title[:38] + ".."
 
-        day_text += f"<t:{e['start_ts']}:t> {title} **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
+        day_text += f"> <t:{e['start_ts']}:t> {title} **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
 
     if day_text:
         embed.add_field(name=day_label, value=day_text, inline=False)
