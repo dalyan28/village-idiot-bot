@@ -63,7 +63,7 @@ village-idiot-bot/
 | `/automate_overview` | `frequenz` | Postet die Übersicht automatisch im gewählten Intervall und löscht die vorherige |
 
 **Verfügbare Intervalle für `/automate_overview`:**
-- 30 Sekunden (nur zum Testen)
+- 3 Sekunden (nur zum Testen)
 - 2 / 4 / 8 / 12 / 24 Stunden
 
 ### Hinweise
@@ -133,7 +133,7 @@ village-idiot-bot/
 | `/automate_overview` | `frequency` | Automatically posts the overview at the chosen interval and deletes the previous one |
 
 **Available intervals for `/automate_overview`:**
-- 30 seconds (testing only)
+- 3 seconds (testing only)
 - 2 / 4 / 8 / 12 / 24 hours
 
 ### Notes
