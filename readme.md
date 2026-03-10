@@ -68,9 +68,9 @@ village-idiot-bot/
 
 ### Hinweise
 
-- `.env` und `config.json` niemals in Git committen – sie enthalten sensible Daten
 - Der Bot löscht beim automatischen Update **nur seine eigene** zuletzt gepostete Übersicht, nie andere Nachrichten
 - Apollo-Events müssen als Embeds mit einem `Time`-Feld vorliegen, damit der Parser sie erkennt
+- `.env` und `config.json` niemals in Git committen. Sie önnen sensible Daten enthalten. Wenn die Token-ID jemals bei git exposed werden sollte, dringend einen neue ID generieren. 
 
 ---
 
@@ -138,6 +138,6 @@ village-idiot-bot/
 
 ### Notes
 
-- Never commit `.env` or `config.json` to Git – they contain sensitive data
 - The bot only deletes **its own** last posted overview, never any other messages
 - Apollo events must be posted as embeds with a `Time` field for the parser to detect them
+- Never commit `.env` or `config.json` to Git. They may contain sensitive data. If the token is ever exposed in Git, generate a new one immediately.
