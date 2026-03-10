@@ -43,6 +43,7 @@ def parse_events(messages: list[discord.Message]) -> list[dict]:
             "start_ts": start_ts,
             "accepted": accepted,
             "max_players": max_players,
+            "url": msg.jump_url,
         })
 
     events.sort(key=lambda e: e["start_ts"])
@@ -54,6 +55,7 @@ def build_overview(events: list[dict]) -> discord.Embed:
 
     if not events:
         embed.description = "Keine Events gefunden."
+        embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
         return embed
 
     current_day = None
@@ -71,14 +73,14 @@ def build_overview(events: list[dict]) -> discord.Embed:
             day_text = ""
             day_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
 
-        # Titel kürzen falls zu lang
         title = e["title"]
         if len(title) > 40:
             title = title[:38] + ".."
 
-        day_text += f"> <t:{e['start_ts']}:t> {title} **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
+        day_text += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
 
     if day_text:
         embed.add_field(name=day_label, value=day_text, inline=False)
 
+    embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
     return embed
