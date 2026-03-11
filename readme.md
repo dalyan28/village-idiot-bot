@@ -60,7 +60,7 @@ village-idiot-bot/
 | `/set_event_channel` | `channel` | Setzt den Channel, aus dem Apollo-Events ausgelesen werden |
 | `/set_overview_channel` | `channel` | Setzt den Channel, in dem die Übersicht gepostet wird |
 | `/overview_events` | `channel` (optional) | Postet die aktuelle Übersicht. Priorität: angegebener Channel → set_overview_channel → aktueller Channel |
-| `/automate_overview` | `frequenz`, `event_channel` (optional), `overview_channel` (optional) | Postet die Übersicht automatisch im gewählten Intervall und löscht die vorherige. Channel-Parameter überschreiben die gesetzten Werte aus `/set_event_channel` und `/set_overview_channel` |
+| `/automate_overview` | `frequenz`, `event_channel` (optional), `summary_channel` (optional) | Postet die Übersicht automatisch im gewählten Intervall und löscht die vorherige. Channel-Parameter überschreiben die gesetzten Werte aus `/set_event_channel` und `/set_overview_channel` |
 | `/stop_automate` | – | Stoppt alle laufenden automatischen Übersichten |
 
 **Verfügbare Intervalle für `/automate_overview`:**
@@ -70,7 +70,8 @@ village-idiot-bot/
 ### Hinweise
 
 - Der Bot löscht beim automatischen Update nur seine eigene zuletzt gepostete Übersicht, nie andere Nachrichten
-- Apollo-Events müssen als Embeds mit einem `Time`-Feld vorliegen, damit der Parser sie erkennt
+- Apollo-Events müssen als Embeds mit einem `Time`- oder `Termin`-Feld vorliegen, damit der Parser sie erkennt. Es werden nur Apollo-Events unterstützt, die auf Deutsch oder Englisch erstellt wurden.
+- Die Übersicht zeigt Tagesnamen und Monate immer auf Deutsch an, unabhängig von der Sprache des Servers.
 - `.env` und `config.json` niemals in Git committen. Sie können sensible Daten enthalten. Wenn die Token-ID jemals bei Git exposed werden sollte, dringend eine neue ID generieren.
 
 ---
@@ -131,7 +132,7 @@ village-idiot-bot/
 | `/set_event_channel` | `channel` | Sets the channel from which Apollo events are read |
 | `/set_overview_channel` | `channel` | Sets the channel where the overview will be posted |
 | `/overview_events` | `channel` (optional) | Posts the current overview. Priority: given channel → set_overview_channel → current channel |
-| `/automate_overview` | `frequency`, `event_channel` (optional), `overview_channel` (optional) | Automatically posts the overview at the chosen interval and deletes the previous one. Channel parameters override the values set via `/set_event_channel` and `/set_overview_channel` |
+| `/automate_overview` | `frequency`, `event_channel` (optional), `summary_channel` (optional) | Automatically posts the overview at the chosen interval and deletes the previous one. Channel parameters override the values set via `/set_event_channel` and `/set_overview_channel` |
 | `/stop_automate` | – | Stops all running automated overviews |
 
 **Available intervals for `/automate_overview`:**
@@ -141,5 +142,6 @@ village-idiot-bot/
 ### Notes
 
 - The bot only deletes its own last posted overview, never any other messages
-- Apollo events must be posted as embeds with a `Time` field for the parser to detect them
+- Apollo events must be posted as embeds with a `Time` or `Termin` field for the parser to detect them. Only Apollo events created in German or English are supported.
+- The overview always displays day names and months in German, regardless of the server language.
 - Never commit `.env` or `config.json` to Git. They may contain sensitive data. If the token is ever exposed in Git, generate a new one immediately.

@@ -19,7 +19,8 @@ def parse_events(messages: list[discord.Message]) -> list[dict]:
         if not embed.title or not embed.fields:
             continue
 
-        time_field = next((f for f in embed.fields if f.name == "Time"), None)
+        # Deutsch und Englisch unterstützen
+        time_field = next((f for f in embed.fields if f.name in ("Time", "Termin")), None)
         if not time_field:
             continue
 
@@ -32,7 +33,7 @@ def parse_events(messages: list[discord.Message]) -> list[dict]:
         accepted = 0
         max_players = "?"
         for field in embed.fields:
-            match = re.search(r"Accepted \((\d+)/(\d+)\)", field.name)
+            match = re.search(r"(?:Accepted|Akzeptiert) \((\d+)/(\d+)\)", field.name)
             if match:
                 accepted = int(match.group(1))
                 max_players = match.group(2)
