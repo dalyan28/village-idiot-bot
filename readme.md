@@ -60,12 +60,12 @@ village-idiot-bot/
 | `/set_event_channel` | `channel` | Setzt den Channel, aus dem Apollo-Events ausgelesen werden |
 | `/set_overview_channel` | `channel` | Setzt den Channel, in dem die Übersicht gepostet wird |
 | `/overview_events` | `channel` (optional) | Postet die aktuelle Übersicht. Priorität: angegebener Channel → set_overview_channel → aktueller Channel |
-| `/automate_overview` | `frequenz`, `event_channel` (optional), `summary_channel` (optional) | Postet die Übersicht automatisch im gewählten Intervall und löscht die vorherige. Channel-Parameter überschreiben die gesetzten Werte aus `/set_event_channel` und `/set_overview_channel` |
-| `/stop_automate` | – | Stoppt alle laufenden automatischen Übersichten |
+| `/automate_overview` | `frequenz`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true) | Postet die Übersicht automatisch im gewählten Intervall und löscht die vorherige. Channel-Parameter überschreiben die gesetzten Werte aus `/set_event_channel` und `/set_overview_channel`. Mit `on_new_event` wird die Übersicht zusätzlich aktualisiert, wenn ein neues Event gepostet wird. |
+| `/stop_automate` | - | Stoppt alle laufenden automatischen Übersichten |
 
 **Verfügbare Intervalle für `/automate_overview`:**
 - 3 Sekunden (nur zum Testen)
-- 2 / 4 / 8 / 12 / 24 Stunden
+- 1 / 2 / 4 / 8 / 12 / 24 Stunden
 
 ### Hinweise
 
@@ -132,12 +132,12 @@ village-idiot-bot/
 | `/set_event_channel` | `channel` | Sets the channel from which Apollo events are read |
 | `/set_overview_channel` | `channel` | Sets the channel where the overview will be posted |
 | `/overview_events` | `channel` (optional) | Posts the current overview. Priority: given channel → set_overview_channel → current channel |
-| `/automate_overview` | `frequency`, `event_channel` (optional), `summary_channel` (optional) | Automatically posts the overview at the chosen interval and deletes the previous one. Channel parameters override the values set via `/set_event_channel` and `/set_overview_channel` |
-| `/stop_automate` | – | Stops all running automated overviews |
+| `/automate_overview` | `frequency`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true) | Automatically posts the overview at the chosen interval and deletes the previous one. Channel parameters override the values set via `/set_event_channel` and `/set_overview_channel`. With `on_new_event` the overview is also updated when a new event is posted. |
+| `/stop_automate` | - | Stops all running automated overviews |
 
 **Available intervals for `/automate_overview`:**
 - 3 seconds (testing only)
-- 2 / 4 / 8 / 12 / 24 hours
+- 1 / 2 / 4 / 8 / 12 / 24 hours
 
 ### Notes
 
