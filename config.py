@@ -1,7 +1,7 @@
 import json
 import os
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = os.path.join(os.getenv("RAILWAY_VOLUME_MOUNT_PATH", "."), "config.json")
 
 
 def load_config() -> dict:

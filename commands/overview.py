@@ -8,7 +8,6 @@ from logic.parser import parse_events, build_overview
 class Overview(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # pro Guild ein eigener Task
         self.auto_tasks: dict[int, tasks.Loop] = {}
 
     async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
@@ -18,7 +17,6 @@ class Overview(commands.Cog):
 
         cfg = get_guild_config(guild_id)
 
-        # Alte Übersicht löschen falls vorhanden
         last_id = cfg.get("last_overview_message_id")
         if last_id:
             try:
@@ -39,6 +37,26 @@ class Overview(commands.Cog):
             self.bot.get_channel(cfg["overview_channel_id"]) if cfg.get("overview_channel_id") else None
         )
         return resolved_event, resolved_overview
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if not message.author.bot or not message.guild:
+            return
+
+        cfg = get_guild_config(message.guild.id)
+
+        # nur reagieren wenn on_new_event aktiv und eine Automatisierung läuft
+        if not cfg.get("on_new_event", False):
+            return
+        if message.guild.id not in self.auto_tasks:
+            return
+        if message.channel.id != cfg.get("event_channel_id"):
+            return
+
+        overview_id = cfg.get("overview_channel_id")
+        overview_channel = self.bot.get_channel(overview_id) if overview_id else None
+        if overview_channel:
+            await self.fetch_and_post(message.guild.id, message.channel, overview_channel)
 
     @app_commands.command(name="overview_events", description="Erstellt eine Übersicht der Events")
     async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
@@ -74,7 +92,8 @@ class Overview(commands.Cog):
         interaction: discord.Interaction,
         frequenz: int,
         event_channel: discord.TextChannel = None,
-        overview_channel: discord.TextChannel = None
+        overview_channel: discord.TextChannel = None,
+        on_new_event: bool = True
     ):
         guild_id = interaction.guild_id
         cfg = get_guild_config(guild_id)
@@ -93,7 +112,6 @@ class Overview(commands.Cog):
             )
             return
 
-        # Alten Task für diese Guild stoppen falls aktiv
         if guild_id in self.auto_tasks and self.auto_tasks[guild_id].is_running():
             self.auto_tasks[guild_id].stop()
 
@@ -112,11 +130,14 @@ class Overview(commands.Cog):
         self.auto_tasks[guild_id].start()
 
         cfg["auto_interval_hours"] = frequenz
+        cfg["on_new_event"] = on_new_event
         save_guild_config(guild_id, cfg)
 
+        on_new_event_label = "aktiv" if on_new_event else "inaktiv"
         await interaction.response.send_message(
             f"Automatische Übersicht alle {label}.\n"
-            f"Events aus: {resolved_event.mention} → Übersicht in: {resolved_overview.mention}",
+            f"Events aus: {resolved_event.mention} -> Übersicht in: {resolved_overview.mention}\n"
+            f"Aktualisierung bei neuem Event: {on_new_event_label}",
             ephemeral=True
         )
 
