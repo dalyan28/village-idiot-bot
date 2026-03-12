@@ -81,6 +81,7 @@ class Overview(commands.Cog):
     @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
     @app_commands.choices(frequenz=[
         app_commands.Choice(name="3 Sekunden (Test)", value=0),
+        app_commands.Choice(name="1 Stunden",         value=1),
         app_commands.Choice(name="2 Stunden",         value=2),
         app_commands.Choice(name="4 Stunden",         value=4),
         app_commands.Choice(name="8 Stunden",         value=8),
