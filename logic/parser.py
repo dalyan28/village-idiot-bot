@@ -95,7 +95,9 @@ def build_overview(events: list[dict]) -> discord.Embed:
 
         if day_key != current_day:
             if current_day and day_text:
-                embed.add_field(name=day_label, value=day_text.rstrip(), inline=False)
+                if day_text.endswith("> \n"):
+                    day_text = day_text[:-3]
+                embed.add_field(name=day_label, value=day_text, inline=False)
             current_day = day_key
             day_text = ""
             day_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
@@ -116,7 +118,9 @@ def build_overview(events: list[dict]) -> discord.Embed:
         day_text += line
 
     if day_text:
-        embed.add_field(name=day_label, value=day_text.rstrip(), inline=False)
+        if day_text.endswith("> \n"):
+            day_text = day_text[:-3]
+        embed.add_field(name=day_label, value=day_text, inline=False)
 
     embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
     return embed
