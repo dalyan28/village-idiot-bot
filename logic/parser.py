@@ -8,6 +8,37 @@ TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "S
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
+EMBED_CHAR_LIMIT = 5500
+
+
+def embed_char_count(embed: discord.Embed) -> int:
+    count = len(embed.title or "")
+    for field in embed.fields:
+        count += len(field.name) + len(field.value)
+    return count
+
+
+def add_fields(embed, label, text):
+    if len(text) <= 1024:
+        embed.add_field(name=label, value=text, inline=False)
+    else:
+        lines = text.split("\n")
+        chunk = ""
+        first = True
+        for line in lines:
+            if len(chunk) + len(line) + 1 > 1024:
+                embed.add_field(name=label if first else "\u200b", value=chunk, inline=False)
+                first = False
+                chunk = line + "\n"
+            else:
+                chunk += line + "\n"
+        if chunk:
+            embed.add_field(name="\u200b" if not first else label, value=chunk, inline=False)
+
+
+def new_embed() -> discord.Embed:
+    return discord.Embed(title="Kommende Events", color=0x5865F2)
+
 
 async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_ocr: bool = False) -> tuple[list[dict], dict]:
     events = []
@@ -77,27 +108,40 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
     return events, ocr_cache
 
 
-def build_overview(events: list[dict]) -> discord.Embed:
-    embed = discord.Embed(title="Kommende Events", color=0x5865F2)
-
+def build_overviews(events: list[dict]) -> list[discord.Embed]:
     if not events:
+        embed = new_embed()
         embed.description = "Keine Events gefunden."
         embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-        return embed
+        return [embed]
 
+    embeds = []
+    current_embed = new_embed()
     current_day = None
     day_text = ""
     day_label = ""
+
+    def flush_day():
+        nonlocal day_text, current_embed, embeds
+        if not day_text:
+            return
+        if day_text.endswith("> \n"):
+            day_text = day_text[:-3]
+
+        projected = embed_char_count(current_embed) + len(day_label) + len(day_text)
+        if projected > EMBED_CHAR_LIMIT and current_embed.fields:
+            current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+            embeds.append(current_embed)
+            current_embed = new_embed()
+
+        add_fields(current_embed, day_label, day_text)
 
     for e in events:
         dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
         day_key = dt.strftime("%Y-%m-%d")
 
         if day_key != current_day:
-            if current_day and day_text:
-                if day_text.endswith("> \n"):
-                    day_text = day_text[:-3]
-                embed.add_field(name=day_label, value=day_text, inline=False)
+            flush_day()
             current_day = day_key
             day_text = ""
             day_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
@@ -117,10 +161,8 @@ def build_overview(events: list[dict]) -> discord.Embed:
 
         day_text += line
 
-    if day_text:
-        if day_text.endswith("> \n"):
-            day_text = day_text[:-3]
-        embed.add_field(name=day_label, value=day_text, inline=False)
+    flush_day()
+    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+    embeds.append(current_embed)
 
-    embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-    return embed
+    return embeds
