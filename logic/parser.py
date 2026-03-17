@@ -1,6 +1,8 @@
 import re
 import discord
+import random
 from datetime import datetime, timezone
+from logic.ocr import analyse_attachment, get_top4, format_top4, load_characters
 
 
 TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -8,8 +10,13 @@ MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
 
-def parse_events(messages: list[discord.Message]) -> list[dict]:
+async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_ocr: bool = False) -> tuple[list[dict], dict]:
     events = []
+    characters = load_characters()
+
+    # cache aufräumen - einträge die nicht mehr existieren rauswerfen
+    aktuelle_ids = {str(msg.id) for msg in messages}
+    ocr_cache = {k: v for k, v in ocr_cache.items() if k in aktuelle_ids}
 
     for msg in messages:
         if not msg.author.bot or not msg.embeds:
@@ -19,7 +26,6 @@ def parse_events(messages: list[discord.Message]) -> list[dict]:
         if not embed.title or not embed.fields:
             continue
 
-        # Deutsch und Englisch unterstützen
         time_field = next((f for f in embed.fields if f.name in ("Time", "Termin")), None)
         if not time_field:
             continue
@@ -39,16 +45,34 @@ def parse_events(messages: list[discord.Message]) -> list[dict]:
                 max_players = match.group(2)
                 break
 
+        # attachments prüfen und ocr ausführen
+        top4_str = ""
+        msg_id = str(msg.id)
+        attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
+
+        if attachments:
+            if not force_ocr and msg_id in ocr_cache:
+                # gecachtes ergebnis nehmen
+                top4_str = ocr_cache[msg_id]
+            else:
+                # ocr neu ausführen
+                found = await analyse_attachment(attachments[0].url, characters)
+                top4 = get_top4(found, characters)
+                top4_str = format_top4(top4)
+                ocr_cache[msg_id] = top4_str
+        # kein attachment -> nicht cachen, nächstes mal wieder prüfen
+
         events.append({
             "title": embed.title,
             "start_ts": start_ts,
             "accepted": accepted,
             "max_players": max_players,
             "url": msg.jump_url,
+            "top4": top4_str,
         })
 
     events.sort(key=lambda e: e["start_ts"])
-    return events
+    return events, ocr_cache
 
 
 def build_overview(events: list[dict]) -> discord.Embed:
@@ -78,7 +102,13 @@ def build_overview(events: list[dict]) -> discord.Embed:
         if len(title) > 40:
             title = title[:38] + ".."
 
-        day_text += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
+        line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
+
+        # top4 nur anzeigen wenn vorhanden
+        if e["top4"]:
+            line += f"> {e['top4']}\n"
+
+        day_text += line
 
     if day_text:
         embed.add_field(name=day_label, value=day_text, inline=False)

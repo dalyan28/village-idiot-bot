@@ -10,12 +10,16 @@ class Overview(commands.Cog):
         self.bot = bot
         self.auto_tasks: dict[int, tasks.Loop] = {}
 
-    async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
+    async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel, force_ocr: bool = False):
         messages = [msg async for msg in event_channel.history(limit=100)]
-        events = parse_events(messages)
-        embed = build_overview(events)
-
         cfg = get_guild_config(guild_id)
+
+        ocr_cache = cfg.get("ocr_cache", {})
+        events, ocr_cache = await parse_events(messages, ocr_cache, force_ocr)
+
+        # cache speichern
+        cfg["ocr_cache"] = ocr_cache
+        embed = build_overview(events)
 
         last_id = cfg.get("last_overview_message_id")
         if last_id:
@@ -45,7 +49,6 @@ class Overview(commands.Cog):
 
         cfg = get_guild_config(message.guild.id)
 
-        # nur reagieren wenn on_new_event aktiv und eine Automatisierung läuft
         if not cfg.get("on_new_event", False):
             return
         if message.guild.id not in self.auto_tasks:
@@ -58,8 +61,12 @@ class Overview(commands.Cog):
         if overview_channel:
             await self.fetch_and_post(message.guild.id, message.channel, overview_channel)
 
+            # timer neu starten
+            if message.guild.id in self.auto_tasks and self.auto_tasks[message.guild.id].is_running():
+                self.auto_tasks[message.guild.id].restart()
+
     @app_commands.command(name="overview_events", description="Erstellt eine Übersicht der Events")
-    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
+    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None, force_ocr: bool = False):
         cfg = get_guild_config(interaction.guild_id)
 
         if channel is None:
@@ -76,12 +83,12 @@ class Overview(commands.Cog):
             return
 
         await interaction.response.send_message(f"Erstelle Übersicht in {channel.mention}...", ephemeral=True)
-        await self.fetch_and_post(interaction.guild_id, event_channel, channel)
+        await self.fetch_and_post(interaction.guild_id, event_channel, channel, force_ocr)
 
     @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
     @app_commands.choices(frequenz=[
         app_commands.Choice(name="3 Sekunden (Test)", value=0),
-        app_commands.Choice(name="1 Stunden",         value=1),
+        app_commands.Choice(name="1 Stunde",          value=1),
         app_commands.Choice(name="2 Stunden",         value=2),
         app_commands.Choice(name="4 Stunden",         value=4),
         app_commands.Choice(name="8 Stunden",         value=8),
@@ -132,6 +139,7 @@ class Overview(commands.Cog):
 
         cfg["auto_interval_hours"] = frequenz
         cfg["on_new_event"] = on_new_event
+        cfg["auto_active"] = True
         save_guild_config(guild_id, cfg)
 
         on_new_event_label = "aktiv" if on_new_event else "inaktiv"
@@ -148,6 +156,11 @@ class Overview(commands.Cog):
         if guild_id in self.auto_tasks and self.auto_tasks[guild_id].is_running():
             self.auto_tasks[guild_id].stop()
             del self.auto_tasks[guild_id]
+
+            cfg = get_guild_config(guild_id)
+            cfg["auto_active"] = False
+            save_guild_config(guild_id, cfg)
+
             await interaction.response.send_message("Automatische Übersicht gestoppt.", ephemeral=True)
         else:
             await interaction.response.send_message("Es läuft gerade keine automatische Übersicht.", ephemeral=True)
