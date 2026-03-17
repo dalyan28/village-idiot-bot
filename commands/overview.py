@@ -66,7 +66,7 @@ class Overview(commands.Cog):
                 self.auto_tasks[message.guild.id].restart()
 
     @app_commands.command(name="overview_events", description="Erstellt eine Übersicht der Events")
-    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None, force_ocr: bool = False):
+    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None, force_ocr: bool = True):
         cfg = get_guild_config(interaction.guild_id)
 
         if channel is None:
