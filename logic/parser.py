@@ -108,10 +108,10 @@ def build_overview(events: list[dict]) -> discord.Embed:
 
         if e["top4"] and e.get("image_url"):
             line += f"> [🔗 Skript]({e['image_url']}) · {e['top4']}\n"
+            line += "> \n"
         elif e["top4"]:
             line += f"> {e['top4']}\n"
-            
-        line += "> \n" 
+            line += "> \n"
 
         day_text += line
 
