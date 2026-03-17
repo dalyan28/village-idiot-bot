@@ -19,10 +19,12 @@ def embed_char_count(embed: discord.Embed) -> int:
 
 
 def split_into_event_blocks(text: str) -> list[str]:
-    # text in einzelne event-blöcke aufteilen (jeder block beginnt mit "> <t:")
     blocks = []
     current = ""
     for line in text.split("\n"):
+        if line == ">":
+            # leerzeile zwischen events überspringen
+            continue
         if line.startswith("> <t:") and current:
             blocks.append(current)
             current = line + "\n"
@@ -34,9 +36,9 @@ def split_into_event_blocks(text: str) -> list[str]:
 
 
 def add_fields(embed, label, text):
-    # text in event-blöcke aufteilen und sicherstellen dass jeder block zusammenbleibt
     if text.endswith("> \n"):
         text = text[:-3]
+    text = text.replace("> \n", "\n")  # alle übrigen leerzeilen entfernen
     
     if len(text) <= 1024:
         embed.add_field(name=label, value=text, inline=False)
