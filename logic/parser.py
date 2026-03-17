@@ -21,6 +21,12 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
     for msg in messages:
         if not msg.author.bot or not msg.embeds:
             continue
+    
+    print(f"MSG ID: {msg.id} | Attachments: {len(msg.attachments)}")
+    for a in msg.attachments:
+        print(f"  -> {a.filename} | content_type: {a.content_type}")
+        if not msg.author.bot or not msg.embeds:
+            continue
 
         embed = msg.embeds[0]
         if not embed.title or not embed.fields:
