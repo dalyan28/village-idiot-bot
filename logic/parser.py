@@ -52,13 +52,22 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
 
         top4_str = ""
         msg_id = str(msg.id)
+
+        # erst attachments prüfen, dann embed.image als fallback
         attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
 
         if attachments:
+            image_url = attachments[0].url
+        elif embed.image and embed.image.url:
+            image_url = embed.image.url
+        else:
+            image_url = None
+
+        if image_url:
             if not force_ocr and msg_id in ocr_cache:
                 top4_str = ocr_cache[msg_id]
             else:
-                found = await analyse_attachment(attachments[0].url, characters)
+                found = await analyse_attachment(image_url, characters)
                 top4 = get_top4(found, characters)
                 top4_str = format_top4(top4)
                 ocr_cache[msg_id] = top4_str
