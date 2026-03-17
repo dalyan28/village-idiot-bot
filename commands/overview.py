@@ -17,9 +17,13 @@ class Overview(commands.Cog):
         ocr_cache = cfg.get("ocr_cache", {})
         events, ocr_cache = await parse_events(messages, ocr_cache, force_ocr)
 
-        # cache speichern
         cfg["ocr_cache"] = ocr_cache
         embed = build_overview(events)
+
+        # debug
+        print(f"Embed fields: {len(embed.fields)}")
+        for field in embed.fields:
+            print(f"  Field '{field.name}': {len(field.value)} Zeichen")
 
         last_id = cfg.get("last_overview_message_id")
         if last_id:
