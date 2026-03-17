@@ -19,12 +19,11 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
     ocr_cache = {k: v for k, v in ocr_cache.items() if k in aktuelle_ids}
 
     for msg in messages:
-        if not msg.author.bot or not msg.embeds:
-            continue
-    
-    print(f"MSG ID: {msg.id} | Attachments: {len(msg.attachments)}")
-    for a in msg.attachments:
-        print(f"  -> {a.filename} | content_type: {a.content_type}")
+        # debug
+        print(f"MSG ID: {msg.id} | Attachments: {len(msg.attachments)}")
+        for a in msg.attachments:
+            print(f"  -> {a.filename} | content_type: {a.content_type}")
+
         if not msg.author.bot or not msg.embeds:
             continue
 
@@ -51,22 +50,18 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
                 max_players = match.group(2)
                 break
 
-        # attachments prüfen und ocr ausführen
         top4_str = ""
         msg_id = str(msg.id)
         attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
 
         if attachments:
             if not force_ocr and msg_id in ocr_cache:
-                # gecachtes ergebnis nehmen
                 top4_str = ocr_cache[msg_id]
             else:
-                # ocr neu ausführen
                 found = await analyse_attachment(attachments[0].url, characters)
                 top4 = get_top4(found, characters)
                 top4_str = format_top4(top4)
                 ocr_cache[msg_id] = top4_str
-        # kein attachment -> nicht cachen, nächstes mal wieder prüfen
 
         events.append({
             "title": embed.title,
@@ -110,7 +105,6 @@ def build_overview(events: list[dict]) -> discord.Embed:
 
         line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
 
-        # top4 nur anzeigen wenn vorhanden
         if e["top4"]:
             line += f"> {e['top4']}\n"
 
