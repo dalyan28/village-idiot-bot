@@ -35,6 +35,9 @@ def split_into_event_blocks(text: str) -> list[str]:
 
 def add_fields(embed, label, text):
     # text in event-blöcke aufteilen und sicherstellen dass jeder block zusammenbleibt
+    if text.endswith("> \n"):
+        text = text[:-3]
+    
     if len(text) <= 1024:
         embed.add_field(name=label, value=text, inline=False)
         return
