@@ -14,16 +14,10 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
     events = []
     characters = load_characters()
 
-    # cache aufräumen - einträge die nicht mehr existieren rauswerfen
     aktuelle_ids = {str(msg.id) for msg in messages}
     ocr_cache = {k: v for k, v in ocr_cache.items() if k in aktuelle_ids}
 
     for msg in messages:
-        # debug
-        print(f"MSG ID: {msg.id} | Attachments: {len(msg.attachments)}")
-        for a in msg.attachments:
-            print(f"  -> {a.filename} | content_type: {a.content_type}")
-
         if not msg.author.bot or not msg.embeds:
             continue
 
@@ -52,16 +46,14 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
 
         top4_str = ""
         msg_id = str(msg.id)
+        image_url = None
 
-        # erst attachments prüfen, dann embed.image als fallback
         attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
 
         if attachments:
             image_url = attachments[0].url
         elif embed.image and embed.image.url:
             image_url = embed.image.url
-        else:
-            image_url = None
 
         if image_url:
             if not force_ocr and msg_id in ocr_cache:
@@ -79,6 +71,7 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
             "max_players": max_players,
             "url": msg.jump_url,
             "top4": top4_str,
+            "image_url": image_url,
         })
 
     events.sort(key=lambda e: e["start_ts"])
@@ -114,7 +107,9 @@ def build_overview(events: list[dict]) -> discord.Embed:
 
         line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
 
-        if e["top4"]:
+        if e["top4"] and e.get("image_url"):
+            line += f"> {e['top4']} · [🔗 Skript]({e['image_url']})\n"
+        elif e["top4"]:
             line += f"> {e['top4']}\n"
 
         day_text += line
