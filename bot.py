@@ -15,11 +15,16 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
+    import pytesseract
+    try:
+        print("Tesseract version:", pytesseract.get_tesseract_version())
+    except Exception as e:
+        print("Tesseract nicht gefunden:", e)
+
     await bot.tree.sync()
     print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
     print(f"Bot ist online als {bot.user}")
 
-    # automatisierungen nach neustart wiederherstellen
     await restore_auto_tasks()
 
 
@@ -41,7 +46,6 @@ async def restore_auto_tasks():
         event_channel = bot.get_channel(guild_cfg.get("event_channel_id"))
         overview_channel = bot.get_channel(guild_cfg.get("overview_channel_id"))
         frequenz = guild_cfg.get("auto_interval_hours", 2)
-        on_new_event = guild_cfg.get("on_new_event", True)
 
         if not event_channel or not overview_channel:
             print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
