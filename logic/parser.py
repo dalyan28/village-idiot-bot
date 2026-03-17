@@ -109,12 +109,12 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         if len(title) > 40:
             title = title[:38] + ".."
 
-        line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
+        line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
 
         if e["top4"] and e.get("image_url"):
-            line += f"> [🔗 Skript]({e['image_url']}) · {e['top4']}"
+            line += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
         elif e["top4"]:
-            line += f"> {e['top4']}"
+            line += f"\n> {e['top4']}"
 
         # prüfen ob neuer embed nötig
         projected = embed_char_count(current_embed) + len(day_key) + len(line)
