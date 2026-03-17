@@ -18,22 +18,46 @@ def embed_char_count(embed: discord.Embed) -> int:
     return count
 
 
+def split_into_event_blocks(text: str) -> list[str]:
+    # text in einzelne event-blöcke aufteilen (jeder block beginnt mit "> <t:")
+    blocks = []
+    current = ""
+    for line in text.split("\n"):
+        if line.startswith("> <t:") and current:
+            blocks.append(current)
+            current = line + "\n"
+        else:
+            current += line + "\n"
+    if current.strip():
+        blocks.append(current)
+    return blocks
+
+
 def add_fields(embed, label, text):
+    # text in event-blöcke aufteilen und sicherstellen dass jeder block zusammenbleibt
     if len(text) <= 1024:
         embed.add_field(name=label, value=text, inline=False)
-    else:
-        lines = text.split("\n")
-        chunk = ""
-        first = True
-        for line in lines:
-            if len(chunk) + len(line) + 1 > 1024:
-                embed.add_field(name=label if first else "\u200b", value=chunk, inline=False)
+        return
+
+    blocks = split_into_event_blocks(text)
+    chunk = ""
+    first = True
+
+    for block in blocks:
+        if len(chunk) + len(block) > 1024:
+            if chunk:
+                embed.add_field(name=label if first else "\u200b", value=chunk.rstrip(), inline=False)
                 first = False
-                chunk = line + "\n"
+                chunk = block
             else:
-                chunk += line + "\n"
-        if chunk:
-            embed.add_field(name="\u200b" if not first else label, value=chunk, inline=False)
+                # block selbst ist zu lang, trotzdem hinzufügen
+                embed.add_field(name=label if first else "\u200b", value=block.rstrip(), inline=False)
+                first = False
+        else:
+            chunk += block
+
+    if chunk.strip():
+        embed.add_field(name=label if first else "\u200b", value=chunk.rstrip(), inline=False)
 
 
 def new_embed() -> discord.Embed:
