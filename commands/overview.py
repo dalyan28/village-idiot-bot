@@ -1,145 +1,181 @@
-import re
 import discord
-from datetime import datetime, timezone
-from logic.ocr import analyse_attachment, get_top4, format_top4, load_characters
+from discord import app_commands
+from discord.ext import commands, tasks
+from config import get_guild_config, save_guild_config
+from logic.parser import parse_events, build_overviews
 
 
-TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
-          "Juli", "August", "September", "Oktober", "November", "Dezember"]
+class Overview(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+        self.auto_tasks: dict[int, tasks.Loop] = {}
+
+    async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel, force_ocr: bool = False):
+        messages = [msg async for msg in event_channel.history(limit=100)]
+        cfg = get_guild_config(guild_id)
+
+        ocr_cache = cfg.get("ocr_cache", {})
+        events, ocr_cache = await parse_events(messages, ocr_cache, force_ocr)
+
+        cfg["ocr_cache"] = ocr_cache
+        embeds = build_overviews(events)
+
+        # debug
+        for embed in embeds:
+            print(f"Embed fields: {len(embed.fields)}")
+            for field in embed.fields:
+                print(f"  Field '{field.name}': {len(field.value)} Zeichen")
+
+        # alte nachrichten löschen
+        old_ids = cfg.get("last_overview_message_ids", [])
+        for msg_id in old_ids:
+            try:
+                old_msg = await target_channel.fetch_message(msg_id)
+                await old_msg.delete()
+            except discord.NotFound:
+                pass
+
+        # neue nachrichten posten
+        new_ids = []
+        for embed in embeds:
+            new_msg = await target_channel.send(embed=embed)
+            new_ids.append(new_msg.id)
+
+        cfg["last_overview_message_ids"] = new_ids
+        save_guild_config(guild_id, cfg)
+
+    def resolve_channels(self, guild_id: int, cfg: dict, event_channel=None, overview_channel=None):
+        resolved_event = event_channel or (
+            self.bot.get_channel(cfg["event_channel_id"]) if cfg.get("event_channel_id") else None
+        )
+        resolved_overview = overview_channel or (
+            self.bot.get_channel(cfg["overview_channel_id"]) if cfg.get("overview_channel_id") else None
+        )
+        return resolved_event, resolved_overview
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if not message.author.bot or not message.guild:
+            return
+
+        cfg = get_guild_config(message.guild.id)
+
+        if not cfg.get("on_new_event", False):
+            return
+        if message.guild.id not in self.auto_tasks:
+            return
+        if message.channel.id != cfg.get("event_channel_id"):
+            return
+
+        overview_id = cfg.get("overview_channel_id")
+        overview_channel = self.bot.get_channel(overview_id) if overview_id else None
+        if overview_channel:
+            await self.fetch_and_post(message.guild.id, message.channel, overview_channel)
+
+            # timer neu starten
+            if message.guild.id in self.auto_tasks and self.auto_tasks[message.guild.id].is_running():
+                self.auto_tasks[message.guild.id].restart()
+
+    @app_commands.command(name="overview_events", description="Erstellt eine Übersicht der Events")
+    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None, force_ocr: bool = True):
+        cfg = get_guild_config(interaction.guild_id)
+
+        if channel is None:
+            overview_id = cfg.get("overview_channel_id")
+            channel = self.bot.get_channel(overview_id) if overview_id else interaction.channel
+
+        event_channel_id = cfg.get("event_channel_id")
+        event_channel = self.bot.get_channel(event_channel_id) if event_channel_id else None
+
+        if not event_channel:
+            await interaction.response.send_message(
+                "Kein Event-Channel gesetzt. Bitte erst `/set_event_channel` nutzen.", ephemeral=True
+            )
+            return
+
+        await interaction.response.send_message(f"Erstelle Übersicht in {channel.mention}...", ephemeral=True)
+        await self.fetch_and_post(interaction.guild_id, event_channel, channel, force_ocr)
+
+    @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
+    @app_commands.choices(frequenz=[
+        app_commands.Choice(name="3 Sekunden (Test)", value=0),
+        app_commands.Choice(name="1 Stunde",          value=1),
+        app_commands.Choice(name="2 Stunden",         value=2),
+        app_commands.Choice(name="4 Stunden",         value=4),
+        app_commands.Choice(name="8 Stunden",         value=8),
+        app_commands.Choice(name="12 Stunden",        value=12),
+        app_commands.Choice(name="24 Stunden",        value=24),
+    ])
+    async def automate_overview(
+        self,
+        interaction: discord.Interaction,
+        frequenz: int,
+        event_channel: discord.TextChannel = None,
+        overview_channel: discord.TextChannel = None,
+        on_new_event: bool = True
+    ):
+        guild_id = interaction.guild_id
+        cfg = get_guild_config(guild_id)
+        resolved_event, resolved_overview = self.resolve_channels(guild_id, cfg, event_channel, overview_channel)
+
+        missing = []
+        if not resolved_event:
+            missing.append("`event_channel` (oder `/set_event_channel` nutzen)")
+        if not resolved_overview:
+            missing.append("`overview_channel` (oder `/set_overview_channel` nutzen)")
+
+        if missing:
+            await interaction.response.send_message(
+                "Folgende Channel fehlen noch:\n" + "\n".join(f"- {m}" for m in missing),
+                ephemeral=True
+            )
+            return
+
+        if guild_id in self.auto_tasks and self.auto_tasks[guild_id].is_running():
+            self.auto_tasks[guild_id].stop()
+
+        if frequenz == 0:
+            @tasks.loop(seconds=3)
+            async def auto_job():
+                await self.fetch_and_post(guild_id, resolved_event, resolved_overview)
+            label = "3 Sekunden (Test)"
+        else:
+            @tasks.loop(hours=frequenz)
+            async def auto_job():
+                await self.fetch_and_post(guild_id, resolved_event, resolved_overview)
+            label = f"{frequenz} Stunden"
+
+        self.auto_tasks[guild_id] = auto_job
+        self.auto_tasks[guild_id].start()
+
+        cfg["auto_interval_hours"] = frequenz
+        cfg["on_new_event"] = on_new_event
+        cfg["auto_active"] = True
+        save_guild_config(guild_id, cfg)
+
+        on_new_event_label = "aktiv" if on_new_event else "inaktiv"
+        await interaction.response.send_message(
+            f"Automatische Übersicht alle {label}.\n"
+            f"Events aus: {resolved_event.mention} -> Übersicht in: {resolved_overview.mention}\n"
+            f"Aktualisierung bei neuem Event: {on_new_event_label}",
+            ephemeral=True
+        )
+
+    @app_commands.command(name="stop_automate", description="Stoppt alle laufenden automatischen Übersichten")
+    async def stop_automate(self, interaction: discord.Interaction):
+        guild_id = interaction.guild_id
+        if guild_id in self.auto_tasks and self.auto_tasks[guild_id].is_running():
+            self.auto_tasks[guild_id].stop()
+            del self.auto_tasks[guild_id]
+
+            cfg = get_guild_config(guild_id)
+            cfg["auto_active"] = False
+            save_guild_config(guild_id, cfg)
+
+            await interaction.response.send_message("Automatische Übersicht gestoppt.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Es läuft gerade keine automatische Übersicht.", ephemeral=True)
 
 
-def add_fields(embed, label, text):
-    # field aufteilen wenn zu lang
-    if len(text) <= 1024:
-        embed.add_field(name=label, value=text, inline=False)
-    else:
-        lines = text.split("\n")
-        chunk = ""
-        first = True
-        for line in lines:
-            if len(chunk) + len(line) + 1 > 1024:
-                embed.add_field(name=label if first else "\u200b", value=chunk, inline=False)
-                first = False
-                chunk = line + "\n"
-            else:
-                chunk += line + "\n"
-        if chunk:
-            embed.add_field(name="\u200b" if not first else label, value=chunk, inline=False)
-
-
-async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_ocr: bool = False) -> tuple[list[dict], dict]:
-    events = []
-    characters = load_characters()
-
-    aktuelle_ids = {str(msg.id) for msg in messages}
-    ocr_cache = {k: v for k, v in ocr_cache.items() if k in aktuelle_ids}
-
-    for msg in messages:
-        if not msg.author.bot or not msg.embeds:
-            continue
-
-        embed = msg.embeds[0]
-        if not embed.title or not embed.fields:
-            continue
-
-        time_field = next((f for f in embed.fields if f.name in ("Time", "Termin")), None)
-        if not time_field:
-            continue
-
-        timestamps = re.findall(r"<t:(\d+):[FtTdDfR]>", time_field.value)
-        if not timestamps:
-            continue
-
-        start_ts = int(timestamps[0])
-
-        accepted = 0
-        max_players = "?"
-        for field in embed.fields:
-            match = re.search(r"(?:Accepted|Akzeptiert) \((\d+)/(\d+)\)", field.name)
-            if match:
-                accepted = int(match.group(1))
-                max_players = match.group(2)
-                break
-
-        top4_str = ""
-        msg_id = str(msg.id)
-        image_url = None
-
-        attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
-
-        if attachments:
-            image_url = attachments[0].url
-        elif embed.image and embed.image.url:
-            image_url = embed.image.url
-
-        if image_url:
-            if not force_ocr and msg_id in ocr_cache:
-                top4_str = ocr_cache[msg_id]
-            else:
-                found = await analyse_attachment(image_url, characters)
-                top4 = get_top4(found, characters)
-                top4_str = format_top4(top4)
-                ocr_cache[msg_id] = top4_str
-
-        events.append({
-            "title": embed.title,
-            "start_ts": start_ts,
-            "accepted": accepted,
-            "max_players": max_players,
-            "url": msg.jump_url,
-            "top4": top4_str,
-            "image_url": image_url,
-        })
-
-    events.sort(key=lambda e: e["start_ts"])
-    return events, ocr_cache
-
-
-def build_overview(events: list[dict]) -> discord.Embed:
-    embed = discord.Embed(title="Kommende Events", color=0x5865F2)
-
-    if not events:
-        embed.description = "Keine Events gefunden."
-        embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-        return embed
-
-    current_day = None
-    day_text = ""
-    day_label = ""
-
-    for e in events:
-        dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
-        day_key = dt.strftime("%Y-%m-%d")
-
-        if day_key != current_day:
-            if current_day and day_text:
-                if day_text.endswith("> \n"):
-                    day_text = day_text[:-3]
-                add_fields(embed, day_label, day_text)
-            current_day = day_key
-            day_text = ""
-            day_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
-
-        title = e["title"]
-        if len(title) > 40:
-            title = title[:38] + ".."
-
-        line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
-
-        if e["top4"] and e.get("image_url"):
-            line += f"> [🔗 Skript]({e['image_url']}) · {e['top4']}\n"
-            line += "> \n"
-        elif e["top4"]:
-            line += f"> {e['top4']}\n"
-            line += "> \n"
-
-        day_text += line
-
-    if day_text:
-        if day_text.endswith("> \n"):
-            day_text = day_text[:-3]
-        add_fields(embed, day_label, day_text)
-
-    embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-    return embed
+async def setup(bot):
+    await bot.add_cog(Overview(bot))
