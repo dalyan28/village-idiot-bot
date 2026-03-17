@@ -3,7 +3,6 @@ from PIL import Image
 import aiohttp
 import io
 import json
-import os
 
 
 CHARACTERS_FILE = "characters.json"
@@ -59,8 +58,13 @@ def get_top4(found: list[str], characters: dict) -> list[dict]:
 def format_top4(top4: list[dict]) -> str:
     if not top4:
         return ""
-    names = [f"*{c['name']}*" for c in top4]
-    return ", ".join(names)
+    parts = []
+    for c in top4:
+        if c["score"] >= 9:
+            parts.append(f"🔹**{c['name']}**")
+        else:
+            parts.append(f"*{c['name']}*")
+    return " · ".join(parts)
 
 
 async def analyse_attachment(url: str, characters: dict) -> list[str]:

@@ -1,6 +1,5 @@
 import re
 import discord
-import random
 from datetime import datetime, timezone
 from logic.ocr import analyse_attachment, get_top4, format_top4, load_characters
 
@@ -108,7 +107,7 @@ def build_overview(events: list[dict]) -> discord.Embed:
         line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
 
         if e["top4"] and e.get("image_url"):
-            line += f"> {e['top4']} · [🔗 Skript]({e['image_url']})\n"
+            line += f"> [🔗 Skript]({e['image_url']}) · {e['top4']}\n"
         elif e["top4"]:
             line += f"> {e['top4']}\n"
 
