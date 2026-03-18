@@ -25,12 +25,16 @@ class Overview(commands.Cog):
 
         # alte nachrichten löschen
         old_ids = cfg.get("last_overview_message_ids", [])
+        print(f"Lösche alte Nachrichten: {old_ids}")
         for msg_id in old_ids:
             try:
                 old_msg = await target_channel.fetch_message(msg_id)
                 await old_msg.delete()
+                print(f"Gelöscht: {msg_id}")
             except discord.NotFound:
-                pass
+                print(f"Nicht gefunden: {msg_id}")
+            except Exception as e:
+                print(f"Fehler beim Löschen {msg_id}: {e}")
 
         # neue nachrichten posten
         new_ids = []
