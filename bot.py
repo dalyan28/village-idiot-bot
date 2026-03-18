@@ -27,16 +27,16 @@ async def on_ready():
 
     await restore_auto_tasks()
 
-@bot.event
-async def on_message(message):
-    if message.author.bot and message.embeds:
-        for embed in message.embeds:
-            print(f"=== EMBED von {message.author.name} ===")
-            print(f"Title: {embed.title}")
-            print(f"Description: {embed.description}")
-            for field in embed.fields:
-                print(f"FIELD name: '{field.name}' | value: '{field.value[:100]}'")
-            print("---")
+# @bot.event
+# async def on_message(message):
+#     if message.author.bot and message.embeds:
+#         for embed in message.embeds:
+#             print(f"=== EMBED von {message.author.name} ===")
+#             print(f"Title: {embed.title}")
+#             print(f"Description: {embed.description}")
+#             for field in embed.fields:
+#                 print(f"FIELD name: '{field.name}' | value: '{field.value[:100]}'")
+#             print("---")
 
 async def restore_auto_tasks():
     from config import load_config
