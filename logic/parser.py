@@ -109,6 +109,7 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         if len(title) > 40:
             title = title[:38] + ".."
 
+        # kein \n am ende der ersten zeile
         line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
 
         if e["top4"] and e.get("image_url"):
