@@ -34,6 +34,7 @@ def extract_characters(image: Image.Image, characters: dict) -> list[str]:
     for name in characters:
         if name.lower() in text.lower():
             found.append(name)
+    print(f"Gefundene Charaktere: {found}")
     return found
 
 
@@ -51,8 +52,9 @@ def get_top4(found: list[str], characters: dict) -> list[dict]:
     ]
 
     scored.sort(key=lambda x: (x["score"], x["priority"], random.random()), reverse=True)
-
-    return scored[:3]
+    top3 = scored[:3]
+    print(f"Top 3: {[(c['name'], c['score']) for c in top3]}")
+    return top3
 
 
 def format_top4(top4: list[dict]) -> str:
