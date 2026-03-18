@@ -83,6 +83,25 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
     return events, ocr_cache
 
 
+def build_day_text(day_events: list[dict], day_label: str) -> str:
+    text = f"**{day_label}**\n"
+    for i, e in enumerate(day_events):
+        title = e["title"]
+        if len(title) > 40:
+            title = title[:38] + ".."
+
+        line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
+
+        if e["top4"] and e.get("image_url"):
+            line += f"\n> 　　↳ [🔗 Skript]({e['image_url']}) · {e['top4']}"
+        elif e["top4"]:
+            line += f"\n> 　　↳ {e['top4']}"
+
+        line += "\n"
+        text += line
+    return text
+
+
 def build_overviews(events: list[dict]) -> list[discord.Embed]:
     if not events:
         embed = new_embed()
@@ -90,48 +109,70 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
         return [embed]
 
+    # events nach tag gruppieren
+    days: dict[str, list] = {}
+    day_labels: dict[str, str] = {}
+    for e in events:
+        dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
+        day_key = dt.strftime("%Y-%m-%d")
+        if day_key not in days:
+            days[day_key] = []
+            day_labels[day_key] = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
+        days[day_key].append(e)
+
     embeds = []
     current_embed = new_embed()
     current_desc = ""
-    current_day = None
 
-    for i, e in enumerate(events):
-        dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
-        day_key = dt.strftime("%Y-%m-%d")
+    for day_key in sorted(days.keys()):
+        label = day_labels[day_key]
+        day_text = build_day_text(days[day_key], label)
 
-        title = e["title"]
-        if len(title) > 40:
-            title = title[:38] + ".."
+        if len(day_text) > DESCRIPTION_CHAR_LIMIT:
+            # tag ist zu lang, event für event splitten
+            print(f"Tag '{label}' überschreitet Limit alleine ({len(day_text)} Zeichen), splitte innerhalb des Tages")
+            header = f"**{label}**\n"
 
-        block = ""
+            if current_desc:
+                current_embed.description = current_desc.strip()
+                current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                embeds.append(current_embed)
+                current_embed = new_embed()
+                current_desc = ""
 
-        if day_key != current_day:
-            current_day = day_key
-            day_label = f"**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**"
-            block += f"{day_label}\n"
+            current_desc = header
+            for i, e in enumerate(days[day_key]):
+                title = e["title"]
+                if len(title) > 40:
+                    title = title[:38] + ".."
 
-        block += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
+                line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
+                if e["top4"] and e.get("image_url"):
+                    line += f"\n> 　　↳ [🔗 Skript]({e['image_url']}) · {e['top4']}"
+                elif e["top4"]:
+                    line += f"\n> 　　↳ {e['top4']}"
+                line += "\n"
 
-        if e["top4"] and e.get("image_url"):
-            block += f"\n>  　　↳ [Skript]({e['image_url']}) · {e['top4']}"
-        elif e["top4"]:
-            block += f"\n>  　　↳ {e['top4']}"
+                if len(current_desc) + len(line) > DESCRIPTION_CHAR_LIMIT:
+                    print(f"Split mitten im Tag '{label}' bei Event '{e['title']}'")
+                    current_embed.description = current_desc.strip()
+                    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                    embeds.append(current_embed)
+                    current_embed = new_embed()
+                    current_desc = f"**{label} (Fortsetzung)**\n" + line
+                else:
+                    current_desc += line
 
-        block += "\n"
-
-        # neuer embed wenn description zu lang wird
-        if len(current_desc) + len(block) > DESCRIPTION_CHAR_LIMIT:
+        elif len(current_desc) + len(day_text) > DESCRIPTION_CHAR_LIMIT:
+            # tag passt nicht mehr rein, neuen embed starten
+            print(f"Neuer Embed vor Tag '{label}' - vorheriger war {len(current_desc)} Zeichen")
             current_embed.description = current_desc.strip()
             current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
             embeds.append(current_embed)
             current_embed = new_embed()
-            current_desc = ""
-            current_day = None
-            # tag-header nochmal da neuer embed
-            day_label = f"**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**"
-            block = f"{day_label}\n" + block.lstrip(day_label).lstrip("\n")
-
-        current_desc += block
+            current_desc = day_text
+        else:
+            current_desc += day_text
 
     current_embed.description = current_desc.strip()
     current_embed.description += "\n\n*Klassischer oder informativer Wochenplan? [Stimm hier ab!](https://discord.com/channels/1197876498980421652/1197881790623395952/1483740867121647638)*"
