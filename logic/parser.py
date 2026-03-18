@@ -9,6 +9,7 @@ MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
 EMBED_CHAR_LIMIT = 5500
+FIELD_CHAR_LIMIT = 1024
 
 
 def embed_char_count(embed: discord.Embed) -> int:
@@ -100,6 +101,27 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
     embeds = []
     current_embed = new_embed()
     current_day = None
+    day_label = ""
+    # field_chunks = liste von (label, text) für aktuellen tag
+    field_chunks = []
+    current_chunk = ""
+    current_label = ""
+
+    def flush_chunks():
+        nonlocal field_chunks, current_chunk, current_label, current_embed, embeds
+        if current_chunk:
+            field_chunks.append((current_label, current_chunk.rstrip()))
+            current_chunk = ""
+
+        for label, text in field_chunks:
+            projected = embed_char_count(current_embed) + len(label) + len(text)
+            if projected > EMBED_CHAR_LIMIT and current_embed.fields:
+                current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                embeds.append(current_embed)
+                current_embed = new_embed()
+            current_embed.add_field(name=label, value=text, inline=False)
+
+        field_chunks = []
 
     for e in events:
         dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
@@ -109,30 +131,30 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         if len(title) > 40:
             title = title[:38] + ".."
 
-        # kein \n am ende der ersten zeile
         line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
-
         if e["top4"] and e.get("image_url"):
             line += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
         elif e["top4"]:
             line += f"\n> {e['top4']}"
+        line += "\n"
 
-        # prüfen ob neuer embed nötig
-        projected = embed_char_count(current_embed) + len(day_key) + len(line)
-        if projected > EMBED_CHAR_LIMIT and current_embed.fields:
-            current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-            embeds.append(current_embed)
-            current_embed = new_embed()
-            current_day = None
-
-        # tages-header nur wenn neuer tag
         if day_key != current_day:
+            # vorherigen tag abschliessen
+            flush_chunks()
             current_day = day_key
-            day_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
-            current_embed.add_field(name=day_label, value=line, inline=False)
+            current_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
+            current_chunk = line
         else:
-            current_embed.add_field(name="\u200b", value=line, inline=False)
+            # prüfen ob event noch ins aktuelle chunk passt
+            if len(current_chunk) + len(line) > FIELD_CHAR_LIMIT:
+                # aktuelles chunk abschliessen, neues starten
+                field_chunks.append((current_label, current_chunk.rstrip()))
+                current_label = "\u200b"
+                current_chunk = line
+            else:
+                current_chunk += line
 
+    flush_chunks()
     current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
     embeds.append(current_embed)
 
