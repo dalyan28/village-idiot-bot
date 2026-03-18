@@ -93,7 +93,7 @@ def build_day_text(day_events: list[dict], day_label: str) -> str:
         line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
 
         if e["top4"] and e.get("image_url"):
-            line += f"\n> 　　↳ [🔗 Skript]({e['image_url']}) · {e['top4']}"
+            line += f"\n> 　　↳ [Skript]({e['image_url']}) · {e['top4']}"
         elif e["top4"]:
             line += f"\n> 　　↳ {e['top4']}"
 
@@ -148,7 +148,7 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
 
                 line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
                 if e["top4"] and e.get("image_url"):
-                    line += f"\n> 　　↳ [Skript]({e['image_url']}) · {e['top4']}" #test
+                    line += f"\n> 　　↳ [Skript]({e['image_url']}) · {e['top4']}"
                 elif e["top4"]:
                     line += f"\n> 　　↳ {e['top4']}"
                 line += "\n"
