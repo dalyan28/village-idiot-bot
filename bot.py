@@ -25,6 +25,16 @@ async def on_ready():
     print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
     print(f"Bot ist online als {bot.user}")
     await restore_auto_tasks()
+    
+    channel = bot.get_channel(1260650800141701121)
+    if channel:
+        for msg_id in [1483815312217346098, 1483815309818204280, 1483815294320509111, 1483815285592166552]:
+            try:
+                msg = await channel.fetch_message(msg_id)
+                await msg.delete()
+                print(f"Gelöscht: {msg_id}")
+            except discord.NotFound:
+                print(f"Nicht gefunden: {msg_id}")
 
 
 async def restore_auto_tasks():
