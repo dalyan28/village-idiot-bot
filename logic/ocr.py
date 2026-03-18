@@ -60,8 +60,10 @@ def format_top4(top4: list[dict]) -> str:
         return ""
     parts = []
     for c in top4:
-        if c["score"] >= 9:
+        if c["score"] == 10:
             parts.append(f"🔹**{c['name']}**")
+        elif c["score"] == 9:
+            parts.append(f"**{c['name']}**")
         else:
             parts.append(f"*{c['name']}*")
     return " · ".join(parts)
