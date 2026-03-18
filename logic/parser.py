@@ -1,7 +1,7 @@
 import re
 import discord
 from datetime import datetime, timezone
-from logic.ocr import analyse_attachment, get_top4, format_top4, load_characters
+from logic.ocr import analyse_attachment, get_top3, format_top3, load_characters
 
 
 TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -49,7 +49,7 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
                 max_players = match.group(2)
                 break
 
-        top4_str = ""
+        top3_str = ""
         msg_id = str(msg.id)
         image_url = None
 
@@ -62,12 +62,12 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
 
         if image_url:
             if not force_ocr and msg_id in ocr_cache:
-                top4_str = ocr_cache[msg_id]
+                top3_str = ocr_cache[msg_id]
             else:
                 found = await analyse_attachment(image_url, characters)
-                top4 = get_top4(found, characters)
-                top4_str = format_top4(top4)
-                ocr_cache[msg_id] = top4_str
+                top3 = get_top3(found, characters)
+                top3_str = format_top3(top3)
+                ocr_cache[msg_id] = top3_str
 
         events.append({
             "title": embed.title,
@@ -75,7 +75,7 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
             "accepted": accepted,
             "max_players": max_players,
             "url": msg.jump_url,
-            "top4": top4_str,
+            "top4": top3_str,
             "image_url": image_url,
         })
 
@@ -109,7 +109,6 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
         return [embed]
 
-    # events nach tag gruppieren
     days: dict[str, list] = {}
     day_labels: dict[str, str] = {}
     for e in events:
@@ -129,7 +128,6 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         day_text = build_day_text(days[day_key], label)
 
         if len(day_text) > DESCRIPTION_CHAR_LIMIT:
-            # tag ist zu lang, event für event splitten
             print(f"Tag '{label}' überschreitet Limit alleine ({len(day_text)} Zeichen), splitte innerhalb des Tages")
             header = f"**{label}**\n"
 
@@ -164,7 +162,6 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
                     current_desc += line
 
         elif len(current_desc) + len(day_text) > DESCRIPTION_CHAR_LIMIT:
-            # tag passt nicht mehr rein, neuen embed starten
             print(f"Neuer Embed vor Tag '{label}' - vorheriger war {len(current_desc)} Zeichen")
             current_embed.description = current_desc.strip()
             current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
