@@ -38,7 +38,7 @@ def extract_characters(image: Image.Image, characters: dict) -> list[str]:
     return found
 
 
-def get_top4(found: list[str], characters: dict) -> list[dict]:
+def get_top3(found: list[str], characters: dict) -> list[dict]:
     import random
 
     scored = [
@@ -57,20 +57,10 @@ def get_top4(found: list[str], characters: dict) -> list[dict]:
     return top3
 
 
-def format_top4(top4: list[dict]) -> str:
-    if not top4:
+def format_top3(top3: list[dict]) -> str:
+    if not top3:
         return ""
     parts = []
-    for c in top4:
+    for c in top3:
         if c["score"] == 10:
-            parts.append(f"🔹**{c['name']}**")
-        elif c["score"] == 9:
-            parts.append(f"**{c['name']}**")
-        else:
-            parts.append(f"*{c['name']}*")
-    return " · ".join(parts)
-
-
-async def analyse_attachment(url: str, characters: dict) -> list[str]:
-    image = await download_image(url)
-    return extract_characters(image, characters)
+            parts
