@@ -52,7 +52,7 @@ def get_top4(found: list[str], characters: dict) -> list[dict]:
 
     scored.sort(key=lambda x: (x["score"], x["priority"], random.random()), reverse=True)
 
-    return scored[:4]
+    return scored[:3]
 
 
 def format_top4(top4: list[dict]) -> str:
