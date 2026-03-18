@@ -134,6 +134,7 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         current_desc += block
 
     current_embed.description = current_desc.strip()
+    current_embed.description += "\n\n*Klassischer oder informativer Wochenplan? [Stimm hier ab!](https://discord.com/channels/1197876498980421652/1197881790623395952/1483740867121647638)*"
     current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
     embeds.append(current_embed)
 
