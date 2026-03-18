@@ -1,185 +1,89 @@
 import discord
-from discord import app_commands
-from discord.ext import commands, tasks
-from config import get_guild_config, save_guild_config
-from logic.parser import parse_events, build_overviews
+from discord.ext import commands
+from dotenv import load_dotenv
+import os
+import asyncio
+
+load_dotenv()
+
+intents = discord.Intents.default()
+intents.message_content = True
+intents.messages = True
+
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-class Overview(commands.Cog):
-    def __init__(self, bot):
-        self.bot = bot
-        self.auto_tasks: dict[int, tasks.Loop] = {}
+@bot.event
+async def on_ready():
+    import pytesseract
+    try:
+        print("Tesseract version:", pytesseract.get_tesseract_version())
+    except Exception as e:
+        print("Tesseract nicht gefunden:", e)
 
-    async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel, force_ocr: bool = False):
-        messages = [msg async for msg in event_channel.history(limit=100)]
-        cfg = get_guild_config(guild_id)
+    await bot.tree.sync()
+    print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
+    print(f"Bot ist online als {bot.user}")
+    await restore_auto_tasks()
 
-        ocr_cache = cfg.get("ocr_cache", {})
-        events, ocr_cache = await parse_events(messages, ocr_cache, force_ocr)
-
-        cfg["ocr_cache"] = ocr_cache
-        embeds = build_overviews(events)
-
-        # debug
-        for embed in embeds:
-            print(f"Embed fields: {len(embed.fields)}")
-            for field in embed.fields:
-                print(f"  Field '{field.name}': {len(field.value)} Zeichen")
-
-        # alte nachrichten löschen
-        old_ids = cfg.get("last_overview_message_ids", [])
-        print(f"Lösche alte Nachrichten: {old_ids}")
-        for msg_id in old_ids:
+    # kurzfristiger fix - alte nachrichten löschen
+    channel = bot.get_channel(1260650800141701121)
+    if channel:
+        for msg_id in [1483815312217346098, 1483815309818204280, 1483815294320509111, 1483815285592166552]:
             try:
-                old_msg = await target_channel.fetch_message(msg_id)
-                await old_msg.delete()
+                msg = await channel.fetch_message(msg_id)
+                await msg.delete()
                 print(f"Gelöscht: {msg_id}")
             except discord.NotFound:
                 print(f"Nicht gefunden: {msg_id}")
-            except Exception as e:
-                print(f"Fehler beim Löschen {msg_id}: {e}")
 
-        # neue nachrichten posten
-        new_ids = []
-        for embed in embeds:
-            new_msg = await target_channel.send(embed=embed)
-            new_ids.append(new_msg.id)
 
-        cfg["last_overview_message_ids"] = new_ids
-        save_guild_config(guild_id, cfg)
+async def restore_auto_tasks():
+    from config import load_config
+    from discord.ext import tasks
 
-    def resolve_channels(self, guild_id: int, cfg: dict, event_channel=None, overview_channel=None):
-        resolved_event = event_channel or (
-            self.bot.get_channel(cfg["event_channel_id"]) if cfg.get("event_channel_id") else None
-        )
-        resolved_overview = overview_channel or (
-            self.bot.get_channel(cfg["overview_channel_id"]) if cfg.get("overview_channel_id") else None
-        )
-        return resolved_event, resolved_overview
+    cfg = load_config()
+    print(f"Config beim Start: {cfg}")
 
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        if not message.author.bot or not message.guild:
-            return
+    overview_cog = bot.cogs.get("Overview")
+    print(f"Overview Cog gefunden: {overview_cog}")
+    if not overview_cog:
+        return
 
-        cfg = get_guild_config(message.guild.id)
+    for guild_id_str, guild_cfg in cfg.items():
+        if not guild_cfg.get("auto_active"):
+            continue
 
-        if not cfg.get("on_new_event", False):
-            return
-        if message.guild.id not in self.auto_tasks:
-            return
-        if message.channel.id != cfg.get("event_channel_id"):
-            return
+        guild_id = int(guild_id_str)
+        event_channel = bot.get_channel(guild_cfg.get("event_channel_id"))
+        overview_channel = bot.get_channel(guild_cfg.get("overview_channel_id"))
+        frequenz = guild_cfg.get("auto_interval_hours", 2)
 
-        overview_id = cfg.get("overview_channel_id")
-        overview_channel = self.bot.get_channel(overview_id) if overview_id else None
-        if overview_channel:
-            await self.fetch_and_post(message.guild.id, message.channel, overview_channel)
-
-            # timer neu starten
-            if message.guild.id in self.auto_tasks and self.auto_tasks[message.guild.id].is_running():
-                self.auto_tasks[message.guild.id].restart()
-
-    @app_commands.command(name="overview_events", description="Erstellt eine Übersicht der Events")
-    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None, force_ocr: bool = True):
-        cfg = get_guild_config(interaction.guild_id)
-
-        if channel is None:
-            overview_id = cfg.get("overview_channel_id")
-            channel = self.bot.get_channel(overview_id) if overview_id else interaction.channel
-
-        event_channel_id = cfg.get("event_channel_id")
-        event_channel = self.bot.get_channel(event_channel_id) if event_channel_id else None
-
-        if not event_channel:
-            await interaction.response.send_message(
-                "Kein Event-Channel gesetzt. Bitte erst `/set_event_channel` nutzen.", ephemeral=True
-            )
-            return
-
-        await interaction.response.send_message(f"Erstelle Übersicht in {channel.mention}...", ephemeral=True)
-        await self.fetch_and_post(interaction.guild_id, event_channel, channel, force_ocr)
-
-    @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
-    @app_commands.choices(frequenz=[
-        app_commands.Choice(name="3 Sekunden (Test)", value=0),
-        app_commands.Choice(name="1 Stunde",          value=1),
-        app_commands.Choice(name="2 Stunden",         value=2),
-        app_commands.Choice(name="4 Stunden",         value=4),
-        app_commands.Choice(name="8 Stunden",         value=8),
-        app_commands.Choice(name="12 Stunden",        value=12),
-        app_commands.Choice(name="24 Stunden",        value=24),
-    ])
-    async def automate_overview(
-        self,
-        interaction: discord.Interaction,
-        frequenz: int,
-        event_channel: discord.TextChannel = None,
-        overview_channel: discord.TextChannel = None,
-        on_new_event: bool = True
-    ):
-        guild_id = interaction.guild_id
-        cfg = get_guild_config(guild_id)
-        resolved_event, resolved_overview = self.resolve_channels(guild_id, cfg, event_channel, overview_channel)
-
-        missing = []
-        if not resolved_event:
-            missing.append("`event_channel` (oder `/set_event_channel` nutzen)")
-        if not resolved_overview:
-            missing.append("`overview_channel` (oder `/set_overview_channel` nutzen)")
-
-        if missing:
-            await interaction.response.send_message(
-                "Folgende Channel fehlen noch:\n" + "\n".join(f"- {m}" for m in missing),
-                ephemeral=True
-            )
-            return
-
-        if guild_id in self.auto_tasks and self.auto_tasks[guild_id].is_running():
-            self.auto_tasks[guild_id].stop()
+        if not event_channel or not overview_channel:
+            print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
+            continue
 
         if frequenz == 0:
             @tasks.loop(seconds=3)
             async def auto_job():
-                await self.fetch_and_post(guild_id, resolved_event, resolved_overview)
+                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
             label = "3 Sekunden (Test)"
         else:
             @tasks.loop(hours=frequenz)
             async def auto_job():
-                await self.fetch_and_post(guild_id, resolved_event, resolved_overview)
+                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
             label = f"{frequenz} Stunden"
 
-        self.auto_tasks[guild_id] = auto_job
-        self.auto_tasks[guild_id].start()
-
-        cfg["auto_interval_hours"] = frequenz
-        cfg["on_new_event"] = on_new_event
-        cfg["auto_active"] = True
-        save_guild_config(guild_id, cfg)
-
-        on_new_event_label = "aktiv" if on_new_event else "inaktiv"
-        await interaction.response.send_message(
-            f"Automatische Übersicht alle {label}.\n"
-            f"Events aus: {resolved_event.mention} -> Übersicht in: {resolved_overview.mention}\n"
-            f"Aktualisierung bei neuem Event: {on_new_event_label}",
-            ephemeral=True
-        )
-
-    @app_commands.command(name="stop_automate", description="Stoppt alle laufenden automatischen Übersichten")
-    async def stop_automate(self, interaction: discord.Interaction):
-        guild_id = interaction.guild_id
-        if guild_id in self.auto_tasks and self.auto_tasks[guild_id].is_running():
-            self.auto_tasks[guild_id].stop()
-            del self.auto_tasks[guild_id]
-
-            cfg = get_guild_config(guild_id)
-            cfg["auto_active"] = False
-            save_guild_config(guild_id, cfg)
-
-            await interaction.response.send_message("Automatische Übersicht gestoppt.", ephemeral=True)
-        else:
-            await interaction.response.send_message("Es läuft gerade keine automatische Übersicht.", ephemeral=True)
+        overview_cog.auto_tasks[guild_id] = auto_job
+        overview_cog.auto_tasks[guild_id].start()
+        print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
 
 
-async def setup(bot):
-    await bot.add_cog(Overview(bot))
+async def main():
+    async with bot:
+        await bot.load_extension("commands.settings")
+        await bot.load_extension("commands.overview")
+        await bot.start(os.getenv("DISCORD_TOKEN"))
+
+
+asyncio.run(main())

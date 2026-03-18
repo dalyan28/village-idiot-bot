@@ -28,7 +28,7 @@ async def on_ready():
     
     channel = bot.get_channel(1260650800141701121)
     if channel:
-        for msg_id in [1483815312217346098, 1483815309818204280, 1483815294320509111, 1483815285592166552]:
+        for msg_id in [1483818993679863868, 1483819002500349992, 1483819017591460031, 1483819020003311626]:
             try:
                 msg = await channel.fetch_message(msg_id)
                 await msg.delete()
