@@ -1,77 +1,142 @@
+import re
 import discord
-from discord.ext import commands
-from dotenv import load_dotenv
-import os
-import asyncio
-
-load_dotenv()
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.messages = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
+from datetime import datetime, timezone
+from logic.ocr import analyse_attachment, get_top4, format_top4, load_characters
 
 
-@bot.event
-async def on_ready():
-    import pytesseract
-    try:
-        print("Tesseract version:", pytesseract.get_tesseract_version())
-    except Exception as e:
-        print("Tesseract nicht gefunden:", e)
+TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
+          "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
-    await bot.tree.sync()
-    print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
-    print(f"Bot ist online als {bot.user}")
-
-    await restore_auto_tasks()
+DESCRIPTION_CHAR_LIMIT = 4096
+EMBED_CHAR_LIMIT = 5500
 
 
-async def restore_auto_tasks():
-    from config import load_config
-    from discord.ext import tasks
+def new_embed() -> discord.Embed:
+    return discord.Embed(title="Kommende Events", color=0x5865F2)
 
-    overview_cog = bot.cogs.get("Overview")
-    if not overview_cog:
-        return
 
-    cfg = load_config()
+async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_ocr: bool = False) -> tuple[list[dict], dict]:
+    events = []
+    characters = load_characters()
 
-    for guild_id_str, guild_cfg in cfg.items():
-        if not guild_cfg.get("auto_active"):
+    aktuelle_ids = {str(msg.id) for msg in messages}
+    ocr_cache = {k: v for k, v in ocr_cache.items() if k in aktuelle_ids}
+
+    for msg in messages:
+        if not msg.author.bot or not msg.embeds:
             continue
 
-        guild_id = int(guild_id_str)
-        event_channel = bot.get_channel(guild_cfg.get("event_channel_id"))
-        overview_channel = bot.get_channel(guild_cfg.get("overview_channel_id"))
-        frequenz = guild_cfg.get("auto_interval_hours", 2)
-
-        if not event_channel or not overview_channel:
-            print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
+        embed = msg.embeds[0]
+        if not embed.title or not embed.fields:
             continue
 
-        if frequenz == 0:
-            @tasks.loop(seconds=3)
-            async def auto_job():
-                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            label = "3 Sekunden (Test)"
+        time_field = next((f for f in embed.fields if f.name in ("Time", "Termin")), None)
+        if not time_field:
+            continue
+
+        timestamps = re.findall(r"<t:(\d+):[FtTdDfR]>", time_field.value)
+        if not timestamps:
+            continue
+
+        start_ts = int(timestamps[0])
+
+        accepted = 0
+        max_players = "?"
+        for field in embed.fields:
+            match = re.search(r"(?:Accepted|Akzeptiert) \((\d+)/(\d+)\)", field.name)
+            if match:
+                accepted = int(match.group(1))
+                max_players = match.group(2)
+                break
+
+        top4_str = ""
+        msg_id = str(msg.id)
+        image_url = None
+
+        attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
+
+        if attachments:
+            image_url = attachments[0].url
+        elif embed.image and embed.image.url:
+            image_url = embed.image.url
+
+        if image_url:
+            if not force_ocr and msg_id in ocr_cache:
+                top4_str = ocr_cache[msg_id]
+            else:
+                found = await analyse_attachment(image_url, characters)
+                top4 = get_top4(found, characters)
+                top4_str = format_top4(top4)
+                ocr_cache[msg_id] = top4_str
+
+        events.append({
+            "title": embed.title,
+            "start_ts": start_ts,
+            "accepted": accepted,
+            "max_players": max_players,
+            "url": msg.jump_url,
+            "top4": top4_str,
+            "image_url": image_url,
+        })
+
+    events.sort(key=lambda e: e["start_ts"])
+    return events, ocr_cache
+
+
+def build_overviews(events: list[dict]) -> list[discord.Embed]:
+    if not events:
+        embed = new_embed()
+        embed.description = "Keine Events gefunden."
+        embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+        return [embed]
+
+    embeds = []
+    current_embed = new_embed()
+    current_desc = ""
+    current_day = None
+
+    for e in events:
+        dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
+        day_key = dt.strftime("%Y-%m-%d")
+
+        title = e["title"]
+        if len(title) > 40:
+            title = title[:38] + ".."
+
+        # tages-header
+        if day_key != current_day:
+            current_day = day_key
+            day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
+            block = day_label
         else:
-            @tasks.loop(hours=frequenz)
-            async def auto_job():
-                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            label = f"{frequenz} Stunden"
+            block = ""
 
-        overview_cog.auto_tasks[guild_id] = auto_job
-        overview_cog.auto_tasks[guild_id].start()
-        print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
+        block += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
 
+        if e["top4"] and e.get("image_url"):
+            block += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
+        elif e["top4"]:
+            block += f"\n> {e['top4']}"
 
-async def main():
-    async with bot:
-        await bot.load_extension("commands.settings")
-        await bot.load_extension("commands.overview")
-        await bot.start(os.getenv("DISCORD_TOKEN"))
+        block += "\n"
 
+        # neuer embed wenn description zu lang wird
+        if len(current_desc) + len(block) > DESCRIPTION_CHAR_LIMIT:
+            current_embed.description = current_desc.strip()
+            current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+            embeds.append(current_embed)
+            current_embed = new_embed()
+            current_desc = ""
+            current_day = None
+            # tag-header nochmal hinzufügen da neuer embed
+            day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
+            block = day_label + block.lstrip("\n")
 
-asyncio.run(main())
+        current_desc += block
+
+    current_embed.description = current_desc.strip()
+    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+    embeds.append(current_embed)
+
+    return embeds

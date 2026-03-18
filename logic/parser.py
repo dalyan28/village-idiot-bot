@@ -8,15 +8,8 @@ TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "S
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
+DESCRIPTION_CHAR_LIMIT = 4096
 EMBED_CHAR_LIMIT = 5500
-FIELD_CHAR_LIMIT = 1024
-
-
-def embed_char_count(embed: discord.Embed) -> int:
-    count = len(embed.title or "")
-    for field in embed.fields:
-        count += len(field.name) + len(field.value)
-    return count
 
 
 def new_embed() -> discord.Embed:
@@ -100,28 +93,8 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
 
     embeds = []
     current_embed = new_embed()
+    current_desc = ""
     current_day = None
-    day_label = ""
-    # field_chunks = liste von (label, text) für aktuellen tag
-    field_chunks = []
-    current_chunk = ""
-    current_label = ""
-
-    def flush_chunks():
-        nonlocal field_chunks, current_chunk, current_label, current_embed, embeds
-        if current_chunk:
-            field_chunks.append((current_label, current_chunk.rstrip()))
-            current_chunk = ""
-
-        for label, text in field_chunks:
-            projected = embed_char_count(current_embed) + len(label) + len(text)
-            if projected > EMBED_CHAR_LIMIT and current_embed.fields:
-                current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-                embeds.append(current_embed)
-                current_embed = new_embed()
-            current_embed.add_field(name=label, value=text, inline=False)
-
-        field_chunks = []
 
     for e in events:
         dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
@@ -131,30 +104,38 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         if len(title) > 40:
             title = title[:38] + ".."
 
-        line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
-        if e["top4"] and e.get("image_url"):
-            line += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
-        elif e["top4"]:
-            line += f"\n> {e['top4']}"
-        line += "\n"
-
+        # tages-header
         if day_key != current_day:
-            # vorherigen tag abschliessen
-            flush_chunks()
             current_day = day_key
-            current_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
-            current_chunk = line
+            day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
+            block = day_label
         else:
-            # prüfen ob event noch ins aktuelle chunk passt
-            if len(current_chunk) + len(line) > FIELD_CHAR_LIMIT:
-                # aktuelles chunk abschliessen, neues starten
-                field_chunks.append((current_label, current_chunk.rstrip()))
-                current_label = "\u200b"
-                current_chunk = line
-            else:
-                current_chunk += line
+            block = ""
 
-    flush_chunks()
+        block += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
+
+        if e["top4"] and e.get("image_url"):
+            block += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
+        elif e["top4"]:
+            block += f"\n> {e['top4']}"
+
+        block += "\n"
+
+        # neuer embed wenn description zu lang wird
+        if len(current_desc) + len(block) > DESCRIPTION_CHAR_LIMIT:
+            current_embed.description = current_desc.strip()
+            current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+            embeds.append(current_embed)
+            current_embed = new_embed()
+            current_desc = ""
+            current_day = None
+            # tag-header nochmal hinzufügen da neuer embed
+            day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
+            block = day_label + block.lstrip("\n")
+
+        current_desc += block
+
+    current_embed.description = current_desc.strip()
     current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
     embeds.append(current_embed)
 
