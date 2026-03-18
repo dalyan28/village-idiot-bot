@@ -24,32 +24,20 @@ async def on_ready():
     await bot.tree.sync()
     print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
     print(f"Bot ist online als {bot.user}")
-
     await restore_auto_tasks()
 
-# @bot.event
-# async def on_message(message):
-#     if message.author.bot and message.embeds:
-#         for embed in message.embeds:
-#             print(f"=== EMBED von {message.author.name} ===")
-#             print(f"Title: {embed.title}")
-#             print(f"Description: {embed.description}")
-#             for field in embed.fields:
-#                 print(f"FIELD name: '{field.name}' | value: '{field.value[:100]}'")
-#             print("---")
 
 async def restore_auto_tasks():
     from config import load_config
     from discord.ext import tasks
-    
-    cfg = load_config()
-    print(f"Config beim Start: {cfg}")
-    
-    overview_cog = bot.cogs.get("Overview")
-    if not overview_cog:
-        return
 
     cfg = load_config()
+    print(f"Config beim Start: {cfg}")
+
+    overview_cog = bot.cogs.get("Overview")
+    print(f"Overview Cog gefunden: {overview_cog}")
+    if not overview_cog:
+        return
 
     for guild_id_str, guild_cfg in cfg.items():
         if not guild_cfg.get("auto_active"):
@@ -78,6 +66,9 @@ async def restore_auto_tasks():
         overview_cog.auto_tasks[guild_id] = auto_job
         overview_cog.auto_tasks[guild_id].start()
         print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
+
+        # einmal direkt aktualisieren mit frischem OCR
+        await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel, force_ocr=True)
 
 
 async def main():
