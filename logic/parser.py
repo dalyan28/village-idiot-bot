@@ -131,11 +131,11 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
             elif e["top4"]:
                 line += f"\n> {e['top4']}"
 
-            # zeilenumbruch nach skript-zeile, ausser letztes event des tages
-            has_skript = e["top4"] or e.get("image_url")
-            is_last = i == len(day_events) - 1
-            if has_skript and not is_last:
-                line += "\n"
+            # # zeilenumbruch nach skript-zeile, ausser letztes event des tages
+            # has_skript = e["top4"] or e.get("image_url")
+            # is_last = i == len(day_events) - 1
+            # if has_skript and not is_last:
+            #     line += "\n"
 
             chunks.append(line)
 
