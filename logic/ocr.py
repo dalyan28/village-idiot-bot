@@ -63,4 +63,14 @@ def format_top3(top3: list[dict]) -> str:
     parts = []
     for c in top3:
         if c["score"] == 10:
-            parts
+            parts.append(f"🔹**{c['name']}**")
+        elif c["score"] == 9:
+            parts.append(f"**{c['name']}**")
+        else:
+            parts.append(f"*{c['name']}*")
+    return " · ".join(parts)
+
+
+async def analyse_attachment(url: str, characters: dict) -> list[str]:
+    image = await download_image(url)
+    return extract_characters(image, characters)
