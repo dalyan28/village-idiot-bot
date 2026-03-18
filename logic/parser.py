@@ -113,7 +113,7 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         block += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
 
         if e["top4"] and e.get("image_url"):
-            block += f"\n>  　　↳ [🔗 Skript]({e['image_url']}) · {e['top4']}"
+            block += f"\n>  　　↳ [Skript]({e['image_url']}) · {e['top4']}"
         elif e["top4"]:
             block += f"\n>  　　↳ {e['top4']}"
 
