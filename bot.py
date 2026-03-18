@@ -1,77 +1,161 @@
+import re
 import discord
-from discord.ext import commands
-from dotenv import load_dotenv
-import os
-import asyncio
-
-load_dotenv()
-
-intents = discord.Intents.default()
-intents.message_content = True
-intents.messages = True
-
-bot = commands.Bot(command_prefix="!", intents=intents)
+from datetime import datetime, timezone
+from logic.ocr import analyse_attachment, get_top4, format_top4, load_characters
 
 
-@bot.event
-async def on_ready():
-    import pytesseract
-    try:
-        print("Tesseract version:", pytesseract.get_tesseract_version())
-    except Exception as e:
-        print("Tesseract nicht gefunden:", e)
+TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
+          "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
-    await bot.tree.sync()
-    print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
-    print(f"Bot ist online als {bot.user}")
-
-    await restore_auto_tasks()
+EMBED_CHAR_LIMIT = 5500
+FIELD_CHAR_LIMIT = 1024
 
 
-async def restore_auto_tasks():
-    from config import load_config
-    from discord.ext import tasks
+def embed_char_count(embed: discord.Embed) -> int:
+    count = len(embed.title or "")
+    for field in embed.fields:
+        count += len(field.name) + len(field.value)
+    return count
 
-    overview_cog = bot.cogs.get("Overview")
-    if not overview_cog:
-        return
 
-    cfg = load_config()
+def new_embed() -> discord.Embed:
+    return discord.Embed(title="Kommende Events", color=0x5865F2)
 
-    for guild_id_str, guild_cfg in cfg.items():
-        if not guild_cfg.get("auto_active"):
+
+async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_ocr: bool = False) -> tuple[list[dict], dict]:
+    events = []
+    characters = load_characters()
+
+    aktuelle_ids = {str(msg.id) for msg in messages}
+    ocr_cache = {k: v for k, v in ocr_cache.items() if k in aktuelle_ids}
+
+    for msg in messages:
+        if not msg.author.bot or not msg.embeds:
             continue
 
-        guild_id = int(guild_id_str)
-        event_channel = bot.get_channel(guild_cfg.get("event_channel_id"))
-        overview_channel = bot.get_channel(guild_cfg.get("overview_channel_id"))
-        frequenz = guild_cfg.get("auto_interval_hours", 2)
-
-        if not event_channel or not overview_channel:
-            print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
+        embed = msg.embeds[0]
+        if not embed.title or not embed.fields:
             continue
 
-        if frequenz == 0:
-            @tasks.loop(seconds=3)
-            async def auto_job():
-                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            label = "3 Sekunden (Test)"
+        time_field = next((f for f in embed.fields if f.name in ("Time", "Termin")), None)
+        if not time_field:
+            continue
+
+        timestamps = re.findall(r"<t:(\d+):[FtTdDfR]>", time_field.value)
+        if not timestamps:
+            continue
+
+        start_ts = int(timestamps[0])
+
+        accepted = 0
+        max_players = "?"
+        for field in embed.fields:
+            match = re.search(r"(?:Accepted|Akzeptiert) \((\d+)/(\d+)\)", field.name)
+            if match:
+                accepted = int(match.group(1))
+                max_players = match.group(2)
+                break
+
+        top4_str = ""
+        msg_id = str(msg.id)
+        image_url = None
+
+        attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
+
+        if attachments:
+            image_url = attachments[0].url
+        elif embed.image and embed.image.url:
+            image_url = embed.image.url
+
+        if image_url:
+            if not force_ocr and msg_id in ocr_cache:
+                top4_str = ocr_cache[msg_id]
+            else:
+                found = await analyse_attachment(image_url, characters)
+                top4 = get_top4(found, characters)
+                top4_str = format_top4(top4)
+                ocr_cache[msg_id] = top4_str
+
+        events.append({
+            "title": embed.title,
+            "start_ts": start_ts,
+            "accepted": accepted,
+            "max_players": max_players,
+            "url": msg.jump_url,
+            "top4": top4_str,
+            "image_url": image_url,
+        })
+
+    events.sort(key=lambda e: e["start_ts"])
+    return events, ocr_cache
+
+
+def build_overviews(events: list[dict]) -> list[discord.Embed]:
+    if not events:
+        embed = new_embed()
+        embed.description = "Keine Events gefunden."
+        embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+        return [embed]
+
+    embeds = []
+    current_embed = new_embed()
+    current_day = None
+    day_label = ""
+    # field_chunks = liste von (label, text) für aktuellen tag
+    field_chunks = []
+    current_chunk = ""
+    current_label = ""
+
+    def flush_chunks():
+        nonlocal field_chunks, current_chunk, current_label, current_embed, embeds
+        if current_chunk:
+            field_chunks.append((current_label, current_chunk.rstrip()))
+            current_chunk = ""
+
+        for label, text in field_chunks:
+            projected = embed_char_count(current_embed) + len(label) + len(text)
+            if projected > EMBED_CHAR_LIMIT and current_embed.fields:
+                current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                embeds.append(current_embed)
+                current_embed = new_embed()
+            current_embed.add_field(name=label, value=text, inline=False)
+
+        field_chunks = []
+
+    for e in events:
+        dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
+        day_key = dt.strftime("%Y-%m-%d")
+
+        title = e["title"]
+        if len(title) > 40:
+            title = title[:38] + ".."
+
+        line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
+        if e["top4"] and e.get("image_url"):
+            line += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
+        elif e["top4"]:
+            line += f"\n> {e['top4']}"
+        line += "\n"
+
+        if day_key != current_day:
+            # vorherigen tag abschliessen
+            flush_chunks()
+            current_day = day_key
+            current_label = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
+            current_chunk = line
         else:
-            @tasks.loop(hours=frequenz)
-            async def auto_job():
-                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            label = f"{frequenz} Stunden"
+            # prüfen ob event noch ins aktuelle chunk passt
+            if len(current_chunk) + len(line) > FIELD_CHAR_LIMIT:
+                # aktuelles chunk abschliessen, neues starten
+                field_chunks.append((current_label, current_chunk.rstrip()))
+                current_label = "\u200b"
+                current_chunk = line
+            else:
+                current_chunk += line
 
-        overview_cog.auto_tasks[guild_id] = auto_job
-        overview_cog.auto_tasks[guild_id].start()
-        print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
+    flush_chunks()
+    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+    embeds.append(current_embed)
 
-
-async def main():
-    async with bot:
-        await bot.load_extension("commands.settings")
-        await bot.load_extension("commands.overview")
-        await bot.start(os.getenv("DISCORD_TOKEN"))
-
-
-asyncio.run(main())
+    return embeds
