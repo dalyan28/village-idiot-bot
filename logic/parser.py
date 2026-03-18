@@ -8,7 +8,15 @@ TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "S
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
-DESCRIPTION_CHAR_LIMIT = 4096
+FIELD_CHAR_LIMIT = 1024
+EMBED_CHAR_LIMIT = 5500
+
+
+def embed_char_count(embed: discord.Embed) -> int:
+    count = len(embed.title or "")
+    for field in embed.fields:
+        count += len(field.name) + len(field.value)
+    return count
 
 
 def new_embed() -> discord.Embed:
@@ -90,57 +98,74 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
         return [embed]
 
-    embeds = []
-    current_embed = new_embed()
-    current_desc = ""
-    current_day = None
-
-    for i, e in enumerate(events):
+    # events nach tag gruppieren
+    days: dict[str, list] = {}
+    day_labels: dict[str, str] = {}
+    for e in events:
         dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
         day_key = dt.strftime("%Y-%m-%d")
+        if day_key not in days:
+            days[day_key] = []
+            day_labels[day_key] = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
+        days[day_key].append(e)
 
-        title = e["title"]
-        if len(title) > 40:
-            title = title[:38] + ".."
+    embeds = []
+    current_embed = new_embed()
 
-        if day_key != current_day:
-            current_day = day_key
-            day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
-            block = day_label
-        else:
-            block = ""
+    for day_key in sorted(days.keys()):
+        day_events = days[day_key]
+        label = day_labels[day_key]
 
-        block += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
+        # field-value für diesen tag aufbauen
+        # events mit skript bekommen zeilenumbruch danach, ausser das letzte
+        chunks = []
+        for i, e in enumerate(day_events):
+            title = e["title"]
+            if len(title) > 40:
+                title = title[:38] + ".."
 
-        if e["top4"] and e.get("image_url"):
-            block += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
-        elif e["top4"]:
-            block += f"\n> {e['top4']}"
+            line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
 
-        block += "\n"
+            if e["top4"] and e.get("image_url"):
+                line += f"\n> [🔗 Skript]({e['image_url']}) · {e['top4']}"
+            elif e["top4"]:
+                line += f"\n> {e['top4']}"
 
-        # zeilenumbruch nach skript-zeile, ausser letztes event des tages
-        if e["top4"] or e.get("image_url"):
-            next_event = events[i + 1] if i + 1 < len(events) else None
-            if next_event:
-                next_dt = datetime.fromtimestamp(next_event["start_ts"], tz=timezone.utc)
-                if next_dt.strftime("%Y-%m-%d") == day_key:
-                    block += "\n"
+            # zeilenumbruch nach skript-zeile, ausser letztes event des tages
+            has_skript = e["top4"] or e.get("image_url")
+            is_last = i == len(day_events) - 1
+            if has_skript and not is_last:
+                line += "\n"
 
-        # neuer embed wenn description zu lang wird
-        if len(current_desc) + len(block) > DESCRIPTION_CHAR_LIMIT:
-            current_embed.description = current_desc.strip()
-            current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-            embeds.append(current_embed)
-            current_embed = new_embed()
-            current_desc = ""
-            current_day = None
-            day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
-            block = day_label + block.lstrip("\n")
+            chunks.append(line)
 
-        current_desc += block
+        # chunks zu fields zusammenfassen (max 1024 zeichen pro field)
+        field_text = ""
+        first_field = True
+        for chunk in chunks:
+            if len(field_text) + len(chunk) + 1 > FIELD_CHAR_LIMIT and field_text:
+                # prüfen ob neuer embed nötig
+                projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
+                if projected > EMBED_CHAR_LIMIT and current_embed.fields:
+                    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                    embeds.append(current_embed)
+                    current_embed = new_embed()
+                    first_field = True
+                current_embed.add_field(name=label if first_field else "\u200b", value=field_text, inline=False)
+                first_field = False
+                field_text = chunk + "\n"
+            else:
+                field_text += chunk + "\n"
 
-    current_embed.description = current_desc.strip()
+        if field_text.strip():
+            projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
+            if projected > EMBED_CHAR_LIMIT and current_embed.fields:
+                current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                embeds.append(current_embed)
+                current_embed = new_embed()
+                first_field = True
+            current_embed.add_field(name=label if first_field else "\u200b", value=field_text.rstrip(), inline=False)
+
     current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
     embeds.append(current_embed)
 
