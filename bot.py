@@ -41,7 +41,10 @@ async def on_ready():
 async def restore_auto_tasks():
     from config import load_config
     from discord.ext import tasks
-
+    
+    cfg = load_config()
+    print(f"Config beim Start: {cfg}")
+    
     overview_cog = bot.cogs.get("Overview")
     if not overview_cog:
         return
