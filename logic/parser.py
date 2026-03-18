@@ -9,7 +9,6 @@ MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
 DESCRIPTION_CHAR_LIMIT = 4096
-EMBED_CHAR_LIMIT = 5500
 
 
 def new_embed() -> discord.Embed:
@@ -96,7 +95,7 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
     current_desc = ""
     current_day = None
 
-    for e in events:
+    for i, e in enumerate(events):
         dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
         day_key = dt.strftime("%Y-%m-%d")
 
@@ -104,7 +103,6 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         if len(title) > 40:
             title = title[:38] + ".."
 
-        # tages-header
         if day_key != current_day:
             current_day = day_key
             day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
@@ -121,6 +119,14 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
 
         block += "\n"
 
+        # zeilenumbruch nach skript-zeile, ausser letztes event des tages
+        if e["top4"] or e.get("image_url"):
+            next_event = events[i + 1] if i + 1 < len(events) else None
+            if next_event:
+                next_dt = datetime.fromtimestamp(next_event["start_ts"], tz=timezone.utc)
+                if next_dt.strftime("%Y-%m-%d") == day_key:
+                    block += "\n"
+
         # neuer embed wenn description zu lang wird
         if len(current_desc) + len(block) > DESCRIPTION_CHAR_LIMIT:
             current_embed.description = current_desc.strip()
@@ -129,7 +135,6 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
             current_embed = new_embed()
             current_desc = ""
             current_day = None
-            # tag-header nochmal hinzufügen da neuer embed
             day_label = f"\n**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**\n"
             block = day_label + block.lstrip("\n")
 
