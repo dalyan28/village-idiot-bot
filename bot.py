@@ -15,28 +15,12 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    import pytesseract
-    try:
-        print("Tesseract version:", pytesseract.get_tesseract_version())
-    except Exception as e:
-        print("Tesseract nicht gefunden:", e)
-
     await bot.tree.sync()
     print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
     print(f"Bot ist online als {bot.user}")
-
+    await asyncio.sleep(3)
     await restore_auto_tasks()
 
-# @bot.event
-# async def on_message(message):
-#     if message.author.bot and message.embeds:
-#         for embed in message.embeds:
-#             print(f"=== EMBED von {message.author.name} ===")
-#             print(f"Title: {embed.title}")
-#             print(f"Description: {embed.description}")
-#             for field in embed.fields:
-#                 print(f"FIELD name: '{field.name}' | value: '{field.value[:100]}'")
-#             print("---")
 
 async def restore_auto_tasks():
     from config import load_config
