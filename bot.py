@@ -26,16 +26,16 @@ async def on_ready():
     print(f"Bot ist online als {bot.user}")
     await restore_auto_tasks()
 
-    # kurzfristiger fix - alte nachrichten löschen
-    channel = bot.get_channel(1260650800141701121)
-    if channel:
-        for msg_id in [1483819020003311626, 1483819017591460031, 1483819002500349992, 1483818993679863868]:
-            try:
-                msg = await channel.fetch_message(msg_id)
-                await msg.delete()
-                print(f"Gelöscht: {msg_id}")
-            except discord.NotFound:
-                print(f"Nicht gefunden: {msg_id}")
+    # # Nachrichten löschen
+    # channel = bot.get_channel(1260650800141701121)
+    # if channel:
+    #     for msg_id in [1483819020003311626, 1483819017591460031, 1483819002500349992, 1483818993679863868]:
+    #         try:
+    #             msg = await channel.fetch_message(msg_id)
+    #             await msg.delete()
+    #             print(f"Gelöscht: {msg_id}")
+    #         except discord.NotFound:
+    #             print(f"Nicht gefunden: {msg_id}")
 
 
 async def restore_auto_tasks():
