@@ -1,26 +1,29 @@
 import re
 import discord
 from datetime import datetime, timezone
-from logic.ocr import analyse_attachment, get_top4, format_top4, load_characters
 
 
 TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
-DESCRIPTION_CHAR_LIMIT = 4096
+FIELD_CHAR_LIMIT = 1024
+EMBED_CHAR_LIMIT = 5500
+
+
+def embed_char_count(embed: discord.Embed) -> int:
+    count = len(embed.title or "")
+    for field in embed.fields:
+        count += len(field.name) + len(field.value)
+    return count
 
 
 def new_embed() -> discord.Embed:
     return discord.Embed(title="Kommende Events", color=0x5865F2)
 
 
-async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_ocr: bool = False) -> tuple[list[dict], dict]:
+def parse_events(messages: list[discord.Message]) -> list[dict]:
     events = []
-    characters = load_characters()
-
-    aktuelle_ids = {str(msg.id) for msg in messages}
-    ocr_cache = {k: v for k, v in ocr_cache.items() if k in aktuelle_ids}
 
     for msg in messages:
         if not msg.author.bot or not msg.embeds:
@@ -49,38 +52,16 @@ async def parse_events(messages: list[discord.Message], ocr_cache: dict, force_o
                 max_players = match.group(2)
                 break
 
-        top4_str = ""
-        msg_id = str(msg.id)
-        image_url = None
-
-        attachments = [a for a in msg.attachments if a.content_type and "image" in a.content_type]
-
-        if attachments:
-            image_url = attachments[0].url
-        elif embed.image and embed.image.url:
-            image_url = embed.image.url
-
-        if image_url:
-            if not force_ocr and msg_id in ocr_cache:
-                top4_str = ocr_cache[msg_id]
-            else:
-                found = await analyse_attachment(image_url, characters)
-                top4 = get_top4(found, characters)
-                top4_str = format_top4(top4)
-                ocr_cache[msg_id] = top4_str
-
         events.append({
             "title": embed.title,
             "start_ts": start_ts,
             "accepted": accepted,
             "max_players": max_players,
             "url": msg.jump_url,
-            "top4": top4_str,
-            "image_url": image_url,
         })
 
     events.sort(key=lambda e: e["start_ts"])
-    return events, ocr_cache
+    return events
 
 
 def build_overviews(events: list[dict]) -> list[discord.Embed]:
@@ -90,50 +71,61 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
         return [embed]
 
-    embeds = []
-    current_embed = new_embed()
-    current_desc = ""
-    current_day = None
-
-    for i, e in enumerate(events):
+    # events nach tag gruppieren
+    days: dict[str, list] = {}
+    day_labels: dict[str, str] = {}
+    for e in events:
         dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
         day_key = dt.strftime("%Y-%m-%d")
+        if day_key not in days:
+            days[day_key] = []
+            day_labels[day_key] = f"{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}"
+        days[day_key].append(e)
 
-        title = e["title"]
-        if len(title) > 40:
-            title = title[:38] + ".."
+    embeds = []
+    current_embed = new_embed()
 
-        block = ""
+    for day_key in sorted(days.keys()):
+        day_events = days[day_key]
+        label = day_labels[day_key]
 
-        if day_key != current_day:
-            current_day = day_key
-            day_label = f"**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**"
-            block += f"{day_label}\n"
+        # alle events des tages als einen textblock zusammenbauen
+        chunks = []
+        for e in day_events:
+            title = e["title"]
+            if len(title) > 40:
+                title = title[:38] + ".."
+            line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
+            chunks.append(line)
 
-        block += f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>"
+        # chunks zu fields zusammenfassen, dabei event-blöcke nicht trennen
+        field_text = ""
+        first_field = True
 
-        if e["top4"] and e.get("image_url"):
-            block += f"\n>  　　↳ [Skript]({e['image_url']}) · {e['top4']}"
-        elif e["top4"]:
-            block += f"\n>  　　↳ {e['top4']}"
+        for chunk in chunks:
+            if len(field_text) + len(chunk) > FIELD_CHAR_LIMIT and field_text:
+                # prüfen ob neuer embed nötig
+                projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
+                if projected > EMBED_CHAR_LIMIT and current_embed.fields:
+                    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                    embeds.append(current_embed)
+                    current_embed = new_embed()
+                    first_field = True
+                current_embed.add_field(name=label if first_field else "\u200b", value=field_text.rstrip(), inline=False)
+                first_field = False
+                field_text = chunk
+            else:
+                field_text += chunk
 
-        block += "\n"
+        if field_text.strip():
+            projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
+            if projected > EMBED_CHAR_LIMIT and current_embed.fields:
+                current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                embeds.append(current_embed)
+                current_embed = new_embed()
+                first_field = True
+            current_embed.add_field(name=label if first_field else "\u200b", value=field_text.rstrip(), inline=False)
 
-        # neuer embed wenn description zu lang wird
-        if len(current_desc) + len(block) > DESCRIPTION_CHAR_LIMIT:
-            current_embed.description = current_desc.strip()
-            current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
-            embeds.append(current_embed)
-            current_embed = new_embed()
-            current_desc = ""
-            current_day = None
-            # tag-header nochmal da neuer embed
-            day_label = f"**{TAGE[dt.weekday()]} · {MONATE[dt.month - 1]} {dt.day}**"
-            block = f"{day_label}\n" + block.lstrip(day_label).lstrip("\n")
-
-        current_desc += block
-
-    current_embed.description = current_desc.strip()
     current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
     embeds.append(current_embed)
 

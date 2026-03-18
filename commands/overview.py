@@ -10,14 +10,11 @@ class Overview(commands.Cog):
         self.bot = bot
         self.auto_tasks: dict[int, tasks.Loop] = {}
 
-    async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel, force_ocr: bool = False):
+    async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
         messages = [msg async for msg in event_channel.history(limit=100)]
         cfg = get_guild_config(guild_id)
 
-        ocr_cache = cfg.get("ocr_cache", {})
-        events, ocr_cache = await parse_events(messages, ocr_cache, force_ocr)
-
-        cfg["ocr_cache"] = ocr_cache
+        events = parse_events(messages)
         embeds = build_overviews(events)
 
         # debug
@@ -77,7 +74,7 @@ class Overview(commands.Cog):
                 self.auto_tasks[message.guild.id].restart()
 
     @app_commands.command(name="overview_events", description="Erstellt eine Übersicht der Events")
-    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None, force_ocr: bool = True):
+    async def overview_events(self, interaction: discord.Interaction, channel: discord.TextChannel = None):
         cfg = get_guild_config(interaction.guild_id)
 
         if channel is None:
@@ -94,7 +91,7 @@ class Overview(commands.Cog):
             return
 
         await interaction.response.send_message(f"Erstelle Übersicht in {channel.mention}...", ephemeral=True)
-        await self.fetch_and_post(interaction.guild_id, event_channel, channel, force_ocr)
+        await self.fetch_and_post(interaction.guild_id, event_channel, channel)
 
     @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
     @app_commands.choices(frequenz=[
