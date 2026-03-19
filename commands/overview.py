@@ -110,6 +110,19 @@ class Overview(commands.Cog):
         raw = cfg.get("smart_schedule", DEFAULT_SMART_SCHEDULE)
         return {(entry[0], entry[1]) for entry in raw}
 
+    @staticmethod
+    def _compute_next_time(all_times: list[tuple[int, int]], now: datetime) -> datetime:
+        """Berechnet den nächsten geplanten Zeitpunkt nach 'now' (Berlin-Zeit)."""
+        for h, m in all_times:
+            candidate = now.replace(hour=h, minute=m, second=0, microsecond=0)
+            if candidate > now:
+                return candidate
+        # Alle Zeiten heute bereits verstrichen → morgen erster Termin
+        first_h, first_m = all_times[0] if all_times else (5, 0)
+        return (now + timedelta(days=1)).replace(
+            hour=first_h, minute=first_m, second=0, microsecond=0
+        )
+
     async def _run_smart_scheduler(self, guild_id: int, event_channel: discord.TextChannel, overview_channel: discord.TextChannel):
         try:
             while True:
@@ -117,19 +130,7 @@ class Overview(commands.Cog):
                 fixed = self._get_guild_schedule(guild_id)
                 dynamic = self.smart_dynamic_times.get(guild_id, set())
                 all_times = sorted(fixed | dynamic)
-
-                next_run = None
-                for h, m in all_times:
-                    candidate = now.replace(hour=h, minute=m, second=0, microsecond=0)
-                    if candidate > now:
-                        next_run = candidate
-                        break
-
-                if next_run is None:
-                    first_h, first_m = all_times[0] if all_times else (5, 0)
-                    next_run = (now + timedelta(days=1)).replace(
-                        hour=first_h, minute=first_m, second=0, microsecond=0
-                    )
+                next_run = self._compute_next_time(all_times, now)
 
                 sleep_seconds = (next_run - now).total_seconds()
                 print(f"[Smart] Guild {guild_id}: nächstes Update {next_run.strftime('%H:%M')} ({sleep_seconds:.0f}s)")
