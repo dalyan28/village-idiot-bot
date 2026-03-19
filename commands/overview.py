@@ -43,7 +43,7 @@ class Overview(commands.Cog):
 
         # Zuletzt-aktualisiert-Field ans letzte Embed anhängen
         now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-        embeds[-1].add_field(name="", value=f"-# Zuletzt aktualisiert <t:{now_ts}:R>", inline=False)
+        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*", inline=False)
 
         # debug
         for embed in embeds:
