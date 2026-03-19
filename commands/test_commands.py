@@ -108,6 +108,50 @@ class TestCommands(commands.Cog):
         )
 
     @app_commands.command(
+        name="clear_past_events",
+        description="[DEV] Löscht alle Events aus dem Event-Channel, deren Startzeit in der Vergangenheit liegt"
+    )
+    async def clear_past_events(self, interaction: discord.Interaction):
+        cfg = get_guild_config(interaction.guild_id)
+        event_channel_id = cfg.get("event_channel_id")
+        event_channel = self.bot.get_channel(event_channel_id) if event_channel_id else None
+
+        if not event_channel:
+            await interaction.response.send_message(
+                "Kein Event-Channel gesetzt.", ephemeral=True
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        import re
+        now_ts = time_module.time()
+        deleted = 0
+
+        async for msg in event_channel.history(limit=200):
+            if not msg.author.bot or not msg.embeds:
+                continue
+            embed = msg.embeds[0]
+            if not embed.title or not embed.fields:
+                continue
+            time_field = next((f for f in embed.fields if f.name in ("Time", "Termin")), None)
+            if not time_field:
+                continue
+            timestamps = re.findall(r"<t:(\d+):[FtTdDfR]>", time_field.value)
+            if not timestamps:
+                continue
+            if int(timestamps[0]) < now_ts:
+                try:
+                    await msg.delete()
+                    deleted += 1
+                except discord.NotFound:
+                    pass
+
+        await interaction.followup.send(
+            f"{deleted} vergangene(s) Event(s) gelöscht.", ephemeral=True
+        )
+
+    @app_commands.command(
         name="smart_status",
         description="[DEV] Zeigt den internen Smart-Mode-Zustand"
     )
