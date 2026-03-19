@@ -23,8 +23,17 @@ class Overview(commands.Cog):
         self.auto_tasks: dict[int, tasks.Loop | asyncio.Task] = {}
         self.smart_dynamic_times: dict[int, set[tuple[int, int]]] = {}
         self.last_smart_run: dict[int, datetime] = {}
+        self._fetch_locks: dict[int, asyncio.Lock] = {}
 
     async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
+        lock = self._fetch_locks.setdefault(guild_id, asyncio.Lock())
+        if lock.locked():
+            print(f"[fetch_and_post] Guild {guild_id}: Update bereits aktiv, überspringe")
+            return
+        async with lock:
+            await self._fetch_and_post_locked(guild_id, event_channel, target_channel)
+
+    async def _fetch_and_post_locked(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
         messages = [msg async for msg in event_channel.history(limit=100)]
         cfg = get_guild_config(guild_id)
 
@@ -163,6 +172,15 @@ class Overview(commands.Cog):
         if message.channel.id != cfg.get("event_channel_id"):
             return
 
+        # Nur echte Events abfangen: Bot-Nachricht mit Embed das ein Time/Termin-Feld hat
+        if not message.embeds:
+            return
+        embed = message.embeds[0]
+        if not embed.title or not embed.fields:
+            return
+        if not any(f.name in ("Time", "Termin") for f in embed.fields):
+            return
+
         overview_id = cfg.get("overview_channel_id")
         overview_channel = self.bot.get_channel(overview_id) if overview_id else None
         if not overview_channel:
@@ -176,13 +194,50 @@ class Overview(commands.Cog):
             if isinstance(old, asyncio.Task) and not old.done():
                 old.cancel()
             self.last_smart_run[message.guild.id] = datetime.now(tz=timezone.utc)
+            event_channel = self.bot.get_channel(cfg.get("event_channel_id"))
             new_task = asyncio.create_task(
-                self._run_smart_scheduler(message.guild.id, message.channel, overview_channel)
+                self._run_smart_scheduler(message.guild.id, event_channel, overview_channel)
             )
             self.auto_tasks[message.guild.id] = new_task
         else:
             # Intervall-Modus: Timer neu starten
             existing = self.auto_tasks.get(message.guild.id)
+            if isinstance(existing, tasks.Loop) and existing.is_running():
+                existing.restart()
+
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        if not payload.guild_id:
+            return
+
+        cfg = get_guild_config(payload.guild_id)
+
+        if payload.channel_id != cfg.get("event_channel_id"):
+            return
+        if payload.guild_id not in self.auto_tasks:
+            return
+
+        event_channel = self.bot.get_channel(payload.channel_id)
+        overview_id = cfg.get("overview_channel_id")
+        overview_channel = self.bot.get_channel(overview_id) if overview_id else None
+
+        if not event_channel or not overview_channel:
+            return
+
+        print(f"[Delete] Nachricht in Event-Channel gelöscht, aktualisiere Übersicht...")
+        await self.fetch_and_post(payload.guild_id, event_channel, overview_channel)
+
+        if cfg.get("auto_interval_hours") == -1:
+            old = self.auto_tasks.get(payload.guild_id)
+            if isinstance(old, asyncio.Task) and not old.done():
+                old.cancel()
+            self.last_smart_run[payload.guild_id] = datetime.now(tz=timezone.utc)
+            new_task = asyncio.create_task(
+                self._run_smart_scheduler(payload.guild_id, event_channel, overview_channel)
+            )
+            self.auto_tasks[payload.guild_id] = new_task
+        else:
+            existing = self.auto_tasks.get(payload.guild_id)
             if isinstance(existing, tasks.Loop) and existing.is_running():
                 existing.restart()
 
