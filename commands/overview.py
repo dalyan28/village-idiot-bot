@@ -125,6 +125,10 @@ class Overview(commands.Cog):
 
     async def _run_smart_scheduler(self, guild_id: int, event_channel: discord.TextChannel, overview_channel: discord.TextChannel):
         try:
+            # Sofort beim Start einmal aktualisieren
+            await self.fetch_and_post(guild_id, event_channel, overview_channel)
+            self.last_smart_run[guild_id] = datetime.now(tz=timezone.utc)
+
             while True:
                 now = datetime.now(tz=BERLIN_TZ)
                 fixed = self._get_guild_schedule(guild_id)
