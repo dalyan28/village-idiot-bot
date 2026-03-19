@@ -268,7 +268,6 @@ class Overview(commands.Cog):
 
     @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
     @app_commands.choices(frequenz=[
-        app_commands.Choice(name="3 Sekunden (Test)", value=0),
         app_commands.Choice(name="Smart (automatisch)", value=-1),
         app_commands.Choice(name="1 Stunde",          value=1),
         app_commands.Choice(name="2 Stunden",         value=2),
@@ -322,14 +321,6 @@ class Overview(commands.Cog):
             )
             self.auto_tasks[guild_id] = task
             label = "Smart Mode"
-        elif frequenz == 0:
-            save_guild_config(guild_id, cfg)
-            @tasks.loop(seconds=3)
-            async def auto_job():
-                await self.fetch_and_post(guild_id, resolved_event, resolved_overview)
-            self.auto_tasks[guild_id] = auto_job
-            self.auto_tasks[guild_id].start()
-            label = "3 Sekunden (Test)"
         else:
             save_guild_config(guild_id, cfg)
             @tasks.loop(hours=frequenz)
@@ -399,20 +390,23 @@ class Overview(commands.Cog):
         valid.sort()
         return valid, errors
 
-    @app_commands.command(name="set_schedule", description="Legt den Smart-Mode-Zeitplan fest (z.B. '05:00 08:00 12:00')")
+    @app_commands.command(name="set_schedule", description="Legt den Smart-Mode-Zeitplan fest (z.B. '05:00 08:00 12:00') oder 'default'")
     async def set_schedule(self, interaction: discord.Interaction, zeiten: str):
-        valid, errors = self._parse_schedule_input(zeiten)
+        if zeiten.strip().lower() == "default":
+            valid = DEFAULT_SMART_SCHEDULE
+        else:
+            valid, errors = self._parse_schedule_input(zeiten)
 
-        if errors:
-            msg = "Folgende Eingaben konnten nicht erkannt werden:\n" + "\n".join(f"- {e}" for e in errors)
-            if valid:
-                msg += "\n\nGültige Zeiten: " + ", ".join(f"{h:02d}:{m:02d}" for h, m in valid)
-            await interaction.response.send_message(msg, ephemeral=True)
-            return
+            if errors:
+                msg = "Folgende Eingaben konnten nicht erkannt werden:\n" + "\n".join(f"- {e}" for e in errors)
+                if valid:
+                    msg += "\n\nGültige Zeiten: " + ", ".join(f"{h:02d}:{m:02d}" for h, m in valid)
+                await interaction.response.send_message(msg, ephemeral=True)
+                return
 
-        if not valid:
-            await interaction.response.send_message("Keine gültigen Zeiten erkannt.", ephemeral=True)
-            return
+            if not valid:
+                await interaction.response.send_message("Keine gültigen Zeiten erkannt.", ephemeral=True)
+                return
 
         preview = ", ".join(f"{h:02d}:{m:02d}" for h, m in valid)
 

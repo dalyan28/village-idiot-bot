@@ -10,7 +10,6 @@ Ein Discord-Bot, der Events aus einem Apollo-Bot-Channel ausliest und automatisc
 
 - Python 3.10+
 - Ein Discord-Bot-Token ([Discord Developer Portal](https://discord.com/developers/applications))
-- Tesseract OCR (lokal: [Windows Installer](https://github.com/UB-Mannheim/tesseract/wiki))
 - Der Bot muss auf dem Server eingeladen sein mit folgenden Berechtigungen:
   - Nachrichten senden
   - Nachrichten verwalten
@@ -33,34 +32,36 @@ pip install -r requirements.txt
 DISCORD_TOKEN=dein_token_hier
 ```
 
-Unter Windows muss der Tesseract-Pfad in `logic/ocr.py` eingetragen werden:
-```python
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-```
-
 Bot starten:
 ```bash
 python bot.py
+```
+
+Dev-Modus (Test-Commands aktivieren):
+```
+ENV=dev
 ```
 
 ### Projektstruktur
 
 ```
 village-idiot-bot/
-├── bot.py              # Einstiegspunkt
-├── config.py           # Config laden/speichern
-├── characters.json     # BotC-Charaktere mit Bewertungen
-├── nixpacks.toml       # Tesseract-Installation für Railway
-├── railway.toml        # Erzwingt Nixpacks auf Railway
+├── bot.py                      # Einstiegspunkt
+├── config.py                   # Config laden/speichern/bereinigen
 ├── commands/
-│   ├── settings.py     # /set_event_channel, /set_overview_channel
-│   └── overview.py     # /overview_events, /automate_overview, /stop_automate
+│   ├── settings.py             # /set_event_channel, /set_overview_channel
+│   ├── overview.py             # /overview_events, /automate_overview, /stop_automate,
+│   │                           #   /set_schedule, /see_schedule
+│   └── test_commands.py        # Dev-only: /create_test_event, /clear_test_events,
+│                               #   /clear_past_events, /smart_status
 ├── logic/
-│   ├── ocr.py          # Bildanalyse & Charaktererkennung
-│   └── parser.py       # Apollo-Nachrichten parsen & Übersicht bauen
+│   └── parser.py               # Apollo-Nachrichten parsen & Übersicht bauen
+├── tests/
+│   └── test_overview_logic.py  # Unit-Tests (pytest)
 ├── requirements.txt
-├── .env                # nicht in Git
-└── config.json         # wird automatisch erstellt, nicht in Git
+├── requirements-dev.txt        # + pytest
+├── .env                        # nicht in Git
+└── config.json                 # wird automatisch erstellt, nicht in Git
 ```
 
 ### Commands
@@ -69,27 +70,46 @@ village-idiot-bot/
 |---|---|---|
 | `/set_event_channel` | `channel` | Setzt den Channel, aus dem Apollo-Events ausgelesen werden |
 | `/set_overview_channel` | `channel` | Setzt den Channel, in dem die Übersicht gepostet wird |
-| `/overview_events` | `channel` (optional), `force_ocr` (optional, default: true) | Postet die aktuelle Übersicht. Priorität: angegebener Channel → set_overview_channel → aktueller Channel. Mit `force_ocr: true` werden alle Skript-Bilder neu analysiert. |
-| `/automate_overview` | `frequenz`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true) | Postet die Übersicht automatisch im gewählten Intervall und löscht die vorherige. Mit `on_new_event` wird die Übersicht zusätzlich aktualisiert, wenn ein neues Event gepostet wird. |
-| `/stop_automate` | - | Stoppt alle laufenden automatischen Übersichten |
+| `/overview_events` | `channel` (optional) | Postet die aktuelle Übersicht manuell |
+| `/automate_overview` | `frequenz`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true), `dynamic` (optional, default: true) | Startet die automatische Übersicht |
+| `/stop_automate` | – | Stoppt die laufende automatische Übersicht |
+| `/set_schedule` | `zeiten` | Setzt den Smart-Mode-Zeitplan (z.B. `05:00 08:00 12:00`) oder `default` |
+| `/see_schedule` | – | Zeigt den aktuellen Zeitplan und dynamische Zeiten |
 
-**Verfügbare Intervalle für `/automate_overview`:**
-- 3 Sekunden (nur zum Testen)
+**Verfügbare Modi für `/automate_overview`:**
+- **Smart (automatisch)** – Intelligenter Zeitplan (empfohlen, siehe unten)
 - 1 / 2 / 4 / 8 / 12 / 24 Stunden
 
-### Charakterbewertungen (characters.json)
+### Smart Mode
 
-Jeder BotC-Charakter hat einen Score von 1-10, der beschreibt wie sehr er das Spielgeschehen beeinflusst. Die Top 4 Charaktere eines Skripts werden in der Übersicht unter dem jeweiligen Event angezeigt. Charaktere mit einem Score von 9 oder 10 werden fett und mit einem 🔹 hervorgehoben.
+Der Smart Mode aktualisiert die Übersicht nach einem intelligenten Zeitplan statt in einem festen Intervall:
 
-Die Datei kann manuell angepasst werden. Sie gehört in Git, da sie keine sensiblen Daten enthält.
+**Standard-Zeitplan:** `05:00, 08:00, 12:00, 16:00, 18:00, 19:00, 19:30, 20:00, 22:00` (Berliner Zeit)
+
+**Dynamische Zeiten:** Wenn ein Event für heute geplant ist, aktualisiert der Bot zusätzlich 30, 20 und 10 Minuten vor dem Eventstart automatisch.
+
+**Regeln:**
+- Feste Zeiten werden übersprungen, wenn das letzte Update weniger als 15 Minuten her ist (z.B. weil gerade ein neues Event gepostet wurde)
+- Dynamische Zeiten werden nie übersprungen
+- Bei neuem Event: sofortige Aktualisierung
+- Bei gelöschtem Event: sofortige Aktualisierung
+
+Mit `/set_schedule` kann der Zeitplan individuell angepasst werden.
+
+### Tests
+
+Unit-Tests ausführen:
+```bash
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
 
 ### Hinweise
 
 - Der Bot löscht beim automatischen Update nur seine eigene zuletzt gepostete Übersicht, nie andere Nachrichten
-- Apollo-Events müssen als Embeds mit einem `Time`- oder `Termin`-Feld vorliegen, damit der Parser sie erkennt. Es werden nur Apollo-Events unterstützt, die auf Deutsch oder Englisch erstellt wurden.
-- Die Übersicht zeigt Tagesnamen und Monate immer auf Deutsch an, unabhängig von der Sprache des Servers.
-- OCR-Ergebnisse werden gecacht. Events ohne Skript-Bild werden bei jedem Update neu geprüft. Mit `force_ocr: true` kann der Cache manuell geleert werden.
-- `.env` und `config.json` niemals in Git committen. Sie können sensible Daten enthalten. Wenn die Token-ID jemals bei Git exposed werden sollte, dringend eine neue ID generieren.
+- Apollo-Events müssen als Embeds mit einem `Time`- oder `Termin`-Feld vorliegen
+- Die Übersicht zeigt Tagesnamen und Monate immer auf Deutsch an
+- `.env` und `config.json` niemals in Git committen
 
 ---
 
@@ -99,7 +119,6 @@ Die Datei kann manuell angepasst werden. Sie gehört in Git, da sie keine sensib
 
 - Python 3.10+
 - A Discord bot token ([Discord Developer Portal](https://discord.com/developers/applications))
-- Tesseract OCR (local: [Windows Installer](https://github.com/UB-Mannheim/tesseract/wiki))
 - The bot must be invited to the server with the following permissions:
   - Send Messages
   - Manage Messages
@@ -122,34 +141,14 @@ Create a `.env` file:
 DISCORD_TOKEN=your_token_here
 ```
 
-On Windows, add the Tesseract path to `logic/ocr.py`:
-```python
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-```
-
 Start the bot:
 ```bash
 python bot.py
 ```
 
-### Project Structure
-
+Dev mode (enables test commands):
 ```
-village-idiot-bot/
-├── bot.py              # Entry point
-├── config.py           # Load/save config
-├── characters.json     # BotC characters with scores
-├── nixpacks.toml       # Tesseract installation for Railway
-├── railway.toml        # Forces Nixpacks on Railway
-├── commands/
-│   ├── settings.py     # /set_event_channel, /set_overview_channel
-│   └── overview.py     # /overview_events, /automate_overview, /stop_automate
-├── logic/
-│   ├── ocr.py          # Image analysis & character detection
-│   └── parser.py       # Parse Apollo messages & build overview
-├── requirements.txt
-├── .env                # not in Git
-└── config.json         # auto-generated, not in Git
+ENV=dev
 ```
 
 ### Commands
@@ -158,24 +157,32 @@ village-idiot-bot/
 |---|---|---|
 | `/set_event_channel` | `channel` | Sets the channel from which Apollo events are read |
 | `/set_overview_channel` | `channel` | Sets the channel where the overview will be posted |
-| `/overview_events` | `channel` (optional), `force_ocr` (optional, default: true) | Posts the current overview. Priority: given channel → set_overview_channel → current channel. Use `force_ocr: true` to re-analyse all script images. |
-| `/automate_overview` | `frequency`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true) | Automatically posts the overview at the chosen interval and deletes the previous one. With `on_new_event` the overview is also updated when a new event is posted. |
-| `/stop_automate` | - | Stops all running automated overviews |
+| `/overview_events` | `channel` (optional) | Manually posts the current overview |
+| `/automate_overview` | `frequency`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true), `dynamic` (optional, default: true) | Starts automated overview posting |
+| `/stop_automate` | – | Stops the running automated overview |
+| `/set_schedule` | `times` | Sets the Smart Mode schedule (e.g. `05:00 08:00 12:00`) or `default` |
+| `/see_schedule` | – | Shows the current schedule and dynamic times |
 
-**Available intervals for `/automate_overview`:**
-- 3 seconds (testing only)
+**Available modes for `/automate_overview`:**
+- **Smart (automatic)** – Intelligent schedule (recommended, see below)
 - 1 / 2 / 4 / 8 / 12 / 24 hours
 
-### Character Scores (characters.json)
+### Smart Mode
 
-Each BotC character has a score from 1-10 describing how much they influence the game. The top 4 characters of a script are shown in the overview below each event. Characters with a score of 9 or 10 are highlighted in bold with a 🔹 emoji.
+Smart Mode updates the overview on an intelligent schedule instead of a fixed interval:
 
-The file can be edited manually and belongs in Git as it contains no sensitive data.
+**Default schedule:** `05:00, 08:00, 12:00, 16:00, 18:00, 19:00, 19:30, 20:00, 22:00` (Berlin time)
+
+**Dynamic times:** If an event is scheduled for today, the bot additionally updates 30, 20, and 10 minutes before the event start.
+
+**Rules:**
+- Fixed times are skipped if the last update was less than 15 minutes ago
+- Dynamic times are never skipped
+- New event posted: immediate update
+- Event deleted: immediate update
 
 ### Notes
 
-- The bot only deletes its own last posted overview, never any other messages
-- Apollo events must be posted as embeds with a `Time` or `Termin` field for the parser to detect them. Only Apollo events created in German or English are supported.
-- The overview always displays day names and months in German, regardless of the server language.
-- OCR results are cached. Events without a script image are re-checked on every update. Use `force_ocr: true` to clear the cache manually.
-- Never commit `.env` or `config.json` to Git. They may contain sensitive data. If the token is ever exposed in Git, generate a new one immediately.
+- The bot only deletes its own last posted overview, never other messages
+- Apollo events must be posted as embeds with a `Time` or `Termin` field
+- Never commit `.env` or `config.json` to Git
