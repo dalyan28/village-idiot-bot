@@ -18,6 +18,8 @@ async def on_ready():
     await bot.tree.sync()
     print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
     print(f"Bot ist online als {bot.user}")
+    from config import cleanup_config
+    cleanup_config()
     await asyncio.sleep(3)
     await restore_auto_tasks()
 
