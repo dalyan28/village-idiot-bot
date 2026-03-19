@@ -416,8 +416,6 @@ class Overview(commands.Cog):
 
         preview = ", ".join(f"{h:02d}:{m:02d}" for h, m in valid)
 
-        cog_ref = self
-
         class ConfirmView(discord.ui.View):
             def __init__(self_inner):
                 super().__init__(timeout=60)
@@ -427,16 +425,8 @@ class Overview(commands.Cog):
                 cfg = get_guild_config(interaction.guild_id)
                 cfg["smart_schedule"] = valid
                 save_guild_config(interaction.guild_id, cfg)
-                # Smart-Scheduler neustarten damit neue Zeiten sofort gelten
-                old = cog_ref.auto_tasks.get(interaction.guild_id)
-                if isinstance(old, asyncio.Task) and not old.done():
-                    event_ch = cog_ref.bot.get_channel(cfg.get("event_channel_id"))
-                    overview_ch = cog_ref.bot.get_channel(cfg.get("overview_channel_id"))
-                    old.cancel()
-                    if event_ch and overview_ch:
-                        cog_ref.auto_tasks[interaction.guild_id] = asyncio.create_task(
-                            cog_ref._run_smart_scheduler(interaction.guild_id, event_ch, overview_ch)
-                        )
+                # Kein Neustart nötig – _get_guild_schedule liest Config bei jeder
+                # Loop-Iteration frisch, neuer Schedule gilt ab nächstem Aufwachen
                 await btn_interaction.response.edit_message(
                     content=f"Zeitplan gespeichert: **{preview}**", view=None
                 )
