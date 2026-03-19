@@ -49,19 +49,27 @@ async def restore_auto_tasks():
             print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
             continue
 
-        if frequenz == 0:
+        if frequenz == -1:
+            task = asyncio.create_task(
+                overview_cog._run_smart_scheduler(guild_id, event_channel, overview_channel)
+            )
+            overview_cog.auto_tasks[guild_id] = task
+            label = "Smart Mode"
+        elif frequenz == 0:
             @tasks.loop(seconds=3)
             async def auto_job():
                 await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
+            overview_cog.auto_tasks[guild_id] = auto_job
+            overview_cog.auto_tasks[guild_id].start()
             label = "3 Sekunden (Test)"
         else:
             @tasks.loop(hours=frequenz)
             async def auto_job():
                 await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
+            overview_cog.auto_tasks[guild_id] = auto_job
+            overview_cog.auto_tasks[guild_id].start()
             label = f"{frequenz} Stunden"
 
-        overview_cog.auto_tasks[guild_id] = auto_job
-        overview_cog.auto_tasks[guild_id].start()
         print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
 
 
