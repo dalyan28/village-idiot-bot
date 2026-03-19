@@ -41,6 +41,29 @@ class Overview(commands.Cog):
         self._update_smart_dynamic_times(guild_id, events, cfg.get("smart_dynamic", True))
         embeds = build_overviews(events)
 
+        # Timestamp-Info in die Description des ersten Embeds schreiben
+        now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+        info_lines = [f"-# Zuletzt aktualisiert <t:{now_ts}:R>"]
+        if cfg.get("auto_active"):
+            if cfg.get("auto_interval_hours") == -1:
+                fixed = self._get_guild_schedule(guild_id)
+                dynamic = self.smart_dynamic_times.get(guild_id, set())
+                all_times = sorted(fixed | dynamic)
+                next_run = self._compute_next_time(all_times, datetime.now(tz=BERLIN_TZ))
+                next_ts = int(next_run.timestamp())
+                info_lines.append(f"-# Nächste Aktualisierung <t:{next_ts}:R>")
+            else:
+                task = self.auto_tasks.get(guild_id)
+                if isinstance(task, tasks.Loop) and task.next_iteration:
+                    next_ts = int(task.next_iteration.timestamp())
+                    info_lines.append(f"-# Nächste Aktualisierung <t:{next_ts}:R>")
+        info_text = "\n".join(info_lines)
+        first_embed = embeds[0]
+        if first_embed.description:
+            first_embed.description = first_embed.description + "\n\n" + info_text
+        else:
+            first_embed.description = info_text
+
         # debug
         for embed in embeds:
             print(f"Embed fields: {len(embed.fields)}")
