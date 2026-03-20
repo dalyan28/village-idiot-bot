@@ -1,7 +1,7 @@
 """LLM-Konfiguration für die Event-Erstellung via Claude Haiku 4.5."""
 
 MODEL = "claude-haiku-4-5-20251001"
-MAX_TOKENS = 1024
+MAX_TOKENS = 2048
 
 # Pricing (USD per million tokens) — Haiku 4.5
 PRICE_INPUT_PER_MTOK = 0.80

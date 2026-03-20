@@ -245,28 +245,27 @@ def _generate_sync(script_name: str, author: str, char_ids: list[str], version: 
     font_title = _get_font(_FONT_TITLE, 36)
     font_author = _get_font(_FONT_AUTHOR, 14)
     font_header = _get_font(_FONT_HEADER, 18)
-    font_name = _get_font(_FONT_CHAR_NAME, 13)
-    font_ability = _get_font(_FONT_CHAR_ABILITY, 10)
-    font_ability_bold = _get_font(_FONT_CHAR_NAME, 10)  # Bold-Variante für [brackets]
+    font_name = _get_font(_FONT_CHAR_NAME, 16)
+    font_ability = _get_font(_FONT_CHAR_ABILITY, 12)
+    font_ability_bold = _get_font(_FONT_CHAR_NAME, 12)  # Bold-Variante für [brackets]
     font_footer = _get_font(_FONT_AUTHOR, 9)
 
     y = PADDING
 
-    # ── Titel (links) + Version (rechts neben Titel, im Author-Stil) ─
+    # ── Titel (links) + Version (rechts neben Titel, am oberen Rand aligned) ─
     draw.text((PADDING, y), script_name, fill=TITLE_COLOR, font=font_title)
     if version:
         title_bbox = draw.textbbox((PADDING, y), script_name, font=font_title)
+        title_mid = (title_bbox[1] + title_bbox[3]) // 2
+        version_bbox = draw.textbbox((0, 0), f"v{version}", font=font_author)
+        version_h = version_bbox[3] - version_bbox[1]
         version_x = title_bbox[2] + 12
-        version_y = title_bbox[3] - 16  # Baseline-aligned mit Titel
+        version_y = title_mid - version_h // 2  # Vertikal zentriert am Titel
         draw.text((version_x, version_y), f"v{version}", fill=SUBTITLE_COLOR, font=font_author)
     y += 36
     if author:
         draw.text((PADDING, y), f"by {author}", fill=SUBTITLE_COLOR, font=font_author)
-    y += 22
-
-    # Divider
-    draw.line([(PADDING, y), (img_width - PADDING, y)], fill=DIVIDER_COLOR, width=1)
-    y += SECTION_GAP
+    y += 28
 
     # ── Kategorien ───────────────────────────────────────────────────
     for team in TEAM_ORDER:

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(curl -sL \"https://script.bloodontheclocktower.com/workspace.3c82003c.js\")"
+      "Bash(curl -sL \"https://script.bloodontheclocktower.com/workspace.3c82003c.js\")",
+      "Bash(./venv/Scripts/python.exe -c \":*)"
     ]
   }
 }
