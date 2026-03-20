@@ -119,11 +119,20 @@ def invalidate_characters_cache():
     logger.info("Characters-Cache invalidiert")
 
 
-def get_character_icon_path(char_id: str) -> str | None:
-    """Gibt den Pfad zum Character-Icon zurück, oder None wenn nicht vorhanden."""
-    # Verschiedene Dateinamen-Varianten probieren
-    for suffix in [f"{char_id}.webp", f"{char_id}_g.webp"]:
-        path = os.path.join(ICONS_DIR, suffix)
+def get_character_icon_path(char_id: str, evil: bool = False) -> str | None:
+    """Gibt den Pfad zum Character-Icon zurück, oder None wenn nicht vorhanden.
+
+    Args:
+        char_id: Character-ID
+        evil: True für böse Charaktere (Minion/Demon) → bevorzugt _e.webp (rot)
+    """
+    if evil:
+        variants = [f"{char_id}_e.webp", f"{char_id}.webp", f"{char_id}_g.webp"]
+    else:
+        variants = [f"{char_id}_g.webp", f"{char_id}.webp", f"{char_id}_e.webp"]
+
+    for filename in variants:
+        path = os.path.join(ICONS_DIR, filename)
         if os.path.exists(path):
             return path
     return None
@@ -132,16 +141,18 @@ def get_character_icon_path(char_id: str) -> str | None:
 # ── TPI Update ───────────────────────────────────────────────────────────────
 
 
-def _download_file(url: str, timeout: int = 15) -> bytes | None:
+def _download_file(url: str, timeout: int = 15, silent: bool = False) -> bytes | None:
     """Lädt eine Datei von einer URL. Returns bytes oder None."""
     try:
         r = requests.get(url, timeout=timeout)
         if r.status_code == 200:
             return r.content
-        logger.warning("Download fehlgeschlagen: %s → %d", url, r.status_code)
+        if not silent:
+            logger.warning("Download fehlgeschlagen: %s → %d", url, r.status_code)
         return None
     except requests.RequestException as e:
-        logger.warning("Download-Fehler: %s → %s", url, e)
+        if not silent:
+            logger.warning("Download-Fehler: %s → %s", url, e)
         return None
 
 
@@ -188,35 +199,31 @@ def _update_characters_sync(force_icons: bool = False) -> dict:
         char_id = role["id"]
         edition = role.get("edition", "")
 
-        # Icon-Dateiname: versuche {id}.webp und {id}_g.webp
-        filenames_to_try = [f"{char_id}.webp", f"{char_id}_g.webp"]
+        # Beide Varianten downloaden: _g (good/blau) und _e (evil/rot)
+        filenames_to_try = [f"{char_id}_g.webp", f"{char_id}_e.webp", f"{char_id}.webp"]
 
-        # Prüfen ob schon vorhanden
-        already_exists = any(
-            os.path.exists(os.path.join(ICONS_DIR, fn))
-            for fn in filenames_to_try
-        )
-
-        if already_exists and not force_icons:
+        # Prüfen ob schon mindestens eine Variante vorhanden
+        existing = [fn for fn in filenames_to_try if os.path.exists(os.path.join(ICONS_DIR, fn))]
+        if existing and not force_icons:
             result["skipped_icons"] += 1
             continue
 
-        # Downloaden
-        downloaded = False
+        # Alle Varianten downloaden die verfügbar sind
+        any_downloaded = False
         for filename in filenames_to_try:
             url = TPI_ICON_URL.format(edition=edition, filename=filename)
-            icon_data = _download_file(url, timeout=10)
+            icon_data = _download_file(url, timeout=10, silent=True)
             if icon_data:
                 icon_path = os.path.join(ICONS_DIR, filename)
                 with open(icon_path, "wb") as f:
                     f.write(icon_data)
-                result["new_icons"] += 1
-                downloaded = True
+                any_downloaded = True
                 logger.debug("Icon heruntergeladen: %s", filename)
-                break
 
-        if not downloaded:
-            logger.debug("Kein Icon gefunden für: %s (edition=%s)", char_id, edition)
+        if any_downloaded:
+            result["new_icons"] += 1
+        else:
+            logger.warning("Kein Icon gefunden für: %s (edition=%s)", char_id, edition)
 
         # Rate-Limiting
         time.sleep(0.3)

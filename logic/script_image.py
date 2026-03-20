@@ -22,10 +22,10 @@ logger = logging.getLogger(__name__)
 # ── Layout-Konstanten ────────────────────────────────────────────────────────
 
 COLS = 2
-ICON_SIZE = 64
+ICON_SIZE = 90
 CHAR_WIDTH = 420
-CHAR_HEIGHT_BASE = 85      # Mindesthöhe, wird dynamisch erweitert
-ABILITY_LINE_HEIGHT = 13
+CHAR_HEIGHT_BASE = 100     # Mindesthöhe, wird dynamisch erweitert
+ABILITY_LINE_HEIGHT = 14
 MAX_ABILITY_LINES = 6       # Mehr Zeilen erlauben, kein Cropping
 PADDING = 30
 SECTION_GAP = 15
@@ -78,8 +78,8 @@ def _get_font(path: str, size: int) -> ImageFont.FreeTypeFont:
         return ImageFont.load_default()
 
 
-def _load_icon(char_id: str) -> Image.Image | None:
-    icon_path = get_character_icon_path(char_id)
+def _load_icon(char_id: str, evil: bool = False) -> Image.Image | None:
+    icon_path = get_character_icon_path(char_id, evil=evil)
     if icon_path is None:
         return None
     try:
@@ -304,8 +304,9 @@ def _generate_sync(script_name: str, author: str, char_ids: list[str], version: 
                 x = PADDING + col_idx * CHAR_WIDTH
                 char_y = y
 
-                # Icon
-                icon = _load_icon(char["id"])
+                # Icon (evil-Variante für Minion/Demon)
+                is_evil = team in ("Minion", "Demon")
+                icon = _load_icon(char["id"], evil=is_evil)
                 if icon is None:
                     icon = placeholder
 
