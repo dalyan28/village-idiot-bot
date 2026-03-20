@@ -86,15 +86,27 @@ class EventView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(emoji="✅", style=discord.ButtonStyle.success, custom_id="event_accept")
+    @discord.ui.button(
+        emoji=discord.PartialEmoji(name="angenommen", id=1484616708558815282),
+        style=discord.ButtonStyle.success,
+        custom_id="event_accept",
+    )
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _handle_rsvp(interaction, "accepted")
 
-    @discord.ui.button(emoji="❌", style=discord.ButtonStyle.danger, custom_id="event_decline")
+    @discord.ui.button(
+        emoji=discord.PartialEmoji(name="abgelehnt", id=1484616609313325227),
+        style=discord.ButtonStyle.danger,
+        custom_id="event_decline",
+    )
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _handle_rsvp(interaction, "declined")
 
-    @discord.ui.button(emoji="❓", style=discord.ButtonStyle.secondary, custom_id="event_tentative")
+    @discord.ui.button(
+        emoji=discord.PartialEmoji(name="vorlaeufig", id=1484616662073212989),
+        style=discord.ButtonStyle.secondary,
+        custom_id="event_tentative",
+    )
     async def tentative(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _handle_rsvp(interaction, "tentative")
 

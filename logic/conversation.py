@@ -60,6 +60,7 @@ class EventSession:
     last_update: float = field(default_factory=time.time)
     label: str | None = None
     user_display_name: str = ""
+    user_avatar_url: str = ""
     rules_summary: str = DEFAULT_RULES
     # Kosten-Tracking
     total_input_tokens: int = 0
@@ -90,10 +91,10 @@ def start_session(
     guild_name: str,
     event_channel_id: int,
     user_display_name: str = "",
+    user_avatar_url: str = "",
     rules_summary: str = DEFAULT_RULES,
 ) -> EventSession:
     """Startet eine neue Event-Erstellungs-Session."""
-    # Alte Expiry-Info löschen
     _recently_expired.pop(user_id, None)
     session = EventSession(
         user_id=user_id,
@@ -101,6 +102,7 @@ def start_session(
         guild_name=guild_name,
         event_channel_id=event_channel_id,
         user_display_name=user_display_name,
+        user_avatar_url=user_avatar_url,
         rules_summary=rules_summary,
     )
     _sessions[user_id] = session

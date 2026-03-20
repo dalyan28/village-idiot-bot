@@ -1,35 +1,180 @@
+"""Event-Embed-Builder für BotC-Events.
+
+Baut das finale Event-Embed nach der vorgegebenen Struktur:
+Author → Titel → Storytelling/Kamera/Level (inline) → Co-ST → Beschreibung
+→ Skript → NPCs → Relevante Charaktere → RSVP-Listen (inline) → Image → Footer
+"""
+
+import json
 import logging
+import os
+
 import discord
+
+from logic.script_cache import load_characters
 
 logger = logging.getLogger(__name__)
 
+# Custom Emojis
+EMOJI_ACCEPTED = "<:angenommen:1484616708558815282>"
+EMOJI_DECLINED = "<:abgelehnt:1484616609313325227>"
+EMOJI_TENTATIVE = "<:vorlaeufig:1484616662073212989>"
+EMOJI_WAITLIST = "<:warteliste:1484675744389927193>"
 
-def format_user_list(user_ids: list[int]) -> str:
+# Character-Rating-Datei
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+RATING_FILE = os.path.join(PROJECT_ROOT, "character_rating.json")
+
+FIELD_CHAR_LIMIT = 1024
+
+# Embed-Farben nach Script-Complexity (Prioritätsreihenfolge)
+EMBED_COLORS = {
+    "hammer":  0xF4900C,  # Orange — Homebrew
+    "yellow":  0xFDCB58,  # Gelb
+    "red":     0xDD2E44,  # Rot
+    "green":   0x78B159,  # Grün
+    "dove":    0x78B159,  # Grün (Casual)
+    "camera":  0xFDCB58,  # Gelb (Default für Aufzeichnung)
+}
+DEFAULT_EMBED_COLOR = 0xFDCB58  # Gelb als Fallback
+
+# Rating-Cache
+_ratings: dict | None = None
+
+
+def _load_ratings() -> dict:
+    """Lädt die Character-Ratings."""
+    global _ratings
+    if _ratings is not None:
+        return _ratings
+    if not os.path.exists(RATING_FILE):
+        _ratings = {}
+        return _ratings
+    with open(RATING_FILE, "r", encoding="utf-8") as f:
+        _ratings = json.load(f)
+    return _ratings
+
+
+def _format_user_list_quoted(user_ids: list[int]) -> str:
+    """Formatiert User-IDs als zitierte Mentions (> <@id>)."""
     if not user_ids:
         return "-"
-    return "\n".join(f"<@{uid}>" for uid in user_ids)
+    return "\n".join(f"> <@{uid}>" for uid in user_ids)
+
+
+def _split_field(name: str, text: str, inline: bool = False) -> list[tuple[str, str, bool]]:
+    """Splittet einen langen Text in mehrere Fields wenn nötig."""
+    if len(text) <= FIELD_CHAR_LIMIT:
+        return [(name, text, inline)]
+
+    fields = []
+    chunks = []
+    current = ""
+    for line in text.split("\n"):
+        if len(current) + len(line) + 1 > FIELD_CHAR_LIMIT - 10:
+            chunks.append(current)
+            current = line
+        else:
+            current = f"{current}\n{line}" if current else line
+    if current:
+        chunks.append(current)
+
+    for i, chunk in enumerate(chunks):
+        field_name = name if i == 0 else "\u200b"
+        fields.append((field_name, chunk, inline))
+    return fields
+
+
+def _get_relevant_characters(char_ids: list[str], limit: int = 5) -> str | None:
+    """Findet die relevantesten Charaktere basierend auf character_rating.json.
+
+    Charaktere mit Score 9-10 werden **fett** hervorgehoben.
+    """
+    ratings = _load_ratings()
+    characters_db = load_characters()
+
+    scored = []
+    for char_id in char_ids:
+        char_info = characters_db.get(char_id)
+        if not char_info:
+            continue
+        name = char_info.get("character_name", char_id)
+        rating = ratings.get(name, {})
+        score = rating.get("score", 0)
+        if score > 0:
+            scored.append((name, score))
+
+    if not scored:
+        return None
+
+    # Nach Score sortieren (höchste zuerst)
+    scored.sort(key=lambda x: x[1], reverse=True)
+    top = scored[:limit]
+
+    parts = []
+    for name, score in top:
+        if score >= 9:
+            parts.append(f"**{name}** ({score})")
+        else:
+            parts.append(f"{name} ({score})")
+
+    return ", ".join(parts)
+
+
+def _get_npcs(char_ids: list[str]) -> str | None:
+    """Extrahiert Fabled und Loric Characters."""
+    characters_db = load_characters()
+    npcs = []
+    for char_id in char_ids:
+        char_info = characters_db.get(char_id)
+        if char_info and char_info.get("character_type", "").lower() in ("fabled", "loric"):
+            npcs.append(char_info.get("character_name", char_id))
+    if not npcs:
+        return None
+    return ", ".join(npcs)
 
 
 def build_event_embed(event_data: dict) -> discord.Embed:
+    """Baut das Event-Embed nach der spezifizierten Struktur."""
+    title = event_data.get("title", "Event")
+    label = event_data.get("label")
+    embed_color = EMBED_COLORS.get(label, DEFAULT_EMBED_COLOR)
+
     embed = discord.Embed(
-        title=event_data.get("title", "Event"),
-        description=event_data.get("description") or "",
-        color=0x5865F2,
+        title=title,
+        color=embed_color,
+        timestamp=discord.utils.utcnow(),
     )
 
-    # Storyteller:in
+    # ── Author (oben) ────────────────────────────────────────────────────
+    creator = event_data.get("creator_name", "Unbekannt")
+    avatar_url = event_data.get("creator_avatar_url")
+    if avatar_url:
+        embed.set_author(name=creator, icon_url=avatar_url)
+    else:
+        embed.set_author(name=creator)
+
+    # ── Storytelling + Kamera + Level (inline, eine Reihe) ───────────
     storyteller = event_data.get("storyteller") or "-"
-    embed.add_field(name="Storyteller:in", value=storyteller, inline=False)
+    embed.add_field(name="Storytelling", value=storyteller, inline=True)
 
-    # Skript
-    script = event_data.get("script") or "-"
-    embed.add_field(name="Skript:", value=script, inline=False)
+    camera = event_data.get("camera")
+    if camera is True:
+        cam_str = "Pflicht"
+    elif camera is False:
+        cam_str = "Aus"
+    else:
+        cam_str = "Keine Pflicht"
+    embed.add_field(name="Kamera", value=cam_str, inline=True)
 
-    # Level
     level = event_data.get("level") or "-"
-    embed.add_field(name="Level:", value=level, inline=False)
+    embed.add_field(name="Erfahrungslevel", value=level, inline=True)
 
-    # Termin
+    # ── Co-Storytelling ──────────────────────────────────────────────
+    co_st = event_data.get("co_storyteller")
+    embed.add_field(name="Co-Storytelling", value=co_st or "Nicht möglich", inline=False)
+
+    # ── Termin ────────────────────────────────────────────────────────
     ts = event_data.get("timestamp")
     end_ts = event_data.get("end_timestamp")
     if ts:
@@ -39,40 +184,73 @@ def build_event_embed(event_data: dict) -> discord.Embed:
             termin_value = f"<t:{ts}:F>\n<t:{ts}:R>"
     else:
         termin_value = "-"
-    embed.add_field(name="Termin:", value=termin_value, inline=False)
+    embed.add_field(name="Termin", value=termin_value, inline=False)
 
-    # Weitere Informationen (nur wenn vorhanden)
-    additional = event_data.get("additional_info")
-    if additional:
-        embed.add_field(name="Weitere Informationen:", value=additional, inline=False)
+    # ── Beschreibung ─────────────────────────────────────────────────
+    description = event_data.get("description")
+    if description:
+        for field_name, value, inline in _split_field("Beschreibung", description, inline=False):
+            embed.add_field(name=field_name, value=value, inline=inline)
 
-    # Separator
+    # ── Skript (verlinkt zu botcscripts) ─────────────────────────────
+    script = event_data.get("script") or "-"
+    script_url = event_data.get("script_url")
+    if script_url:
+        embed.add_field(name="Skript", value=f"[{script}]({script_url})", inline=True)
+    else:
+        embed.add_field(name="Skript", value=script, inline=True)
+
+    # ── NPCs (Fabled/Loric) — nur wenn vorhanden ────────────────────
+    char_ids = event_data.get("script_characters", [])
+    if char_ids:
+        npcs = _get_npcs(char_ids)
+        if npcs:
+            embed.add_field(name="NPCs", value=npcs, inline=False)
+
+    # ── Relevante Charaktere — nur wenn vorhanden ────────────────────
+    if char_ids:
+        relevant = _get_relevant_characters(char_ids)
+        if relevant:
+            embed.add_field(name="Relevante Charaktere", value=relevant, inline=False)
+
+    # ── Separator ────────────────────────────────────────────────────
     embed.add_field(name="\u200b", value="\u200b", inline=False)
 
-    # RSVP-Listen
+    # ── RSVP-Listen (inline, eine Reihe) ─────────────────────────────
     accepted = event_data.get("accepted", [])
     declined = event_data.get("declined", [])
     tentative = event_data.get("tentative", [])
+    max_players = event_data.get("max_players", 12)
+
+    # Akzeptiert mit Warteliste
+    if len(accepted) > max_players:
+        main = accepted[:max_players]
+        waitlist = accepted[max_players:]
+        accepted_text = _format_user_list_quoted(main)
+        waitlist_text = "\n".join(f"> {EMOJI_WAITLIST} <@{uid}>" for uid in waitlist)
+        accepted_text += f"\n\n**Warteliste**\n{waitlist_text}"
+    else:
+        accepted_text = _format_user_list_quoted(accepted)
 
     embed.add_field(
-        name=f"✅ Akzeptiert ({len(accepted)})",
-        value=format_user_list(accepted),
-        inline=False,
+        name=f"{EMOJI_ACCEPTED} Akzeptiert ({len(accepted)}/{max_players})",
+        value=accepted_text,
+        inline=True,
     )
     embed.add_field(
-        name="❌ Abgelehnt",
-        value=format_user_list(declined),
-        inline=False,
+        name=f"{EMOJI_DECLINED} Abgelehnt",
+        value=_format_user_list_quoted(declined),
+        inline=True,
     )
     embed.add_field(
-        name=f"❓ Vorläufig ({len(tentative)})",
-        value=format_user_list(tentative),
-        inline=False,
+        name=f"{EMOJI_TENTATIVE} Vorläufig ({len(tentative)})",
+        value=_format_user_list_quoted(tentative),
+        inline=True,
     )
 
-    # Footer
-    creator = event_data.get("creator_name", "Unbekannt")
-    embed.set_footer(text=f"Erstellt von {creator}")
+    # ── Footer (unten) ───────────────────────────────────────────────
+    footer_icon = avatar_url if avatar_url else discord.Embed.Empty
+    embed.set_footer(text=creator, icon_url=footer_icon)
 
-    logger.debug("Embed gebaut für Event '%s'", event_data.get("title"))
+    logger.debug("Embed gebaut für Event '%s'", title)
     return embed

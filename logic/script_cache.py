@@ -7,16 +7,21 @@ Lookup-Reihenfolge:
 4. Cache Miss → None (Caller muss botcscripts.com konsultieren)
 """
 
+import asyncio
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
+
+import requests
 
 logger = logging.getLogger(__name__)
 
 # Statische Dateien aus Git — MUSS außerhalb des Railway-Volume-Mounts liegen
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
 STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
+ICONS_DIR = os.path.join(STATIC_DIR, "icons")
 BASE_SCRIPTS_FILE = os.path.join(STATIC_DIR, "base_scripts.json")
 CHARACTERS_FILE = os.path.join(STATIC_DIR, "characters.json")
 
@@ -27,6 +32,10 @@ CACHE_FILE = os.path.join(
 )
 
 CACHE_TTL_DAYS = 30
+
+# TPI GitHub URLs
+TPI_ROLES_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/data/roles.json"
+TPI_ICON_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/characters/{edition}/{filename}"
 
 # Lazy-loaded data
 _base_scripts: dict | None = None
@@ -67,14 +76,14 @@ def lookup_base_script(query: str) -> dict | None:
     return None
 
 
-# ── Characters ───────────────────────────────────────────────────────────────
+# ── Characters (TPI Format) ─────────────────────────────────────────────────
 
 
 def load_characters() -> dict:
-    """Lädt die offizielle Charakterdatenbank.
+    """Lädt die offizielle Charakterdatenbank (TPI roles.json Format).
 
     Returns:
-        Dict von character_id → {character_name, character_type, ability, ...}
+        Dict von character_id → {character_name, character_type, ability, edition}
     """
     global _characters
     if _characters is not None:
@@ -89,17 +98,141 @@ def load_characters() -> dict:
 
     _characters = {}
     for entry in raw:
-        pk = entry.get("pk", "")
-        fields = entry.get("fields", {})
-        _characters[pk] = {
-            "character_name": fields.get("character_name", pk),
-            "character_type": fields.get("character_type", ""),
-            "ability": fields.get("ability", ""),
-            "edition": fields.get("edition", 0),
+        char_id = entry.get("id", "")
+        if not char_id:
+            continue
+        _characters[char_id] = {
+            "character_name": entry.get("name", char_id),
+            "character_type": entry.get("team", "").capitalize(),
+            "ability": entry.get("ability", ""),
+            "edition": entry.get("edition", ""),
         }
 
     logger.debug("Charakterdatenbank geladen: %d Charaktere", len(_characters))
     return _characters
+
+
+def invalidate_characters_cache():
+    """Invalidiert den Characters-Cache, damit er beim nächsten Zugriff neu geladen wird."""
+    global _characters
+    _characters = None
+    logger.info("Characters-Cache invalidiert")
+
+
+def get_character_icon_path(char_id: str) -> str | None:
+    """Gibt den Pfad zum Character-Icon zurück, oder None wenn nicht vorhanden."""
+    # Verschiedene Dateinamen-Varianten probieren
+    for suffix in [f"{char_id}.webp", f"{char_id}_g.webp"]:
+        path = os.path.join(ICONS_DIR, suffix)
+        if os.path.exists(path):
+            return path
+    return None
+
+
+# ── TPI Update ───────────────────────────────────────────────────────────────
+
+
+def _download_file(url: str, timeout: int = 15) -> bytes | None:
+    """Lädt eine Datei von einer URL. Returns bytes oder None."""
+    try:
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
+            return r.content
+        logger.warning("Download fehlgeschlagen: %s → %d", url, r.status_code)
+        return None
+    except requests.RequestException as e:
+        logger.warning("Download-Fehler: %s → %s", url, e)
+        return None
+
+
+def _update_characters_sync(force_icons: bool = False) -> dict:
+    """Synchron: Lädt characters + icons von TPI GitHub.
+
+    Returns: {characters_count, new_icons, skipped_icons, errors}
+    """
+    result = {"characters_count": 0, "new_icons": 0, "skipped_icons": 0, "errors": []}
+
+    # 1. roles.json downloaden
+    logger.info("Lade roles.json von TPI...")
+    data = _download_file(TPI_ROLES_URL)
+    if data is None:
+        result["errors"].append("roles.json konnte nicht geladen werden")
+        return result
+
+    try:
+        roles = json.loads(data)
+    except json.JSONDecodeError:
+        result["errors"].append("roles.json ist kein gültiges JSON")
+        return result
+
+    if not isinstance(roles, list):
+        result["errors"].append("roles.json ist keine Liste")
+        return result
+
+    # Validieren
+    valid_roles = [r for r in roles if isinstance(r, dict) and r.get("id") and r.get("name") and r.get("team")]
+    if not valid_roles:
+        result["errors"].append("Keine gültigen Charaktere in roles.json")
+        return result
+
+    # Speichern
+    with open(CHARACTERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(roles, f, indent=2, ensure_ascii=False)
+    result["characters_count"] = len(valid_roles)
+    logger.info("roles.json gespeichert: %d Charaktere", len(valid_roles))
+
+    # 2. Icons downloaden
+    os.makedirs(ICONS_DIR, exist_ok=True)
+
+    for role in valid_roles:
+        char_id = role["id"]
+        edition = role.get("edition", "")
+
+        # Icon-Dateiname: versuche {id}.webp und {id}_g.webp
+        filenames_to_try = [f"{char_id}.webp", f"{char_id}_g.webp"]
+
+        # Prüfen ob schon vorhanden
+        already_exists = any(
+            os.path.exists(os.path.join(ICONS_DIR, fn))
+            for fn in filenames_to_try
+        )
+
+        if already_exists and not force_icons:
+            result["skipped_icons"] += 1
+            continue
+
+        # Downloaden
+        downloaded = False
+        for filename in filenames_to_try:
+            url = TPI_ICON_URL.format(edition=edition, filename=filename)
+            icon_data = _download_file(url, timeout=10)
+            if icon_data:
+                icon_path = os.path.join(ICONS_DIR, filename)
+                with open(icon_path, "wb") as f:
+                    f.write(icon_data)
+                result["new_icons"] += 1
+                downloaded = True
+                logger.debug("Icon heruntergeladen: %s", filename)
+                break
+
+        if not downloaded:
+            logger.debug("Kein Icon gefunden für: %s (edition=%s)", char_id, edition)
+
+        # Rate-Limiting
+        time.sleep(0.3)
+
+    return result
+
+
+async def update_characters_from_tpi(force_icons: bool = False) -> dict:
+    """Async: Lädt characters + icons von TPI GitHub und invalidiert Cache.
+
+    Returns: {characters_count, new_icons, skipped_icons, errors}
+    """
+    result = await asyncio.to_thread(_update_characters_sync, force_icons)
+    if result["characters_count"] > 0:
+        invalidate_characters_cache()
+    return result
 
 
 # ── Script Cache ─────────────────────────────────────────────────────────────
@@ -141,17 +274,12 @@ def lookup_cached_script(query: str) -> tuple[dict | None, bool]:
     normalized = normalize_name(query)
     cache = _load_cache()
 
-    # Exakter Match auf normalisierten Key
     entry = cache.get(normalized)
     if entry:
         expired = _is_expired(entry)
-        logger.debug(
-            "Cache %s: '%s' (expired=%s)",
-            "hit" if not expired else "hit (stale)", query, expired,
-        )
+        logger.debug("Cache %s: '%s' (expired=%s)", "hit" if not expired else "hit (stale)", query, expired)
         return entry, expired
 
-    # Suche über gespeicherte Namen (falls Key anders ist als Query)
     for key, entry in cache.items():
         if normalize_name(entry.get("name", "")) == normalized:
             expired = _is_expired(entry)
@@ -163,12 +291,7 @@ def lookup_cached_script(query: str) -> tuple[dict | None, bool]:
 
 
 def cache_script(name: str, data: dict):
-    """Speichert ein Script im Cache.
-
-    Args:
-        name: Der Script-Name (wird als Key normalisiert).
-        data: Dict mit mindestens {name, botcscripts_id, version, author, characters, url}.
-    """
+    """Speichert ein Script im Cache."""
     cache = _load_cache()
     key = normalize_name(name)
     data["last_checked"] = datetime.now(timezone.utc).isoformat()
@@ -191,19 +314,16 @@ def lookup_script(query: str) -> tuple[dict | None, str]:
     Returns:
         (script_data, source) — source ist "base", "cache", "cache_stale" oder "miss"
     """
-    # 1. Base Scripts
     base = lookup_base_script(query)
     if base:
         return base, "base"
 
-    # 2. Cache
     cached, needs_refresh = lookup_cached_script(query)
     if cached and not needs_refresh:
         return cached, "cache"
     if cached and needs_refresh:
         return cached, "cache_stale"
 
-    # 3. Miss
     return None, "miss"
 
 
@@ -218,7 +338,6 @@ def validate_script_json(data) -> tuple[dict | None, str | None]:
 
     Returns:
         (parsed_data, error_message) — parsed_data ist None bei Fehler.
-        parsed_data enthält: {name, author, characters, source: "upload"}
     """
     if not isinstance(data, list):
         return None, "Ungültiges Format: Erwartet wird eine JSON-Liste (Array)."
@@ -231,17 +350,15 @@ def validate_script_json(data) -> tuple[dict | None, str | None]:
 
     for item in data:
         if isinstance(item, str):
-            # String-Array-Format: ["washerwoman", "librarian", ...]
             characters.append(item)
         elif isinstance(item, dict):
             if item.get("id") == "_meta":
                 meta = item
             elif item.get("id"):
                 characters.append(item["id"])
-        # Andere Einträge werden ignoriert
 
     if not characters:
-        return None, "Keine Charaktere in der JSON gefunden. Erwartet: `[{\"id\": \"character_id\"}, ...]`"
+        return None, "Keine Charaktere in der JSON gefunden."
 
     parsed = {
         "name": meta.get("name", "Custom Script"),
@@ -250,8 +367,5 @@ def validate_script_json(data) -> tuple[dict | None, str | None]:
         "source": "upload",
     }
 
-    logger.info(
-        "Script-JSON validiert: '%s' von '%s' (%d Charaktere)",
-        parsed["name"], parsed["author"], len(characters),
-    )
+    logger.info("Script-JSON validiert: '%s' (%d Charaktere)", parsed["name"], len(characters))
     return parsed, None

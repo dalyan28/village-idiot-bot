@@ -4,7 +4,9 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:api.github.com)",
       "WebFetch(domain:www.botcscripts.com)",
-      "Bash(curl -sL \"https://raw.githubusercontent.com/AdmiralGT/botc-scripts/main/dev/characters.json\" -o data/characters.json)"
+      "Bash(curl -sL \"https://raw.githubusercontent.com/AdmiralGT/botc-scripts/main/dev/characters.json\" -o data/characters.json)",
+      "WebFetch(domain:script.bloodontheclocktower.com)",
+      "Bash(curl -sL \"https://script.bloodontheclocktower.com/workspace.607bad5f.js\")"
     ]
   }
 }

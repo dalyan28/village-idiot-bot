@@ -30,6 +30,7 @@ from logic.label import (
 from logic.botcscripts import search_scripts
 from logic.script_cache import cache_script, is_base_script, load_characters, lookup_script, validate_script_json
 from logic.event_builder import build_event_embed
+from logic.script_image import generate_script_image
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,9 @@ def _categorize_characters(char_ids: list[str]) -> dict[str, list[str]]:
         "Outsider": [],
         "Minion": [],
         "Demon": [],
+        "Traveller": [],
+        "Fabled": [],
+        "Loric": [],
         "Weitere": [],
     }
     type_map = {
@@ -131,8 +135,9 @@ def _categorize_characters(char_ids: list[str]) -> dict[str, list[str]]:
         "Outsider": "Outsider",
         "Minion": "Minion",
         "Demon": "Demon",
-        "Traveller": "Weitere",
-        "Fabled": "Weitere",
+        "Traveller": "Traveller",
+        "Fabled": "Fabled",
+        "Loric": "Loric",
     }
     for char_id in char_ids:
         char_info = characters_db.get(char_id)
@@ -300,7 +305,13 @@ def _build_preview_embed(session) -> discord.Embed:
         label_emoji = LABEL_EMOJI.get(label, "")
         embed.add_field(name="Label:", value=f"{label_emoji} {label_desc}", inline=False)
 
-    embed.set_footer(text=f"Vorschau — Server: {session.guild_name}")
+    if session.user_avatar_url:
+        embed.set_author(
+            name=f"Erstellt von {session.user_display_name}",
+            icon_url=session.user_avatar_url,
+        )
+    else:
+        embed.set_footer(text=f"Erstellt von {session.user_display_name}")
     return embed
 
 
@@ -668,17 +679,36 @@ class ConfirmEventView(discord.ui.View):
             h, m = divmod(fields["duration_minutes"], 60)
             extras.append(f"Dauer: {h}h {m:02d}min" if h else f"Dauer: {m}min")
 
+        # Script-Daten für Embed (Characters, URL)
+        script_characters = []
+        script_url = None
+        raw_script = fields.get("script")
+        if raw_script and not is_free:
+            script_data_lookup, _ = lookup_script(raw_script)
+            if script_data_lookup:
+                script_characters = script_data_lookup.get("characters", [])
+                botcscripts_id = script_data_lookup.get("botcscripts_id")
+                version = script_data_lookup.get("version")
+                if botcscripts_id and version:
+                    script_url = f"https://www.botcscripts.com/script/{botcscripts_id}/{version}"
+
         event_data = {
             "title": title,
             "description": fields.get("description"),
             "storyteller": fields.get("storyteller") or "-",
+            "co_storyteller": fields.get("co_storyteller"),
             "script": script_display,
+            "script_url": script_url,
+            "script_characters": script_characters,
             "level": fields.get("level") or "Alle",
+            "camera": fields.get("camera"),
+            "max_players": fields.get("max_players") or 12,
             "timestamp": start_ts,
             "end_timestamp": end_ts,
-            "additional_info": "\n".join(extras) if extras else None,
             "creator_id": self.session.user_id,
             "creator_name": self.session.user_display_name,
+            "creator_avatar_url": self.session.user_avatar_url,
+            "label": self.session.label,
         }
 
         event_cog = self.cog.bot.cogs.get("EventCommands")
@@ -694,7 +724,24 @@ class ConfirmEventView(discord.ui.View):
             return
 
         try:
-            msg = await event_cog.post_event(event_channel, event_data)
+            # Script-Bild generieren
+            script_file = None
+            raw_script = fields.get("script")
+            if raw_script and not is_free:
+                script_data_lookup, _ = lookup_script(raw_script)
+                chars = script_data_lookup.get("characters", []) if script_data_lookup else []
+                if chars:
+                    try:
+                        img_buffer = await generate_script_image(
+                            raw_script,
+                            (script_data_lookup or {}).get("author", ""),
+                            chars,
+                        )
+                        script_file = discord.File(img_buffer, filename="script.png")
+                    except Exception as img_err:
+                        logger.warning("Script-Bild Fehler: %s", img_err)
+
+            msg = await event_cog.post_event(event_channel, event_data, script_image=script_file)
             await interaction.followup.send(f"Event erstellt! 🎉\n{msg.jump_url}")
             logger.info("Event via /host erstellt: '%s' (msg_id=%s)", title, msg.id)
         except Exception as e:
@@ -762,6 +809,7 @@ class HostCommand(commands.Cog):
             guild_name=guild.name,
             event_channel_id=event_channel_id,
             user_display_name=interaction.user.display_name,
+            user_avatar_url=interaction.user.display_avatar.url,
         )
 
         await interaction.response.send_message(

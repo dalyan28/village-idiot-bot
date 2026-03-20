@@ -15,14 +15,18 @@ class EventCommands(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    async def post_event(self, channel: discord.TextChannel, event_data: dict) -> discord.Message:
+    async def post_event(
+        self,
+        channel: discord.TextChannel,
+        event_data: dict,
+        script_image: discord.File | None = None,
+    ) -> discord.Message:
         """Postet ein Event-Embed mit RSVP-Buttons und speichert es.
 
         Args:
             channel: Der Ziel-Channel für das Event.
             event_data: Dict mit allen Event-Feldern (siehe event_storage.py Datenmodell).
-                        Felder 'accepted', 'declined', 'tentative' werden automatisch
-                        initialisiert falls nicht vorhanden.
+            script_image: Optionales Script-Bild als discord.File.
 
         Returns:
             Die gesendete Discord-Message.
@@ -36,8 +40,16 @@ class EventCommands(commands.Cog):
         event_data["guild_id"] = channel.guild.id
 
         embed = build_event_embed(event_data)
+
+        if script_image:
+            embed.set_image(url="attachment://script.png")
+
         view = EventView()
-        msg = await channel.send(embed=embed, view=view)
+        kwargs = {"embed": embed, "view": view}
+        if script_image:
+            kwargs["file"] = script_image
+
+        msg = await channel.send(**kwargs)
 
         save_event(msg.id, event_data)
         logger.info(
