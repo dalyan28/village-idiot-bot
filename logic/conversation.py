@@ -18,6 +18,8 @@ from logic.llm_config import (
     INITIAL_USER_MESSAGE,
     MAX_TOKENS,
     MODEL,
+    PRICE_INPUT_PER_MTOK,
+    PRICE_OUTPUT_PER_MTOK,
     SYSTEM_PROMPT_TEMPLATE,
 )
 from logic.label import compute_label
@@ -58,6 +60,11 @@ class EventSession:
     label: str | None = None
     user_display_name: str = ""
     rules_summary: str = DEFAULT_RULES
+    # Kosten-Tracking
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_usd: float = 0.0
+    call_count: int = 0
 
     def is_expired(self) -> bool:
         return (time.time() - self.last_update) > SESSION_TIMEOUT_SECONDS
@@ -195,9 +202,19 @@ async def call_haiku(session: EventSession, user_message: str) -> dict | None:
         return None
 
     raw_text = response.content[0].text
+    input_tokens = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
+    call_cost = (input_tokens * PRICE_INPUT_PER_MTOK + output_tokens * PRICE_OUTPUT_PER_MTOK) / 1_000_000
+
+    # Session-Tracking aktualisieren
+    session.total_input_tokens += input_tokens
+    session.total_output_tokens += output_tokens
+    session.total_cost_usd += call_cost
+    session.call_count += 1
+
     logger.debug(
-        "Haiku-Response: tokens_in=%d, tokens_out=%d",
-        response.usage.input_tokens, response.usage.output_tokens,
+        "Haiku-Response: tokens_in=%d, tokens_out=%d, cost=$%.5f (session total: $%.5f, %d calls)",
+        input_tokens, output_tokens, call_cost, session.total_cost_usd, session.call_count,
     )
     logger.debug("Haiku raw: %s", raw_text[:500])
 

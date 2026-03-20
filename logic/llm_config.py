@@ -3,6 +3,10 @@
 MODEL = "claude-haiku-4-5-20251001"
 MAX_TOKENS = 1024
 
+# Pricing (USD per million tokens) — Haiku 4.5
+PRICE_INPUT_PER_MTOK = 0.80
+PRICE_OUTPUT_PER_MTOK = 4.00
+
 # Pflichtfelder die Haiku abfragen muss
 REQUIRED_FIELDS = ["script", "start_time", "storyteller"]
 

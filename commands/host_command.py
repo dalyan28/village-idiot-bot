@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -32,6 +33,21 @@ from logic.event_builder import build_event_embed
 logger = logging.getLogger(__name__)
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
+
+
+def _cost_footer(session) -> str:
+    """Baut eine dezente Kosten-Fußzeile für DM-Nachrichten. Nur im Dev-Modus."""
+    if os.getenv("ENV") != "dev":
+        return ""
+    cost = session.total_cost_usd
+    calls = session.call_count
+    tokens_in = session.total_input_tokens
+    tokens_out = session.total_output_tokens
+    return (
+        f"-# 💰 Nachricht {calls} · "
+        f"{tokens_in} in / {tokens_out} out · "
+        f"${cost:.4f} (gesamt)"
+    )
 
 
 # ── Helper Functions ─────────────────────────────────────────────────────────
@@ -482,7 +498,7 @@ class HostCommand(commands.Cog):
             )
             end_session(interaction.user.id)
 
-    async def _show_preview(self, session, channel: discord.DMChannel, haiku_message: str = ""):
+    async def _show_preview(self, session, channel: discord.DMChannel, haiku_message: str = "", cost_footer: str = ""):
         """Zeigt die Event-Vorschau mit Bestätigungs-Buttons."""
         session.label = compute_label(session.fields)
         preview = _build_preview_embed(session)
@@ -490,8 +506,10 @@ class HostCommand(commands.Cog):
 
         if haiku_message:
             await channel.send(content=haiku_message)
+
+        footer = cost_footer or _cost_footer(session)
         await channel.send(
-            content="**Hier ist die Vorschau deines Events:**",
+            content=f"**Hier ist die Vorschau deines Events:**\n{footer}",
             embed=preview,
             view=confirm_view,
         )
@@ -554,27 +572,29 @@ class HostCommand(commands.Cog):
         action = response.get("action", "ask")
         haiku_message = response.get("message", "")
 
+        footer = _cost_footer(session)
+
         if action == "done":
             # Script resolven bevor Vorschau gezeigt wird
             ready = await _resolve_script(session, message.channel)
             if ready:
-                await self._show_preview(session, message.channel, haiku_message)
+                await self._show_preview(session, message.channel, haiku_message, footer)
             else:
                 # Script-Auswahl/Upload läuft → haiku_message trotzdem senden
                 if haiku_message:
-                    await message.channel.send(haiku_message)
+                    await message.channel.send(f"{haiku_message}\n{footer}")
 
         elif action == "refuse":
             await message.channel.send(
                 f"{haiku_message}\n\n"
                 "💡 Ich kann dir nur bei der Event-Erstellung helfen. "
-                "Beschreib mir dein BotC-Event!"
+                f"Beschreib mir dein BotC-Event!\n{footer}"
             )
 
         else:
             # ask / explain
             if haiku_message:
-                await message.channel.send(haiku_message)
+                await message.channel.send(f"{haiku_message}\n{footer}")
 
 
 async def setup(bot: commands.Bot):
