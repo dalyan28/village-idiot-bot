@@ -28,7 +28,7 @@ from logic.label import (
     get_label_emoji,
 )
 from logic.botcscripts import search_scripts
-from logic.script_cache import cache_script, is_base_script, lookup_script, validate_script_json
+from logic.script_cache import cache_script, is_base_script, load_characters, lookup_script, validate_script_json
 from logic.event_builder import build_event_embed
 
 logger = logging.getLogger(__name__)
@@ -116,8 +116,37 @@ def _parse_haiku_to_embed(haiku_message: str) -> tuple[str | None, discord.Embed
     return "", embed
 
 
+def _categorize_characters(char_ids: list[str]) -> dict[str, list[str]]:
+    """Kategorisiert Character-IDs nach Typ (Townsfolk, Outsider, Minion, Demon, Weitere)."""
+    characters_db = load_characters()
+    categories = {
+        "Townsfolk": [],
+        "Outsider": [],
+        "Minion": [],
+        "Demon": [],
+        "Weitere": [],
+    }
+    type_map = {
+        "Townsfolk": "Townsfolk",
+        "Outsider": "Outsider",
+        "Minion": "Minion",
+        "Demon": "Demon",
+        "Traveller": "Weitere",
+        "Fabled": "Weitere",
+    }
+    for char_id in char_ids:
+        char_info = characters_db.get(char_id)
+        if char_info:
+            char_type = char_info.get("character_type", "")
+            category = type_map.get(char_type, "Weitere")
+            categories[category].append(char_info.get("character_name", char_id))
+        else:
+            categories["Weitere"].append(char_id)
+    return categories
+
+
 def _build_script_info_embed(script_data: dict) -> discord.Embed:
-    """Baut ein Embed mit Script-Informationen."""
+    """Baut ein Embed mit Script-Informationen und kategorisierten Charakteren."""
     name = script_data.get("name", "Unbekannt")
     embed = discord.Embed(title=f"📜 Script erkannt: {name}", color=BOT_COLOR)
 
@@ -131,13 +160,17 @@ def _build_script_info_embed(script_data: dict) -> discord.Embed:
 
     characters = script_data.get("characters", [])
     if characters:
-        embed.add_field(name="Charaktere", value=str(len(characters)), inline=True)
-        # Erste Charaktere anzeigen
-        char_display = ", ".join(characters[:15])
-        if len(characters) > 15:
-            char_display += f", ... (+{len(characters) - 15})"
-        embed.add_field(name="Auf dem Script", value=f"```{char_display}```", inline=False)
+        embed.add_field(name="Gesamt", value=f"{len(characters)} Charaktere", inline=True)
 
+        cats = _categorize_characters(characters)
+        for cat_name, char_list in cats.items():
+            if char_list:
+                display = ", ".join(char_list)
+                if len(display) > 1020:
+                    display = display[:1017] + "..."
+                embed.add_field(name=cat_name, value=f"```{display}```", inline=False)
+
+    embed.set_footer(text="Stimmt das? Antworte mit 'ja' zum Bestätigen oder beschreibe was anders sein soll.")
     return embed
 
 
@@ -153,11 +186,11 @@ def _build_review_embed(session) -> discord.Embed:
 
     embed.add_field(name="1 · Titel", value=f"```{fields.get('title') or '-'}```", inline=False)
 
-    # Description als Field (max 1024 Zeichen)
-    desc = fields.get("description") or "*Keine Description*"
-    if len(desc) > 1020:
-        desc = desc[:1017] + "..."
-    embed.add_field(name="2 · Description", value=desc, inline=False)
+    # Beschreibung als Code-Block (max 1024 Zeichen)
+    desc = fields.get("description") or "Keine Beschreibung"
+    if len(desc) > 1010:
+        desc = desc[:1007] + "..."
+    embed.add_field(name="2 · Beschreibung", value=f"```{desc}```", inline=False)
 
     # Inline-Paare
     st = fields.get("storyteller") or "-"
@@ -373,28 +406,12 @@ async def _resolve_script(session, channel: discord.DMChannel) -> bool:
     return False
 
 
-def _handle_script_choice(session, choice_text: str) -> str | None:
-    """Verarbeitet die Script-Auswahl. Returns Fehlertext oder None bei Erfolg."""
-    choices = getattr(session, "pending_script_choices", None)
-    if not choices:
-        return "Keine Skript-Auswahl ausstehend."
-
-    text = choice_text.strip().lower()
-    if text in ("skip", "überspringen", "s"):
-        session.pending_script_choices = None
-        return None
-
-    try:
-        idx = int(text) - 1
-    except ValueError:
-        return f"Bitte antworte mit 1-{len(choices)} oder 'skip'."
-
-    if not (0 <= idx < len(choices)):
-        return f"Bitte wähle 1-{len(choices)}."
-
+def _select_script_choice(session, idx: int) -> dict:
+    """Wählt ein Script aus den Suchergebnissen und cached es. Returns das Script-Data dict."""
+    choices = session.pending_script_choices
     chosen = choices[idx]
     session.fields["script"] = chosen["name"]
-    cache_script(chosen["name"], {
+    data = {
         "name": chosen["name"],
         "author": chosen.get("author", ""),
         "version": chosen.get("version", ""),
@@ -402,10 +419,74 @@ def _handle_script_choice(session, choice_text: str) -> str | None:
         "characters": chosen.get("characters", []),
         "url": chosen.get("url", ""),
         "source": "botcscripts",
-    })
+    }
+    cache_script(chosen["name"], data)
     session.pending_script_choices = None
     logger.info("Script ausgewählt: '%s'", chosen["name"])
-    return None
+    return data
+
+
+async def _handle_script_choice(session, message: discord.Message, channel) -> str | None:
+    """Verarbeitet Input im Script-Auswahl-Modus.
+
+    Unterstützt:
+    - Nummer (1-5) → Script auswählen
+    - "custom"/"homebrew" → Upload-Flow
+    - "skip" → Überspringen
+    - Natürliche Sprache ("ich möchte die von Lau", "mehr infos zu 3") → Haiku hilft
+    - Fragen zu den Ergebnissen → Info anzeigen
+
+    Returns: Fehlertext, oder None bei Erfolg (Script ausgewählt).
+    """
+    choices = getattr(session, "pending_script_choices", None)
+    if not choices:
+        return "Keine Skript-Auswahl ausstehend."
+
+    text = message.content.strip()
+    text_lower = text.lower()
+
+    # Skip
+    if text_lower in ("skip", "überspringen", "s"):
+        session.pending_script_choices = None
+        return None
+
+    # Custom/Homebrew → Upload
+    if text_lower in ("custom", "homebrew", "eigenes", "custom script", "homebrew script"):
+        session.pending_script_choices = None
+        session.pending_script_upload = True
+        return "upload_requested"
+
+    # Direkte Nummer
+    try:
+        idx = int(text_lower) - 1
+        if 0 <= idx < len(choices):
+            return None  # Erfolg, wird vom Caller mit _select_script_choice behandelt
+        else:
+            return f"Bitte wähle 1-{len(choices)}."
+    except ValueError:
+        pass
+
+    # Natürliche Sprache → prüfe ob eine Auswahl oder Frage gemeint ist
+    # Infos zu einer bestimmten Nummer?
+    for i, choice in enumerate(choices):
+        markers = [str(i + 1), choice["name"].lower()]
+        author = (choice.get("author") or "").lower()
+        if author:
+            markers.append(author)
+
+        if any(m in text_lower for m in markers):
+            if any(w in text_lower for w in ("info", "mehr", "detail", "charakter", "demon", "zeig", "was ist")):
+                # User will Infos zu diesem Script → Embed zeigen
+                embed = _build_script_info_embed(choice)
+                await channel.send(embed=embed)
+                return "info_shown"  # Bleibt im Auswahl-Modus
+
+            if any(w in text_lower for w in ("möchte", "nehme", "wähle", "das", "diese", "von ")):
+                # User wählt dieses Script
+                _select_script_choice(session, i)
+                return None  # Erfolg
+
+    return f"Antworte mit 1-{len(choices)}, 'custom' für eigenes Script, oder 'skip'.\nDu kannst auch fragen: 'Mehr Infos zu 3?' oder 'Welche Demons sind in 2?'"
 
 
 async def _handle_script_upload(session, message: discord.Message) -> tuple[bool, str]:
@@ -775,22 +856,59 @@ class HostCommand(commands.Cog):
                 return
             if text:
                 await channel.send(text)
-            await self._show_review(session, channel)
+            # Script-Info anzeigen
+            name = session.fields.get("script", "")
+            script_data, _ = lookup_script(name)
+            if script_data:
+                await channel.send(embed=_build_script_info_embed(script_data))
+            if getattr(session, "_pending_done_after_script", False):
+                session._pending_done_after_script = False
+                await self._show_review(session, channel)
+            else:
+                await channel.send("Skript validiert! Lass uns mit den restlichen Details weitermachen.")
             return
 
         # Script-Auswahl ausstehend?
         if getattr(session, "pending_script_choices", None):
-            error = _handle_script_choice(session, message.content)
-            if error:
-                await channel.send(error)
+            result = await _handle_script_choice(session, message, channel)
+
+            if result == "info_shown":
+                return  # Bleibt im Auswahl-Modus
+
+            if result == "upload_requested":
+                await channel.send(
+                    "Kein Problem! Sende mir die **Script-JSON als Datei** (.json) oder 'skip'."
+                )
                 return
+
+            if result is not None:
+                # Fehlertext
+                await channel.send(result)
+                return
+
+            # Erfolg → direkte Nummer oder natürliche Sprache
+            # Wenn _select_script_choice noch nicht aufgerufen wurde (direkte Nummer)
+            choices = getattr(session, "pending_script_choices", None)
+            if choices:
+                try:
+                    idx = int(message.content.strip()) - 1
+                    _select_script_choice(session, idx)
+                except (ValueError, IndexError):
+                    pass
+
             name = session.fields.get("script", "")
-            await channel.send(f"✅ **{name}** ausgewählt!")
-            # Script-Info Embed zeigen
             script_data, _ = lookup_script(name)
             if script_data:
-                await channel.send(embed=_build_script_info_embed(script_data))
-            await self._show_review(session, channel)
+                await channel.send(f"✅ **{name}** ausgewählt!")
+                embed = _build_script_info_embed(script_data)
+                await channel.send(embed=embed)
+
+            # Wenn wir aus dem done-Flow kamen → Review zeigen, sonst weiter mit Konversation
+            if getattr(session, "_pending_done_after_script", False):
+                session._pending_done_after_script = False
+                await self._show_review(session, channel)
+            else:
+                await channel.send("Skript validiert! Lass uns mit den restlichen Details weitermachen.")
             return
 
         # Review-Modus?
@@ -826,16 +944,25 @@ class HostCommand(commands.Cog):
         footer = _cost_footer(session)
 
         if action == "done":
-            # Script inline validieren bevor Review gezeigt wird
-            await _validate_script_inline(session, channel)
-            # Wenn Script-Auswahl/Upload gestartet wurde, Review erst nach Auswahl
-            if getattr(session, "pending_script_choices", None) or getattr(session, "pending_script_upload", False):
-                if haiku_message:
+            # Haiku-Nachricht senden
+            if haiku_message:
+                plain, embed = _parse_haiku_to_embed(haiku_message)
+                if embed:
+                    if footer:
+                        embed.set_footer(text=footer.replace("-# 💰 ", "💰 "))
+                    await channel.send(embed=embed)
+                else:
                     msg = f"{haiku_message}\n{footer}" if footer else haiku_message
                     await channel.send(msg)
+
+            # Script inline validieren bevor Review
+            await _validate_script_inline(session, channel)
+            # Wenn Script-Auswahl/Upload gestartet → merken dass Review danach kommen soll
+            if getattr(session, "pending_script_choices", None) or getattr(session, "pending_script_upload", False):
+                session._pending_done_after_script = True
                 return
-            # Alle Felder komplett → Review
-            await self._show_review(session, channel, haiku_message)
+            # Alle Felder komplett + Script validiert → Review
+            await self._show_review(session, channel)
 
         elif action == "refuse":
             embed = discord.Embed(

@@ -161,6 +161,7 @@ def _build_system_prompt(session: EventSession) -> str:
         today_date=today_date,
         today_weekday=today_weekday,
         rules_summary=rules,
+        user_display_name=session.user_display_name or "User",
     )
 
 
