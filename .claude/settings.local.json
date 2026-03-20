@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:api.github.com)",
+      "WebFetch(domain:www.botcscripts.com)",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/AdmiralGT/botc-scripts/main/dev/characters.json\" -o data/characters.json)"
+    ]
+  }
+}

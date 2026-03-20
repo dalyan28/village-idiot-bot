@@ -1,0 +1,44 @@
+{
+  "trouble_brewing": {
+    "name": "Trouble Brewing",
+    "aliases": ["tb", "trouble brewing", "troublebrewing"],
+    "author": "The Pandemonium Institute",
+    "script_complexity": "simple",
+    "characters": [
+      "washerwoman", "librarian", "investigator", "chef", "empath",
+      "fortuneteller", "undertaker", "monk", "ravenkeeper", "virgin",
+      "slayer", "soldier", "mayor",
+      "butler", "drunk", "recluse", "saint",
+      "poisoner", "spy", "scarletwoman", "baron",
+      "imp"
+    ]
+  },
+  "bad_moon_rising": {
+    "name": "Bad Moon Rising",
+    "aliases": ["bmr", "bad moon rising", "badmoonrising"],
+    "author": "The Pandemonium Institute",
+    "script_complexity": "SnV_BMR",
+    "characters": [
+      "grandmother", "sailor", "chambermaid", "exorcist", "innkeeper",
+      "gambler", "gossip", "courtier", "professor", "minstrel",
+      "tealady", "pacifist", "fool",
+      "tinker", "moonchild", "goon", "lunatic",
+      "godfather", "devilsadvocate", "assassin", "mastermind",
+      "zombuul", "pukka", "shabaloth", "po"
+    ]
+  },
+  "sects_and_violets": {
+    "name": "Sects and Violets",
+    "aliases": ["snv", "s&v", "sects and violets", "sectsandviolets", "sav", "s and v", "sects & violets"],
+    "author": "The Pandemonium Institute",
+    "script_complexity": "SnV_BMR",
+    "characters": [
+      "clockmaker", "dreamer", "snakecharmer", "mathematician", "flowergirl",
+      "towncrier", "oracle", "savant", "seamstress", "philosopher",
+      "artist", "juggler", "sage",
+      "mutant", "sweetheart", "barber", "klutz",
+      "witch", "cerenovus", "pithaag", "eviltwins",
+      "fanggu", "vigormortis", "nodashii", "vortox"
+    ]
+  }
+}

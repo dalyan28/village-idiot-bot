@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 config.json
 events.json
+data/script_cache.json
 MOD_DOKU.md
 .vscode/
 phase0/
