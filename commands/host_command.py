@@ -71,6 +71,51 @@ def _cost_footer(session) -> str:
 # ── Embed Builders ───────────────────────────────────────────────────────────
 
 
+def _parse_haiku_to_embed(haiku_message: str) -> tuple[str | None, discord.Embed | None]:
+    """Versucht eine strukturierte Haiku-Antwort (ERFASST:/DEFAULTS:) in ein Embed zu parsen.
+
+    Returns:
+        (plain_text, embed) — plain_text für den Teil vor ERFASST:, embed für den strukturierten Teil.
+        Wenn kein ERFASST: gefunden wird, gibt (None, None) zurück.
+    """
+    if "ERFASST:" not in haiku_message:
+        return None, None
+
+    # Text vor ERFASST: ist der Intro-Satz
+    parts = haiku_message.split("ERFASST:", 1)
+    intro = parts[0].strip()
+    rest = parts[1] if len(parts) > 1 else ""
+
+    embed = discord.Embed(title=intro or "📝 Erfasst", color=BOT_COLOR)
+
+    # ERFASST:-Felder parsen
+    erfasst_text = rest
+    defaults_text = ""
+    fragen_text = ""
+
+    if "DEFAULTS:" in rest:
+        erfasst_text, defaults_rest = rest.split("DEFAULTS:", 1)
+        defaults_text = defaults_rest
+    if "Noch offen:" in (defaults_text or erfasst_text):
+        target = defaults_text if defaults_text else erfasst_text
+        if "Noch offen:" in target:
+            before, fragen_text = target.split("Noch offen:", 1)
+            if defaults_text:
+                defaults_text = before
+            else:
+                erfasst_text = before
+
+    # Felder in Embed-Fields umwandeln
+    if erfasst_text.strip():
+        embed.add_field(name="✅ Erfasst", value=erfasst_text.strip(), inline=False)
+    if defaults_text.strip():
+        embed.add_field(name="📋 Annahmen", value=defaults_text.strip(), inline=False)
+    if fragen_text.strip():
+        embed.add_field(name="❓ Noch offen", value=fragen_text.strip(), inline=False)
+
+    return "", embed
+
+
 def _build_script_info_embed(script_data: dict) -> discord.Embed:
     """Baut ein Embed mit Script-Informationen."""
     name = script_data.get("name", "Unbekannt")
@@ -103,11 +148,16 @@ def _build_review_embed(session) -> discord.Embed:
 
     embed = discord.Embed(
         title="📋 Event-Zusammenfassung",
-        description=fields.get("description") or "*Keine Description*",
         color=BOT_COLOR,
     )
 
-    embed.add_field(name="Titel", value=f"```{fields.get('title') or '-'}```", inline=False)
+    embed.add_field(name="1 · Titel", value=f"```{fields.get('title') or '-'}```", inline=False)
+
+    # Description als Field (max 1024 Zeichen)
+    desc = fields.get("description") or "*Keine Description*"
+    if len(desc) > 1020:
+        desc = desc[:1017] + "..."
+    embed.add_field(name="2 · Description", value=desc, inline=False)
 
     # Inline-Paare
     st = fields.get("storyteller") or "-"
@@ -239,7 +289,11 @@ def _parse_start_time(time_str: str) -> int | None:
 
 
 async def _validate_script_inline(session, channel: discord.DMChannel) -> None:
-    """Validiert das Script inline während der Konversation und zeigt Info-Embed."""
+    """Validiert das Script inline während der Konversation und zeigt Info-Embed.
+
+    Wird nach jedem Haiku-Call aufgerufen. Zeigt Script-Details wenn ein neues Script erkannt wurde.
+    Bei Cache-Miss wird sofort die API durchsucht und die Auswahl gestartet.
+    """
     script_name = session.fields.get("script")
     if not script_name or session.fields.get("is_free_choice"):
         return
@@ -257,6 +311,28 @@ async def _validate_script_inline(session, channel: discord.DMChannel) -> None:
         embed = _build_script_info_embed(script_data)
         await channel.send(embed=embed)
         logger.info("Script inline validiert: '%s' via %s", script_name, source)
+        return
+
+    # Cache-Miss → API-Suche starten
+    logger.info("Script '%s' inline nicht gefunden, suche auf botcscripts.com", script_name)
+    async with channel.typing():
+        results = await search_scripts(script_name, limit=5)
+
+    session.touch()
+
+    if results:
+        session.pending_script_choices = results
+        embed = _build_script_choice_embed(results)
+        await channel.send(
+            f"Ich habe **{script_name}** in der Datenbank gesucht:",
+            embed=embed,
+        )
+    else:
+        session.pending_script_upload = True
+        await channel.send(
+            f"**{script_name}** wurde nicht in der Datenbank gefunden.\n"
+            "Du kannst die **Script-JSON als Datei** hochladen oder **'skip'** schreiben."
+        )
 
 
 async def _resolve_script(session, channel: discord.DMChannel) -> bool:
@@ -750,6 +826,14 @@ class HostCommand(commands.Cog):
         footer = _cost_footer(session)
 
         if action == "done":
+            # Script inline validieren bevor Review gezeigt wird
+            await _validate_script_inline(session, channel)
+            # Wenn Script-Auswahl/Upload gestartet wurde, Review erst nach Auswahl
+            if getattr(session, "pending_script_choices", None) or getattr(session, "pending_script_upload", False):
+                if haiku_message:
+                    msg = f"{haiku_message}\n{footer}" if footer else haiku_message
+                    await channel.send(msg)
+                return
             # Alle Felder komplett → Review
             await self._show_review(session, channel, haiku_message)
 
@@ -763,10 +847,17 @@ class HostCommand(commands.Cog):
             await channel.send(embed=embed)
 
         else:
-            # ask / explain — Plain-Text
+            # ask / explain
             if haiku_message:
-                msg = f"{haiku_message}\n{footer}" if footer else haiku_message
-                await channel.send(msg)
+                # Versuche strukturierte Antwort als Embed zu parsen
+                plain, embed = _parse_haiku_to_embed(haiku_message)
+                if embed:
+                    if footer:
+                        embed.set_footer(text=footer.replace("-# 💰 ", "💰 "))
+                    await channel.send(embed=embed)
+                else:
+                    msg = f"{haiku_message}\n{footer}" if footer else haiku_message
+                    await channel.send(msg)
 
             # Inline Script-Validierung nach jedem Haiku-Call
             await _validate_script_inline(session, channel)
