@@ -3,9 +3,10 @@ Dev-only Test-Commands für den VillageIdiot Bot.
 Werden nur geladen wenn ENV=dev gesetzt ist (siehe bot.py).
 
 Befehle:
-    /create_test_event  – Postet ein Mock-Apollo-Event im Event-Channel
-    /clear_test_events  – Löscht alle Test-Events aus dem Event-Channel
-    /smart_status       – Zeigt internen Smart-Mode-Zustand (Locks, Dynamic Times, Last Run)
+    /create_test_event      – Postet ein Mock-Apollo-Event im Event-Channel
+    /clear_test_events      – Löscht alle Test-Events aus dem Event-Channel
+    /smart_status           – Zeigt internen Smart-Mode-Zustand (Locks, Dynamic Times, Last Run)
+    /create_event           – Erstellt ein Event-Embed mit RSVP-Buttons (Test für Event-System)
 """
 import time as time_module
 from datetime import datetime, timedelta
@@ -18,6 +19,13 @@ from discord.ext import commands
 from config import get_guild_config
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
+
+# Termin-Formate für /create_event
+_TIME_FORMATS = [
+    "%d.%m.%Y %H:%M",
+    "%Y-%m-%d %H:%M",
+    "%d.%m. %H:%M",
+]
 TEST_MARKER = "[TEST]"  # Marker im Embed-Titel für Test-Events
 
 
@@ -149,6 +157,98 @@ class TestCommands(commands.Cog):
 
         await interaction.followup.send(
             f"{deleted} vergangene(s) Event(s) gelöscht.", ephemeral=True
+        )
+
+    @app_commands.command(
+        name="create_event",
+        description="[DEV] Erstellt ein Event-Embed mit RSVP-Buttons im Event-Channel"
+    )
+    @app_commands.describe(
+        title="Titel des Events",
+        storyteller="Name der Storyteller:in",
+        script="Name des BotC-Skripts",
+        level="Schwierigkeitsgrad",
+        termin="Startzeit, z.B. '25.03.2026 20:00' oder '2026-03-25 20:00'",
+        dauer_stunden="Dauer in Stunden (default: 3)",
+        description="Optionale Beschreibung",
+        zusatzinfo="Optionale weitere Informationen",
+    )
+    @app_commands.choices(level=[
+        app_commands.Choice(name="Neuling", value="Neuling"),
+        app_commands.Choice(name="Erfahren", value="Erfahren"),
+        app_commands.Choice(name="Profi", value="Profi"),
+        app_commands.Choice(name="Alle", value="Alle"),
+    ])
+    async def create_event(
+        self,
+        interaction: discord.Interaction,
+        title: str,
+        storyteller: str,
+        script: str,
+        level: app_commands.Choice[str],
+        termin: str,
+        dauer_stunden: float = 3.0,
+        description: str = None,
+        zusatzinfo: str = None,
+    ):
+        cfg = get_guild_config(interaction.guild_id)
+        event_channel_id = cfg.get("event_channel_id")
+        event_channel = self.bot.get_channel(event_channel_id) if event_channel_id else None
+
+        if not event_channel:
+            await interaction.response.send_message(
+                "Kein Event-Channel gesetzt (`/set_event_channel` nutzen).", ephemeral=True
+            )
+            return
+
+        # Termin parsen
+        parsed_dt = None
+        for fmt in _TIME_FORMATS:
+            try:
+                parsed_dt = datetime.strptime(termin, fmt)
+                if fmt == "%d.%m. %H:%M":
+                    parsed_dt = parsed_dt.replace(year=datetime.now().year)
+                break
+            except ValueError:
+                continue
+
+        if parsed_dt is None:
+            await interaction.response.send_message(
+                "Ungültiges Termin-Format. Beispiele:\n"
+                "• `25.03.2026 20:00`\n"
+                "• `2026-03-25 20:00`\n"
+                "• `25.03. 20:00` (aktuelles Jahr)",
+                ephemeral=True,
+            )
+            return
+
+        parsed_dt = parsed_dt.replace(tzinfo=BERLIN_TZ)
+        start_ts = int(parsed_dt.timestamp())
+        end_ts = int((parsed_dt + timedelta(hours=dauer_stunden)).timestamp())
+
+        event_data = {
+            "title": title,
+            "description": description,
+            "storyteller": storyteller,
+            "script": script,
+            "level": level.value,
+            "timestamp": start_ts,
+            "end_timestamp": end_ts,
+            "additional_info": zusatzinfo,
+            "creator_id": interaction.user.id,
+            "creator_name": interaction.user.display_name,
+        }
+
+        event_cog = self.bot.cogs.get("EventCommands")
+        if not event_cog:
+            await interaction.response.send_message("EventCommands-Cog nicht geladen.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        msg = await event_cog.post_event(event_channel, event_data)
+        await interaction.followup.send(
+            f"Event erstellt: **{title}** in {event_channel.mention}\n{msg.jump_url}",
+            ephemeral=True,
         )
 
     @app_commands.command(

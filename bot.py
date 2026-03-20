@@ -1,10 +1,17 @@
+import logging
+import os
+
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import os
 import asyncio
 
 load_dotenv()
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -19,7 +26,13 @@ async def on_ready():
     print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
     print(f"Bot ist online als {bot.user}")
     from config import cleanup_config
+    from event_storage import cleanup_old_events
+    from views.event_view import EventView
+
     cleanup_config()
+    cleanup_old_events()
+    bot.add_view(EventView())
+
     await asyncio.sleep(3)
     await restore_auto_tasks()
 
@@ -72,6 +85,7 @@ async def main():
     async with bot:
         await bot.load_extension("commands.settings")
         await bot.load_extension("commands.overview")
+        await bot.load_extension("commands.event_commands")
         if os.getenv("ENV") == "dev":
             await bot.load_extension("commands.test_commands")
             print("Dev-Modus: Test-Commands geladen")
