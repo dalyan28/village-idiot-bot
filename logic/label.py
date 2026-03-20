@@ -18,12 +18,15 @@ LABEL_EMOJI = {
 
 LABEL_DESCRIPTION = {
     "dove": "Casual / Anfängerfreundlich",
-    "green": "Neuling (< 10 TB-Runden)",
+    "green": "Neuling-freundlich",
     "yellow": "Fortgeschritten (S&V / BMR)",
     "red": "Komplex / Erfahrene Spieler",
     "hammer": "Homebrew / Amnesiac",
     "camera": "Aufgezeichnet für YouTube",
 }
+
+FREE_CHOICE_EMOJI = "💚/🟡/🟥"
+FREE_CHOICE_DESCRIPTION = "Freie Skriptwahl"
 
 
 def compute_label(fields: dict) -> str | None:
@@ -42,21 +45,16 @@ def compute_label(fields: dict) -> str | None:
     if complexity in ("homebrew", "amnesiac"):
         return "hammer"
 
-    tb = fields.get("tb_rounds_played")
-    if tb is None:
-        return None  # Noch nicht bestimmbar
-
-    if tb < 10:
+    if complexity == "simple":
         return "green"
 
     if complexity == "SnV_BMR":
         return "yellow"
 
-    return "red"
+    if complexity == "complex":
+        return "red"
 
-
-FREE_CHOICE_EMOJI = "💚/🟡/🟥"
-FREE_CHOICE_DESCRIPTION = "Freie Skriptwahl"
+    return None  # Noch nicht bestimmbar
 
 
 def get_label_emoji(label: str | None, is_free_choice: bool = False) -> str:

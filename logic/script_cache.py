@@ -14,12 +14,17 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-BASE_SCRIPTS_FILE = os.path.join(DATA_DIR, "base_scripts.json")
+# Statische Dateien aus Git — MUSS außerhalb des Railway-Volume-Mounts liegen
+PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
+BASE_SCRIPTS_FILE = os.path.join(STATIC_DIR, "base_scripts.json")
+CHARACTERS_FILE = os.path.join(STATIC_DIR, "characters.json")
+
+# Cache auf Volume (Railway) oder lokal im data/ Ordner
 CACHE_FILE = os.path.join(
-    os.getenv("RAILWAY_VOLUME_MOUNT_PATH", DATA_DIR), "script_cache.json"
+    os.getenv("RAILWAY_VOLUME_MOUNT_PATH", os.path.join(PROJECT_ROOT, "data")),
+    "script_cache.json",
 )
-CHARACTERS_FILE = os.path.join(DATA_DIR, "characters.json")
 
 CACHE_TTL_DAYS = 30
 

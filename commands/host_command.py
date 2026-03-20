@@ -18,6 +18,7 @@ from logic.conversation import (
     has_active_session,
     start_conversation,
     start_session,
+    was_recently_expired,
 )
 from logic.label import (
     FREE_CHOICE_DESCRIPTION,
@@ -33,28 +34,144 @@ from logic.event_builder import build_event_embed
 logger = logging.getLogger(__name__)
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
+BOT_COLOR = 0x5865F2
+ERROR_COLOR = 0xED4245
+
+CANCEL_KEYWORDS = {"abbrechen", "cancel", "stop"}
+CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes"}
+
+# Nummerierte Felder für den Review-Flow
+REVIEW_FIELDS = [
+    ("title", "Titel"),
+    ("description", "Description"),
+    ("storyteller", "Storyteller:in"),
+    ("script", "Skript"),
+    ("level", "Level"),
+    ("start_time", "Termin"),
+    ("duration_minutes", "Dauer"),
+    ("camera", "Kamera"),
+    ("max_players", "Max Spieler"),
+    ("co_storyteller", "Co-ST"),
+    ("is_casual", "Casual-Runde"),
+    ("is_recorded", "Aufzeichnung"),
+]
 
 
 def _cost_footer(session) -> str:
-    """Baut eine dezente Kosten-Fußzeile für DM-Nachrichten. Nur im Dev-Modus."""
+    """Baut eine dezente Kosten-Fußzeile. Nur im Dev-Modus."""
     if os.getenv("ENV") != "dev":
         return ""
-    cost = session.total_cost_usd
-    calls = session.call_count
-    tokens_in = session.total_input_tokens
-    tokens_out = session.total_output_tokens
     return (
-        f"-# 💰 Nachricht {calls} · "
-        f"{tokens_in} in / {tokens_out} out · "
-        f"${cost:.4f} (gesamt)"
+        f"-# 💰 Nachricht {session.call_count} · "
+        f"{session.total_input_tokens} in / {session.total_output_tokens} out · "
+        f"${session.total_cost_usd:.4f} (gesamt)"
     )
 
 
-# ── Helper Functions ─────────────────────────────────────────────────────────
+# ── Embed Builders ───────────────────────────────────────────────────────────
+
+
+def _build_script_info_embed(script_data: dict) -> discord.Embed:
+    """Baut ein Embed mit Script-Informationen."""
+    name = script_data.get("name", "Unbekannt")
+    embed = discord.Embed(title=f"📜 Script erkannt: {name}", color=BOT_COLOR)
+
+    author = script_data.get("author")
+    if author:
+        embed.add_field(name="Autor", value=author, inline=True)
+
+    version = script_data.get("version")
+    if version:
+        embed.add_field(name="Version", value=version, inline=True)
+
+    characters = script_data.get("characters", [])
+    if characters:
+        embed.add_field(name="Charaktere", value=str(len(characters)), inline=True)
+        # Erste Charaktere anzeigen
+        char_display = ", ".join(characters[:15])
+        if len(characters) > 15:
+            char_display += f", ... (+{len(characters) - 15})"
+        embed.add_field(name="Auf dem Script", value=f"```{char_display}```", inline=False)
+
+    return embed
+
+
+def _build_review_embed(session) -> discord.Embed:
+    """Baut ein Review-Embed mit inline Fields (wie Apollo)."""
+    fields = session.fields
+    is_free = bool(fields.get("is_free_choice"))
+
+    embed = discord.Embed(
+        title="📋 Event-Zusammenfassung",
+        description=fields.get("description") or "*Keine Description*",
+        color=BOT_COLOR,
+    )
+
+    embed.add_field(name="Titel", value=f"```{fields.get('title') or '-'}```", inline=False)
+
+    # Inline-Paare
+    st = fields.get("storyteller") or "-"
+    script = "Freie Skriptwahl" if is_free else (fields.get("script") or "-")
+    if fields.get("script_version") and not is_free:
+        script += f" (v{fields['script_version']})"
+
+    embed.add_field(name="3 · Storyteller:in", value=f"```{st}```", inline=True)
+    embed.add_field(name="4 · Skript", value=f"```{script}```", inline=True)
+
+    level = fields.get("level") or "-"
+    start_time = fields.get("start_time") or "-"
+    embed.add_field(name="5 · Level", value=f"```{level}```", inline=True)
+    embed.add_field(name="6 · Termin", value=f"```{start_time}```", inline=True)
+
+    duration = fields.get("duration_minutes")
+    if duration:
+        h, m = divmod(int(duration), 60)
+        dur_str = f"{h}h {m:02d}min" if h else f"{m}min"
+    else:
+        dur_str = "-"
+    max_p = fields.get("max_players") or "-"
+    embed.add_field(name="7 · Dauer", value=f"```{dur_str}```", inline=True)
+    embed.add_field(name="8 · Max Spieler", value=f"```{max_p}```", inline=True)
+
+    camera = fields.get("camera")
+    cam_str = "an" if camera is True else ("aus" if camera is False else "keine Pflicht")
+    co_st = fields.get("co_storyteller") or "Nein"
+    embed.add_field(name="9 · Kamera", value=f"```{cam_str}```", inline=True)
+    embed.add_field(name="10 · Co-ST", value=f"```{co_st}```", inline=True)
+
+    casual = "Ja 🕊️" if fields.get("is_casual") else "Nein"
+    recorded = "Ja 🎦" if fields.get("is_recorded") else "Nein"
+    embed.add_field(name="11 · Casual", value=f"```{casual}```", inline=True)
+    embed.add_field(name="12 · Aufzeichnung", value=f"```{recorded}```", inline=True)
+
+    embed.set_footer(text="Antworte mit einer Nummer (z.B. '2') zum Ändern, Freitext für Korrekturen, oder 'ok' zum Bestätigen.")
+    return embed
+
+
+def _build_script_choice_embed(results: list[dict]) -> discord.Embed:
+    """Baut ein Embed mit nummerierten Script-Suchergebnissen."""
+    count = len(results)
+    embed = discord.Embed(
+        title="🔍 Skript-Suche",
+        description=f"Ich habe folgende Skripte gefunden:",
+        color=BOT_COLOR,
+    )
+    for i, result in enumerate(results, 1):
+        author = result.get("author") or "Unbekannt"
+        version = result.get("version") or "?"
+        chars = result.get("characters", [])
+        char_count = f" · {len(chars)} Charaktere" if chars else ""
+        embed.add_field(
+            name=f"{i}. {result['name']}",
+            value=f"von {author} · v{version}{char_count}",
+            inline=False,
+        )
+    embed.set_footer(text=f"Antworte mit 1-{count} oder 'skip' zum Überspringen.")
+    return embed
 
 
 def _build_preview_embed(session) -> discord.Embed:
-    """Baut ein Vorschau-Embed aus den Session-Feldern."""
+    """Baut das finale Vorschau-Embed (wie es im Event-Channel aussehen wird)."""
     fields = session.fields
     label = session.label
     is_free = bool(fields.get("is_free_choice"))
@@ -64,7 +181,7 @@ def _build_preview_embed(session) -> discord.Embed:
     if emoji:
         title = f"{emoji} {title}"
 
-    embed = discord.Embed(title=title, description=fields.get("description") or "", color=0x5865F2)
+    embed = discord.Embed(title=title, description=fields.get("description") or "", color=BOT_COLOR)
 
     embed.add_field(name="Storyteller:in", value=fields.get("storyteller") or "-", inline=False)
 
@@ -77,15 +194,14 @@ def _build_preview_embed(session) -> discord.Embed:
 
     embed.add_field(name="Level:", value=fields.get("level") or "-", inline=False)
 
-    start_time = fields.get("start_time")
-    embed.add_field(name="Termin:", value=start_time or "-", inline=False)
+    embed.add_field(name="Termin:", value=fields.get("start_time") or "-", inline=False)
 
-    # Zusatzinfos zusammenbauen
     extras = []
     if fields.get("co_storyteller"):
         extras.append(f"Co-ST: {fields['co_storyteller']}")
     if fields.get("camera") is not None:
-        extras.append(f"Kamera: {'an' if fields['camera'] else 'aus'}")
+        cam = "an" if fields["camera"] is True else ("aus" if fields["camera"] is False else "keine Pflicht")
+        extras.append(f"Kamera: {cam}")
     if fields.get("max_players"):
         extras.append(f"Max Spieler: {fields['max_players']}")
     if fields.get("duration_minutes"):
@@ -105,30 +221,8 @@ def _build_preview_embed(session) -> discord.Embed:
     return embed
 
 
-def _build_script_choice_embed(results: list[dict]) -> discord.Embed:
-    """Baut ein Embed mit nummerierten Script-Suchergebnissen."""
-    count = len(results)
-    embed = discord.Embed(
-        title="Skript-Suche",
-        description=f"Ich habe folgende Skripte gefunden. Antworte mit der Nummer (1-{count}):",
-        color=0x5865F2,
-    )
-    for i, result in enumerate(results, 1):
-        author = result.get("author") or "Unbekannt"
-        version = result.get("version") or "?"
-        chars = result.get("characters", [])
-        char_count = f" · {len(chars)} Charaktere" if chars else ""
-        embed.add_field(
-            name=f"{i}. {result['name']}",
-            value=f"von {author} · v{version}{char_count}",
-            inline=False,
-        )
-    embed.set_footer(text=f"Antworte mit 1-{count} um ein Skript auszuwählen, oder 'skip' zum Überspringen.")
-    return embed
-
-
 def _parse_start_time(time_str: str) -> int | None:
-    """Parst einen ISO-Zeitstring (YYYY-MM-DD HH:MM) in einen Unix-Timestamp."""
+    """Parst einen ISO-Zeitstring in einen Unix-Timestamp."""
     formats = ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M"]
     for fmt in formats:
         try:
@@ -144,35 +238,50 @@ def _parse_start_time(time_str: str) -> int | None:
 # ── Script Resolution ────────────────────────────────────────────────────────
 
 
-async def _resolve_script(session, channel: discord.DMChannel) -> bool:
-    """Resolved das Script via Cache/API. Gibt True zurück wenn bereit für Vorschau.
+async def _validate_script_inline(session, channel: discord.DMChannel) -> None:
+    """Validiert das Script inline während der Konversation und zeigt Info-Embed."""
+    script_name = session.fields.get("script")
+    if not script_name or session.fields.get("is_free_choice"):
+        return
 
-    Bei Cache-Miss wird der Script-Auswahl-Flow oder Upload-Flow gestartet
-    und False zurückgegeben (der on_message Handler übernimmt dann).
-    """
-    # Freie Skriptwahl → kein Lookup nötig
+    # Schon validiert?
+    last_validated = getattr(session, "_last_validated_script", None)
+    if last_validated == script_name:
+        return
+
+    session.touch()
+    script_data, source = lookup_script(script_name)
+
+    if script_data and source in ("base", "cache", "cache_stale"):
+        session._last_validated_script = script_name
+        embed = _build_script_info_embed(script_data)
+        await channel.send(embed=embed)
+        logger.info("Script inline validiert: '%s' via %s", script_name, source)
+
+
+async def _resolve_script(session, channel: discord.DMChannel) -> bool:
+    """Resolved das Script via Cache/API. Gibt True zurück wenn bereit."""
     if session.fields.get("is_free_choice"):
-        logger.info("Freie Skriptwahl — Script-Lookup übersprungen")
         return True
 
     script_name = session.fields.get("script")
     if not script_name:
-        return True  # Kein Script → direkt weiter
+        return True
 
+    session.touch()
     script_data, source = lookup_script(script_name)
 
     if source in ("base", "cache", "cache_stale"):
-        logger.info("Script '%s' aufgelöst via %s", script_name, source)
         return True
 
-    # Cache Miss → botcscripts.com durchsuchen
     logger.info("Script '%s' nicht im Cache, suche auf botcscripts.com", script_name)
 
     async with channel.typing():
         results = await search_scripts(script_name, limit=5)
 
+    session.touch()
+
     if not results:
-        # Nichts gefunden → Upload anbieten
         session.pending_script_upload = True
         await channel.send(
             f"Ich konnte **{script_name}** nicht auf botcscripts.com finden.\n\n"
@@ -182,42 +291,33 @@ async def _resolve_script(session, channel: discord.DMChannel) -> bool:
         )
         return False
 
-    # Ergebnisse speichern für die Auswahl
     session.pending_script_choices = results
     embed = _build_script_choice_embed(results)
     await channel.send(embed=embed)
-    return False  # Warte auf User-Auswahl
+    return False
 
 
 def _handle_script_choice(session, choice_text: str) -> str | None:
-    """Verarbeitet die Script-Auswahl des Users.
-
-    Returns:
-        Antwort-Text für die DM, oder None wenn die Auswahl erfolgreich war.
-    """
+    """Verarbeitet die Script-Auswahl. Returns Fehlertext oder None bei Erfolg."""
     choices = getattr(session, "pending_script_choices", None)
     if not choices:
         return "Keine Skript-Auswahl ausstehend."
 
     text = choice_text.strip().lower()
-
     if text in ("skip", "überspringen", "s"):
         session.pending_script_choices = None
-        logger.info("Script-Auswahl übersprungen")
-        return None  # Erfolgreich (übersprungen)
+        return None
 
     try:
         idx = int(text) - 1
     except ValueError:
-        return f"Bitte antworte mit einer Zahl von 1 bis {len(choices)}, oder 'skip' zum Überspringen."
+        return f"Bitte antworte mit 1-{len(choices)} oder 'skip'."
 
     if not (0 <= idx < len(choices)):
-        return f"Bitte wähle eine Nummer von 1 bis {len(choices)}."
+        return f"Bitte wähle 1-{len(choices)}."
 
     chosen = choices[idx]
     session.fields["script"] = chosen["name"]
-
-    # Im Cache speichern
     cache_script(chosen["name"], {
         "name": chosen["name"],
         "author": chosen.get("author", ""),
@@ -227,80 +327,146 @@ def _handle_script_choice(session, choice_text: str) -> str | None:
         "url": chosen.get("url", ""),
         "source": "botcscripts",
     })
-
     session.pending_script_choices = None
-    logger.info("Script ausgewählt: '%s' (id=%s)", chosen["name"], chosen.get("botcscripts_id"))
-    return None  # Erfolgreich
+    logger.info("Script ausgewählt: '%s'", chosen["name"])
+    return None
 
 
 async def _handle_script_upload(session, message: discord.Message) -> tuple[bool, str]:
-    """Verarbeitet einen Script-JSON-Upload.
-
-    Returns:
-        (success, response_text)
-    """
+    """Verarbeitet Script-JSON-Upload. Returns (success, response_text)."""
+    session.touch()
     text = message.content.strip().lower()
 
-    # Skip
     if text in ("skip", "überspringen", "s"):
         session.pending_script_upload = False
         return True, ""
 
-    # Attachment prüfen
     if not message.attachments:
-        return False, (
-            "Bitte sende die Script-JSON als Datei-Anhang (.json), "
-            "oder schreibe 'skip' um fortzufahren."
-        )
+        return False, "Bitte sende die Script-JSON als Datei (.json) oder 'skip'."
 
     attachment = message.attachments[0]
-
-    # Dateiformat prüfen
     if not attachment.filename.endswith(".json"):
-        return False, (
-            f"**{attachment.filename}** ist keine JSON-Datei. "
-            "Bitte sende eine Datei mit `.json`-Endung."
-        )
+        return False, f"**{attachment.filename}** ist keine JSON-Datei."
 
-    # Datei lesen und parsen
     try:
         raw_bytes = await attachment.read()
         data = json.loads(raw_bytes.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
         logger.warning("Script-Upload JSON-Fehler: %s", e)
-        return False, "Die Datei enthält kein gültiges JSON. Bitte prüfe das Format."
+        return False, "Die Datei enthält kein gültiges JSON."
 
-    # Validieren
     parsed, error = validate_script_json(data)
     if error:
         return False, error
 
-    # Script-Name aus Meta oder Session übernehmen
     script_name = parsed["name"]
     if script_name == "Custom Script" and session.fields.get("script"):
         script_name = session.fields["script"]
         parsed["name"] = script_name
 
     session.fields["script"] = script_name
-
-    # Im Cache speichern
     cache_script(script_name, parsed)
-
     session.pending_script_upload = False
-    logger.info("Script hochgeladen: '%s' (%d Charaktere)", script_name, len(parsed["characters"]))
     return True, f"✅ **{script_name}** hochgeladen ({len(parsed['characters'])} Charaktere)!"
+
+
+# ── Review Input ─────────────────────────────────────────────────────────────
+
+
+def _get_field_by_number(number: int) -> tuple[str, str] | None:
+    if 1 <= number <= len(REVIEW_FIELDS):
+        return REVIEW_FIELDS[number - 1]
+    return None
+
+
+async def _handle_review_input(session, message: discord.Message, channel) -> str | None:
+    """Verarbeitet Input im Review. Returns: None=Übersicht neu, 'confirm', 'waiting_edit', 'back_to_conversation', oder Fehlertext."""
+    session.touch()
+    text = message.content.strip()
+    text_lower = text.lower()
+
+    if text_lower in CONFIRM_KEYWORDS:
+        session.pending_review = False
+        return "confirm"
+
+    # Nummer → Feld-Edit
+    try:
+        number = int(text_lower)
+        field_info = _get_field_by_number(number)
+        if field_info:
+            key, label = field_info
+            session.pending_field_edit = key
+            await channel.send(f"Was soll der neue Wert für **{label}** sein?")
+            return "waiting_edit"
+        else:
+            return f"Bitte wähle 1-{len(REVIEW_FIELDS)}."
+    except ValueError:
+        pass
+
+    # Freitext → Haiku-Korrektur
+    async with channel.typing():
+        response = await call_haiku(session, f"Der User möchte ändern: {text}\nPasse die Felder an, action='done'.")
+
+    footer = _cost_footer(session)
+    if response is None:
+        return "Fehler bei der Verarbeitung."
+
+    haiku_msg = response.get("message", "")
+    action = response.get("action", "ask")
+
+    if haiku_msg:
+        msg = f"{haiku_msg}\n{footer}" if footer else haiku_msg
+        await channel.send(msg)
+
+    if action == "ask":
+        session.pending_review = False
+        return "back_to_conversation"
+
+    return None  # done → Übersicht erneut
+
+
+async def _handle_field_edit(session, message: discord.Message) -> None:
+    """Verarbeitet direkte Feld-Eingabe."""
+    session.touch()
+    key = session.pending_field_edit
+    session.pending_field_edit = None
+    value = message.content.strip()
+
+    if key == "camera":
+        if value.lower() in ("keine pflicht", "optional", "egal"):
+            value = None
+        else:
+            value = value.lower() in ("an", "ja", "on", "true", "yes", "pflicht")
+    elif key == "is_casual" or key == "is_recorded":
+        value = value.lower() in ("ja", "yes", "true", "an")
+    elif key == "duration_minutes":
+        try:
+            value = int(float(value.replace("h", "").replace("std", "").strip()) * 60)
+        except ValueError:
+            try:
+                value = int(value)
+            except ValueError:
+                pass
+    elif key == "max_players":
+        try:
+            value = int(value)
+        except ValueError:
+            pass
+
+    session.fields[key] = value
 
 
 # ── Views ────────────────────────────────────────────────────────────────────
 
 
 class ConfirmEventView(discord.ui.View):
-    """Bestätigungs-Buttons nach dem Vorschau-Embed in der DM."""
+    """Erstellen/Abbrechen Buttons nach der finalen Vorschau."""
 
-    def __init__(self, cog: "HostCommand", session):
-        super().__init__(timeout=300)  # 5 Minuten Timeout
+    def __init__(self, cog: "HostCommand", session, dm_channel):
+        super().__init__(timeout=300)
         self.cog = cog
         self.session = session
+        self.dm_channel = dm_channel
 
     @discord.ui.button(label="Erstellen", emoji="✅", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -312,45 +478,39 @@ class ConfirmEventView(discord.ui.View):
         is_free = bool(fields.get("is_free_choice"))
         emoji = get_label_emoji(label, is_free_choice=is_free)
 
-        # Zeitstempel parsen
         start_ts = _parse_start_time(fields.get("start_time") or "")
         if start_ts is None:
-            await interaction.followup.send(
-                "Fehler: Konnte den Termin nicht verarbeiten. "
-                "Bitte starte den Vorgang erneut mit `/host`."
-            )
+            await interaction.followup.send("Fehler: Termin konnte nicht verarbeitet werden. Starte mit `/host` neu.")
             end_session(self.session.user_id)
             return
 
-        # End-Timestamp berechnen
-        duration = fields.get("duration_minutes") or 180  # Default: 3 Stunden
+        duration = fields.get("duration_minutes") or 150
         end_ts = start_ts + (duration * 60)
 
-        # Titel mit Label-Emoji
         title = fields.get("title") or "BotC Event"
         if emoji:
             title = f"{emoji} {title}"
 
-        # Script-Anzeige
         script_display = fields.get("script") or "-"
         if is_free:
             script_display = "Freie Skriptwahl"
         elif fields.get("script_version"):
             script_display += f" (v{fields['script_version']})"
 
-        # Zusatzinfos
         extras = []
         if fields.get("co_storyteller"):
             extras.append(f"Co-ST: {fields['co_storyteller']}")
         if fields.get("camera") is not None:
-            extras.append(f"Kamera: {'an' if fields['camera'] else 'aus'}")
+            cam = "an" if fields["camera"] is True else "aus"
+            extras.append(f"Kamera: {cam}")
+        elif fields.get("camera") is None:
+            extras.append("Kamera: keine Pflicht")
         if fields.get("max_players"):
             extras.append(f"Max Spieler: {fields['max_players']}")
         if fields.get("duration_minutes"):
             h, m = divmod(fields["duration_minutes"], 60)
             extras.append(f"Dauer: {h}h {m:02d}min" if h else f"Dauer: {m}min")
 
-        # Event-Daten für post_event()
         event_data = {
             "title": title,
             "description": fields.get("description"),
@@ -364,7 +524,6 @@ class ConfirmEventView(discord.ui.View):
             "creator_name": self.session.user_display_name,
         }
 
-        # Event posten
         event_cog = self.cog.bot.cogs.get("EventCommands")
         if not event_cog:
             await interaction.followup.send("Fehler: EventCommands-Cog nicht geladen.")
@@ -379,31 +538,13 @@ class ConfirmEventView(discord.ui.View):
 
         try:
             msg = await event_cog.post_event(event_channel, event_data)
-            await interaction.followup.send(
-                f"Event erstellt! 🎉\n{msg.jump_url}"
-            )
-            logger.info(
-                "Event via /host erstellt: '%s' von %s (msg_id=%s)",
-                title, self.session.user_display_name, msg.id,
-            )
+            await interaction.followup.send(f"Event erstellt! 🎉\n{msg.jump_url}")
+            logger.info("Event via /host erstellt: '%s' (msg_id=%s)", title, msg.id)
         except Exception as e:
             logger.error("Fehler beim Event-Posten: %s", e)
-            await interaction.followup.send(f"Fehler beim Erstellen des Events: {e}")
+            await interaction.followup.send(f"Fehler: {e}")
 
         end_session(self.session.user_id)
-
-    @discord.ui.button(label="Ändern", emoji="✏️", style=discord.ButtonStyle.secondary)
-    async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.stop()
-        # Weiter im Konversations-Flow
-        response = await call_haiku(
-            self.session,
-            "Ich möchte etwas ändern. Was kann ich anpassen?",
-        )
-        if response:
-            await interaction.response.send_message(response.get("message", "Was möchtest du ändern?"))
-        else:
-            await interaction.response.send_message("Was möchtest du ändern? Schreib mir einfach.")
 
     @discord.ui.button(label="Abbrechen", emoji="❌", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -413,6 +554,10 @@ class ConfirmEventView(discord.ui.View):
 
     async def on_timeout(self):
         end_session(self.session.user_id)
+        try:
+            await self.dm_channel.send("⏰ Bestätigung abgelaufen. Starte mit `/host` neu.")
+        except Exception:
+            pass
 
 
 # ── Cog ──────────────────────────────────────────────────────────────────────
@@ -429,13 +574,9 @@ class HostCommand(commands.Cog):
     async def host(self, interaction: discord.Interaction):
         guild = interaction.guild
         if not guild:
-            await interaction.response.send_message(
-                "Dieser Befehl kann nur in einem Server verwendet werden.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("Nur in Servern nutzbar.", ephemeral=True)
             return
 
-        # Event-Channel prüfen
         cfg = get_guild_config(guild.id)
         event_channel_id = cfg.get("event_channel_id")
         if not event_channel_id:
@@ -447,22 +588,17 @@ class HostCommand(commands.Cog):
 
         event_channel = self.bot.get_channel(event_channel_id)
         if not event_channel:
-            await interaction.response.send_message(
-                "Der konfigurierte Event-Channel wurde nicht gefunden.",
-                ephemeral=True,
-            )
+            await interaction.response.send_message("Event-Channel nicht gefunden.", ephemeral=True)
             return
 
-        # Aktive Session prüfen
         if has_active_session(interaction.user.id):
             await interaction.response.send_message(
                 "Du hast bereits eine aktive Event-Erstellung. "
-                "Schau in deine DMs oder warte 30 Minuten bis die Session abläuft.",
+                "Schreibe **abbrechen** in den DMs um sie zu beenden.",
                 ephemeral=True,
             )
             return
 
-        # Session erstellen
         session = start_session(
             user_id=interaction.user.id,
             guild_id=guild.id,
@@ -471,130 +607,169 @@ class HostCommand(commands.Cog):
             user_display_name=interaction.user.display_name,
         )
 
-        # Ephemeral-Bestätigung im Channel
         await interaction.response.send_message(
-            "Check deine DMs! 📩 Ich führe dich dort durch die Event-Erstellung.",
+            "Check deine DMs! 📩",
             ephemeral=True,
         )
 
-        # DM senden + Konversation starten
         try:
             dm_channel = await interaction.user.create_dm()
-
             await dm_channel.send(
                 f"Hey {interaction.user.display_name}! 👋\n"
                 f"Lass uns ein Event für **{guild.name}** erstellen.\n"
                 f"Beschreib mir dein Event — z.B. Skript, Termin, Level, ob du ST bist, etc.\n"
-                f"Du kannst alles in einer Nachricht schreiben oder Stück für Stück."
+                f"Du kannst alles in einer Nachricht schreiben oder Stück für Stück.\n"
+                f"-# Session läuft 5 Minuten · 'abbrechen' zum Beenden"
             )
-
-            logger.info("/host ausgeführt: user=%s, guild=%s", interaction.user, guild.name)
-
+            logger.info("/host: user=%s, guild=%s", interaction.user, guild.name)
         except discord.Forbidden:
             await interaction.followup.send(
-                "Ich kann dir keine DM senden. "
-                "Bitte aktiviere DMs von Server-Mitgliedern in deinen Einstellungen.",
+                "Ich kann dir keine DM senden. Aktiviere DMs von Server-Mitgliedern.",
                 ephemeral=True,
             )
             end_session(interaction.user.id)
 
-    async def _show_preview(self, session, channel: discord.DMChannel, haiku_message: str = "", cost_footer: str = ""):
-        """Zeigt die Event-Vorschau mit Bestätigungs-Buttons."""
-        session.label = compute_label(session.fields)
-        preview = _build_preview_embed(session)
-        confirm_view = ConfirmEventView(self, session)
+    async def _show_review(self, session, channel, haiku_message: str = ""):
+        """Zeigt das Review-Embed."""
+        session.pending_review = True
+        footer = _cost_footer(session)
 
         if haiku_message:
-            await channel.send(content=haiku_message)
+            msg = f"{haiku_message}\n{footer}" if footer else haiku_message
+            await channel.send(msg)
 
-        footer = cost_footer or _cost_footer(session)
-        await channel.send(
-            content=f"**Hier ist die Vorschau deines Events:**\n{footer}",
-            embed=preview,
-            view=confirm_view,
-        )
+        embed = _build_review_embed(session)
+        await channel.send(embed=embed)
+
+    async def _show_final_preview(self, session, channel):
+        """Zeigt die finale Vorschau mit Buttons."""
+        session.label = compute_label(session.fields)
+        preview = _build_preview_embed(session)
+        view = ConfirmEventView(self, session, channel)
+        footer = _cost_footer(session)
+
+        content = "**Finale Vorschau:**"
+        if footer:
+            content = f"{content}\n{footer}"
+        await channel.send(content=content, embed=preview, view=view)
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        """Lauscht auf DMs von Usern mit aktiver Session."""
-        # Nur DMs verarbeiten
         if not isinstance(message.channel, discord.DMChannel):
             return
-
-        # Eigene Nachrichten ignorieren
         if message.author.bot:
             return
 
-        # Session suchen
         session = get_session(message.author.id)
-        if session is None:
-            return  # Keine aktive Session → ignorieren
 
-        logger.debug("DM von %s: %s", message.author, message.content[:100])
+        if session is None:
+            if was_recently_expired(message.author.id):
+                await message.channel.send(
+                    "⏰ Deine Session ist abgelaufen (5 Min Inaktivität). "
+                    "Starte mit `/host` in einem Server-Channel neu."
+                )
+            return
+
+        session.touch()
+
+        # Abbrechen
+        if message.content.strip().lower() in CANCEL_KEYWORDS:
+            end_session(session.user_id)
+            await message.channel.send("Event-Erstellung abgebrochen. ✌️")
+            return
+
+        async with session._lock:
+            await self._process_message(session, message)
+
+    async def _process_message(self, session, message: discord.Message):
+        channel = message.channel
+
+        # Feld-Edit ausstehend?
+        if getattr(session, "pending_field_edit", None):
+            await _handle_field_edit(session, message)
+            embed = _build_review_embed(session)
+            await channel.send(content="✅ Aktualisiert!", embed=embed)
+            return
 
         # Script-Upload ausstehend?
         if getattr(session, "pending_script_upload", False):
-            success, response_text = await _handle_script_upload(session, message)
+            success, text = await _handle_script_upload(session, message)
             if not success:
-                await message.channel.send(response_text)
+                await channel.send(text)
                 return
-
-            # Upload erfolgreich → Vorschau zeigen
-            if response_text:
-                await message.channel.send(response_text)
-            await self._show_preview(session, message.channel)
+            if text:
+                await channel.send(text)
+            await self._show_review(session, channel)
             return
 
         # Script-Auswahl ausstehend?
         if getattr(session, "pending_script_choices", None):
-            error_msg = _handle_script_choice(session, message.content)
-            if error_msg:
-                await message.channel.send(error_msg)
+            error = _handle_script_choice(session, message.content)
+            if error:
+                await channel.send(error)
                 return
-
-            # Auswahl erfolgreich → Vorschau zeigen
-            chosen_name = session.fields.get("script", "")
-            await message.channel.send(f"✅ **{chosen_name}** ausgewählt!")
-            await self._show_preview(session, message.channel)
+            name = session.fields.get("script", "")
+            await channel.send(f"✅ **{name}** ausgewählt!")
+            # Script-Info Embed zeigen
+            script_data, _ = lookup_script(name)
+            if script_data:
+                await channel.send(embed=_build_script_info_embed(script_data))
+            await self._show_review(session, channel)
             return
 
+        # Review-Modus?
+        if getattr(session, "pending_review", False):
+            result = await _handle_review_input(session, message, channel)
+            if result == "confirm":
+                ready = await _resolve_script(session, channel)
+                if ready:
+                    await self._show_final_preview(session, channel)
+                return
+            elif result == "waiting_edit":
+                return
+            elif result == "back_to_conversation":
+                return
+            elif result is None:
+                embed = _build_review_embed(session)
+                await channel.send(embed=embed)
+                return
+            else:
+                await channel.send(result)
+                return
+
         # Normaler Konversations-Flow
-        async with message.channel.typing():
+        async with channel.typing():
             response = await call_haiku(session, message.content)
 
         if response is None:
-            await message.channel.send(
-                "Entschuldigung, es gab einen Fehler bei der Verarbeitung. "
-                "Bitte versuche es nochmal oder starte mit `/host` neu."
-            )
+            await channel.send("Fehler bei der Verarbeitung. Versuche es nochmal oder `/host` neu.")
             return
 
         action = response.get("action", "ask")
         haiku_message = response.get("message", "")
-
         footer = _cost_footer(session)
 
         if action == "done":
-            # Script resolven bevor Vorschau gezeigt wird
-            ready = await _resolve_script(session, message.channel)
-            if ready:
-                await self._show_preview(session, message.channel, haiku_message, footer)
-            else:
-                # Script-Auswahl/Upload läuft → haiku_message trotzdem senden
-                if haiku_message:
-                    await message.channel.send(f"{haiku_message}\n{footer}")
+            # Alle Felder komplett → Review
+            await self._show_review(session, channel, haiku_message)
 
         elif action == "refuse":
-            await message.channel.send(
-                f"{haiku_message}\n\n"
-                "💡 Ich kann dir nur bei der Event-Erstellung helfen. "
-                f"Beschreib mir dein BotC-Event!\n{footer}"
+            embed = discord.Embed(
+                title="⚠️ Off-Topic",
+                description=haiku_message,
+                color=ERROR_COLOR,
             )
+            embed.set_footer(text="Ich kann dir nur bei der Event-Erstellung helfen.")
+            await channel.send(embed=embed)
 
         else:
-            # ask / explain
+            # ask / explain — Plain-Text
             if haiku_message:
-                await message.channel.send(f"{haiku_message}\n{footer}")
+                msg = f"{haiku_message}\n{footer}" if footer else haiku_message
+                await channel.send(msg)
+
+            # Inline Script-Validierung nach jedem Haiku-Call
+            await _validate_script_inline(session, channel)
 
 
 async def setup(bot: commands.Bot):

@@ -3,6 +3,7 @@
 Verwaltet Multi-Turn-Konversationen mit Claude Haiku 4.5 in Discord-DMs.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -27,7 +28,7 @@ from logic.label import compute_label
 logger = logging.getLogger(__name__)
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
-SESSION_TIMEOUT_SECONDS = 30 * 60  # 30 Minuten
+SESSION_TIMEOUT_SECONDS = 5 * 60  # 5 Minuten
 
 TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 
@@ -52,7 +53,7 @@ class EventSession:
         "title": None, "script": None, "storyteller": None,
         "co_storyteller": None, "start_time": None, "duration_minutes": None,
         "max_players": None, "camera": None, "description": None, "level": None,
-        "is_casual": None, "is_recorded": None, "tb_rounds_played": None,
+        "is_casual": None, "is_recorded": None,
         "script_complexity": None, "script_version": None, "is_free_choice": None,
     })
     messages: list = field(default_factory=list)  # Anthropic message history
@@ -65,6 +66,8 @@ class EventSession:
     total_output_tokens: int = 0
     total_cost_usd: float = 0.0
     call_count: int = 0
+    # Concurrency Lock
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def is_expired(self) -> bool:
         return (time.time() - self.last_update) > SESSION_TIMEOUT_SECONDS
@@ -76,6 +79,10 @@ class EventSession:
 # In-Memory Session-Storage: user_id → EventSession
 _sessions: dict[int, EventSession] = {}
 
+# Kürzlich abgelaufene Sessions: user_id → expiry timestamp
+_recently_expired: dict[int, float] = {}
+_RECENTLY_EXPIRED_TTL = 60  # 1 Minute merken
+
 
 def start_session(
     user_id: int,
@@ -86,6 +93,8 @@ def start_session(
     rules_summary: str = DEFAULT_RULES,
 ) -> EventSession:
     """Startet eine neue Event-Erstellungs-Session."""
+    # Alte Expiry-Info löschen
+    _recently_expired.pop(user_id, None)
     session = EventSession(
         user_id=user_id,
         guild_id=guild_id,
@@ -106,6 +115,7 @@ def get_session(user_id: int) -> EventSession | None:
         return None
     if session.is_expired():
         logger.info("Session abgelaufen: user=%s", user_id)
+        _recently_expired[user_id] = time.time()
         end_session(user_id)
         return None
     return session
@@ -115,12 +125,26 @@ def end_session(user_id: int):
     """Beendet eine Session."""
     removed = _sessions.pop(user_id, None)
     if removed:
-        logger.info("Session beendet: user=%s", user_id)
+        logger.info(
+            "Session beendet: user=%s (calls=%d, cost=$%.4f)",
+            user_id, removed.call_count, removed.total_cost_usd,
+        )
 
 
 def has_active_session(user_id: int) -> bool:
     """Prüft ob ein User eine aktive (nicht abgelaufene) Session hat."""
     return get_session(user_id) is not None
+
+
+def was_recently_expired(user_id: int) -> bool:
+    """Prüft ob ein User kürzlich eine abgelaufene Session hatte."""
+    expired_at = _recently_expired.get(user_id)
+    if expired_at is None:
+        return False
+    if (time.time() - expired_at) > _RECENTLY_EXPIRED_TTL:
+        _recently_expired.pop(user_id, None)
+        return False
+    return True
 
 
 def _build_system_prompt(session: EventSession) -> str:
@@ -145,9 +169,7 @@ def _strip_markdown_fences(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
-        # Erste Zeile (```json oder ```) entfernen
         lines = lines[1:]
-        # Letzte Zeile (```) entfernen falls vorhanden
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         text = "\n".join(lines)
@@ -197,7 +219,6 @@ async def call_haiku(session: EventSession, user_message: str) -> dict | None:
         )
     except anthropic.APIError as e:
         logger.error("Anthropic API-Fehler: %s", e)
-        # Letzte User-Nachricht wieder entfernen bei Fehler
         session.messages.pop()
         return None
 
@@ -220,11 +241,9 @@ async def call_haiku(session: EventSession, user_message: str) -> dict | None:
 
     parsed = _parse_response(raw_text)
     if parsed is None:
-        # Ungültiges JSON — Haiku-Antwort trotzdem zur History hinzufügen
         session.messages.append({"role": "assistant", "content": raw_text})
         return None
 
-    # Haiku-Antwort zur History hinzufügen (das rohe JSON, nicht die geparste Version)
     session.messages.append({"role": "assistant", "content": raw_text})
 
     action = parsed.get("action", "ask")
