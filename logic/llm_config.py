@@ -36,31 +36,35 @@ Extrahiere Event-Daten aus den Nachrichten des Users. Antworte IMMER als JSON.
     "level": null,
     "is_casual": null,
     "is_recorded": null,
+    "is_academy": null,
     "script_complexity": null,
     "script_version": null,
     "is_free_choice": null
   }}
 }}
 
-## 5 PFLICHTFELDER (alle müssen vom User kommen)
+## 6 PFLICHTFELDER (alle müssen vom User kommen)
 1. `script`: Skriptname. Bei "freie Skriptwahl" → "Freie Skriptwahl", is_free_choice=true.
 2. `start_time`: IMMER als "YYYY-MM-DD HH:MM". Heute ist {today_date}, {today_weekday}.
 3. `storyteller`: IMMER "{user_display_name}" verwenden, nie "Du". Bei Co-ST: "{user_display_name} und [Name]".
 4. `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
 5. `is_casual`: true/false. Frage: "Soll das eine Casual-Runde sein? 🕊️ (besondere Rücksicht, mehr Weltenbau, hohe Fehlertoleranz)"
+6. `is_academy`: true/false (Default: false). Wenn der User andeutet, dass es eine Academy-Runde, Lern-Runde, oder ein Lehr-Angebot ist → is_academy=true. Wenn is_academy=true, frage NICHT mehr nach is_casual (Academy überschreibt Casual).
 
 ## DEFAULTS (NICHT nachfragen, NICHT erwähnen, still setzen)
 - max_players: 12
 - duration_minutes: 150
-- camera: null
-- co_storyteller: null
+- camera: null (= keine Pflicht)
+- co_storyteller: null (= nicht möglich)
 - is_recorded: false
+- is_academy: false
 ERWÄHNE DIESE DEFAULTS NICHT. Frage NICHT danach. Setze sie still.
+Wenn der User von sich aus einen Co-ST erwähnt, setze co_storyteller. Sonst bleibt es null.
 
 ## VERHALTEN
 - Extrahiere so viel wie möglich aus der ERSTEN Nachricht.
 - Wenn Pflichtfelder fehlen: ALLE fehlenden in EINER Nachricht fragen.
-- Sobald ALLE 5 Pflichtfelder da → action="done".
+- Sobald ALLE Pflichtfelder da → action="done". Beachte: is_academy hat Default false, zählt also als gesetzt wenn nicht explizit vom User angedeutet.
 - Halte Antworten KURZ (1-2 Sätze + Fragen).
 - Gib in fields IMMER den kompletten Stand zurück.
 - Setze KEINEN Titel — der wird später generiert.
@@ -78,13 +82,31 @@ Co-ST: {co_storyteller}
 Level: {level}
 Termin: {start_time}
 Casual: {is_casual}
+Academy: {is_academy}
+
+## SKRIPT-ANALYSE (vom Bot berechnet)
+Komplexitäts-Bewertung: {complexity_rating}
+TB-Überlappung: {tb_overlap}
+Base3-Überlappung (TB+BMR+S&V): {base3_overlap}
+Bot-Einschätzung: {complexity_reasoning}
 
 TITEL-FORMAT: "[Skriptname] mit [Storyteller(s)]"
 Beispiele: "Boozling mit Dalyan", "BMR mit Dalyan und Rosanna"
+KEIN Emoji im Titel — das wird separat hinzugefügt.
 
-BESCHREIBUNG: 2-3 Sätze, deutsch, für Mitspieler die sich anmelden wollen.
-Schreibe aus Event-Perspektive: "Wir spielen..." / "Eine Runde..."
-NICHT "Du leitest..." — die Spieler lesen das.
+BESCHREIBUNG: 3 Teile, deutsch, für Mitspieler die sich anmelden wollen.
+Schreibe aus Event-Perspektive, NICHT "Du leitest..." — die Spieler lesen das.
+
+1. Einstieg: "Wir spielen..." + Stimmung/Vibe der Runde.
+   - Bei Casual/Academy: betone die entspannte, lernfreundliche Atmosphäre.
+   - Bei Erfahren/Profi: betone die Herausforderung.
+2. Skript-Charakter: Nutze die Skript-Analyse oben als Basis.
+   - Nah an TB? → "Ein Skript nah an Trouble Brewing..."
+   - Base3-Mix? → "Ein Mix aus bekannten Base3-Charakteren..."
+   - Exotisch? → "Ein experimentelles Skript mit einigen Überraschungen..."
+   - Homebrew? → "Ein Homebrew-Skript — seid gespannt!"
+   Halte es kurz und informativ, nicht die komplette Analyse wiedergeben.
+3. Schlusssatz: Einladend, kurz.
 
 Antworte als JSON:
 {{"title": "...", "description": "..."}}"""

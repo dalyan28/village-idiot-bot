@@ -33,6 +33,8 @@ from logic.label import (
     FREE_CHOICE_DESCRIPTION,
     LABEL_DESCRIPTION,
     LABEL_EMOJI,
+    analyze_script_complexity,
+    build_title_prefix,
     compute_label,
     get_label_emoji,
 )
@@ -202,7 +204,11 @@ class SummaryView(discord.ui.View):
 
         duration = f.get("duration_minutes") or 150
         title = f.get("title") or "BotC Event"
-        if emoji: title = f"{emoji} {title}"
+        prefix = build_title_prefix(f)
+        if is_free:
+            prefix = get_label_emoji(self.session.label, is_free_choice=True)
+        if prefix:
+            title = f"{prefix} {title}"
 
         script_display = "Freie Skriptwahl" if is_free else (f.get("script") or "-")
 
@@ -318,11 +324,35 @@ class HostCommand(commands.Cog):
             await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
             end_session(interaction.user.id)
 
+    async def _select_script(self, session, channel, chosen):
+        """Wählt ein Script aus den Suchergebnissen, cached es, und geht zu Schritt 3."""
+        session.fields["script"] = chosen["name"]
+        cache_script(chosen["name"], {
+            "name": chosen["name"], "author": chosen.get("author", ""),
+            "version": chosen.get("version", ""),
+            "botcscripts_id": chosen.get("botcscripts_id", ""),
+            "characters": chosen.get("characters", []),
+            "url": chosen.get("url", ""), "source": "botcscripts",
+        })
+        session.pending_script_choices = None
+        await channel.send(f"✅ **{chosen['name']}** ausgewählt!")
+        await self._show_title_description_proposal(session, channel)
+
     # ── Schritt 3: Titel & Beschreibung ──────────────────────────────
 
     async def _show_title_description_proposal(self, session, channel):
-        """Generiert und zeigt Titel/Beschreibung-Vorschlag."""
+        """Analysiert Skript-Komplexität, generiert Titel/Beschreibung-Vorschlag."""
         session.pending_title_description = True
+
+        # Skript-Komplexitätsanalyse
+        script_name = session.fields.get("script")
+        if script_name and not session.fields.get("is_free_choice"):
+            sd, _ = lookup_script(script_name)
+            chars = sd.get("characters", []) if sd else []
+            if chars:
+                analysis = analyze_script_complexity(chars)
+                session.fields["complexity_analysis"] = analysis
+                session.label = compute_label(session.fields)
 
         async with channel.typing():
             result = await generate_title_and_description(session)
@@ -341,14 +371,37 @@ class HostCommand(commands.Cog):
             session.fields["title"] = title
             session.fields["description"] = desc
 
+        # Titel-Prefix bauen
+        prefix = build_title_prefix(session.fields)
+        title_display = f"{prefix} {session.fields['title']}" if prefix else session.fields['title']
+
+        # Reasoning aus Analyse
+        analysis = session.fields.get("complexity_analysis") or {}
+        reasoning = analysis.get("reasoning", "")
+        rating = analysis.get("rating")
+        rating_emoji = LABEL_EMOJI.get(rating, "") if rating else ""
+
         footer = _cost_footer(session)
-        msg = (
-            f"Hier ist mein Vorschlag:\n\n"
-            f"> **Titel:** {session.fields['title']}\n"
-            f"> **Beschreibung:** {session.fields['description']}\n\n"
-            f"Du kannst beides übernehmen, anpassen, oder eigenen Text schreiben.\n"
-            f"Schreibe **ok** wenn es passt."
+        lines = [
+            "Jetzt brauchen wir noch einen Titel und eine Beschreibung für das Event. "
+            "Ich hab mir mal was ausgedacht — aber ich bin nur ein Village Idiot, "
+            "also schau lieber nochmal drüber:",
+        ]
+
+        if reasoning:
+            lines.append(f"\n{rating_emoji} **Skript-Einschätzung:** {reasoning}")
+
+        lines.append(
+            f"\n> **Titel:** {title_display}\n"
+            f"> **Beschreibung:** {session.fields['description']}"
         )
+        lines.append(
+            "\nDu kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
+            "Auch die Einschätzung kannst du korrigieren, falls ich daneben liege.\n"
+            "Schreibe **ok** wenn alles passt."
+        )
+
+        msg = "\n".join(lines)
         if footer:
             msg += f"\n-# {footer}"
         await channel.send(msg)
@@ -471,42 +524,77 @@ class HostCommand(commands.Cog):
             await self._show_title_description_proposal(session, ch)
             return
 
-        # ── Script-Auswahl ───────────────────────────────────────────
+        # ── Script-Auswahl (Nummer ODER natürliche Sprache) ────────────
         if getattr(session, "pending_script_choices", None):
             choices = session.pending_script_choices
+            tl = text.lower()
 
-            if text.lower() in ("skip", "überspringen", "s"):
+            if tl in ("skip", "überspringen", "s"):
                 session.pending_script_choices = None
                 await self._show_title_description_proposal(session, ch)
                 return
 
-            if text.lower() in ("custom", "homebrew", "eigenes"):
+            if tl in ("custom", "homebrew", "eigenes", "keines", "keins davon", "nichts davon"):
                 session.pending_script_choices = None
                 session.pending_script_upload = True
                 await ch.send("Sende die **Script-JSON als Datei** (.json) oder 'skip'.")
                 return
 
+            # Direkte Nummer
             try:
-                idx = int(text) - 1
+                idx = int(tl) - 1
                 if 0 <= idx < len(choices):
-                    chosen = choices[idx]
-                    session.fields["script"] = chosen["name"]
-                    cache_script(chosen["name"], {
-                        "name": chosen["name"], "author": chosen.get("author", ""),
-                        "version": chosen.get("version", ""),
-                        "botcscripts_id": chosen.get("botcscripts_id", ""),
-                        "characters": chosen.get("characters", []),
-                        "url": chosen.get("url", ""), "source": "botcscripts",
-                    })
-                    session.pending_script_choices = None
-                    await ch.send(f"✅ **{chosen['name']}** ausgewählt!")
-                    await self._show_title_description_proposal(session, ch)
+                    await self._select_script(session, ch, choices[idx])
                     return
                 await ch.send(f"Bitte wähle 1-{len(choices)}.")
                 return
             except ValueError:
-                await ch.send(f"Antworte mit 1-{len(choices)}, 'custom' oder 'skip'.")
+                pass
+
+            # Natürliche Sprache: "das erste", "von Viva La Sam", "Extension Cord", etc.
+            ordinals = {"erste": 0, "ersten": 0, "zweite": 1, "zweiten": 1,
+                        "dritte": 2, "dritten": 2, "vierte": 3, "vierten": 3,
+                        "fünfte": 4, "fünften": 4, "letzte": len(choices) - 1, "letzten": len(choices) - 1}
+
+            # Ordinalzahl-Match
+            for word, idx in ordinals.items():
+                if word in tl and idx < len(choices):
+                    await self._select_script(session, ch, choices[idx])
+                    return
+
+            # Name- oder Autor-Match
+            best_match = None
+            best_score = 0
+            for i, choice in enumerate(choices):
+                score = 0
+                name_lower = choice["name"].lower()
+                author_lower = (choice.get("author") or "").lower()
+
+                if name_lower in tl or tl in name_lower:
+                    score = 10
+                elif author_lower and author_lower in tl:
+                    score = 8
+
+                # Teilwort-Match
+                for word in tl.split():
+                    if len(word) > 2:
+                        if word in name_lower: score = max(score, 5)
+                        if author_lower and word in author_lower: score = max(score, 4)
+
+                if score > best_score:
+                    best_score = score
+                    best_match = i
+
+            if best_match is not None and best_score >= 4:
+                await self._select_script(session, ch, choices[best_match])
                 return
+
+            await ch.send(
+                "Ich konnte nicht erkennen, welches Skript du meinst.\n"
+                f"Antworte mit einer Nummer (1-{len(choices)}), einem Skriptnamen, "
+                "'custom' für eigenes Script, oder 'skip'."
+            )
+            return
 
         # ── Titel/Beschreibung Bestätigung (Schritt 3) ───────────────
         if getattr(session, "pending_title_description", False):
@@ -617,6 +705,16 @@ class HostCommand(commands.Cog):
             # ask
             m = f"{haiku_msg}\n-# {footer}" if footer else haiku_msg
             await ch.send(m)
+
+
+    @app_commands.command(name="wipecache", description="Löscht die Script-Cache-Datenbank (zum Testen)")
+    async def wipecache(self, interaction: discord.Interaction):
+        from logic.script_cache import CACHE_FILE
+        if os.path.exists(CACHE_FILE):
+            os.remove(CACHE_FILE)
+            await interaction.response.send_message("Script-Cache gelöscht.", ephemeral=True)
+        else:
+            await interaction.response.send_message("Kein Cache vorhanden.", ephemeral=True)
 
 
 async def setup(bot):

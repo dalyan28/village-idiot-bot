@@ -55,8 +55,9 @@ class EventSession:
         "title": None, "script": None, "storyteller": None,
         "co_storyteller": None, "start_time": None, "duration_minutes": None,
         "max_players": None, "camera": None, "description": None, "level": None,
-        "is_casual": None, "is_recorded": None,
+        "is_casual": None, "is_recorded": None, "is_academy": None,
         "script_complexity": None, "script_version": None, "is_free_choice": None,
+        "complexity_analysis": None,
     })
     messages: list = field(default_factory=list)  # Anthropic message history
     last_update: float = field(default_factory=time.time)
@@ -310,6 +311,8 @@ async def generate_title_and_description(session: EventSession) -> tuple[str, st
     fields = session.fields
     co_st = fields.get("co_storyteller") or "Kein Co-ST"
     casual = "Ja" if fields.get("is_casual") else "Nein"
+    academy = "Ja" if fields.get("is_academy") else "Nein"
+    analysis = fields.get("complexity_analysis") or {}
 
     prompt = TITLE_DESCRIPTION_PROMPT.format(
         script=fields.get("script") or "Unbekannt",
@@ -318,6 +321,11 @@ async def generate_title_and_description(session: EventSession) -> tuple[str, st
         level=fields.get("level") or "Alle",
         start_time=fields.get("start_time") or "TBD",
         is_casual=casual,
+        is_academy=academy,
+        complexity_rating=analysis.get("rating", "unbekannt"),
+        tb_overlap=f"{analysis.get('tb_overlap', 0):.0%}",
+        base3_overlap=f"{analysis.get('base3_overlap', 0):.0%}",
+        complexity_reasoning=analysis.get("reasoning", "Keine Analyse verfügbar"),
     )
 
     raw = await asyncio.to_thread(_call_llm_simple, session, prompt)
