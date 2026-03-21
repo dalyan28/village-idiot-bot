@@ -139,7 +139,15 @@ def _build_summary_embed(session, script_data=None):
 
     # 3-5 inline
     embed.add_field(name="3 · Storyteller:in", value=f"```{f.get('storyteller') or '-'}```", inline=True)
-    embed.add_field(name="4 · Skript", value=f"```{f.get('script') or '-'}```", inline=True)
+    script_display = f.get('script') or '-'
+    if script_data:
+        au = script_data.get("author", "")
+        ve = script_data.get("version", "")
+        if au:
+            script_display += f" von {au}"
+        if ve:
+            script_display += f" · v{ve}"
+    embed.add_field(name="4 · Skript", value=f"```{script_display}```", inline=True)
     embed.add_field(name="5 · Level", value=f"```{f.get('level') or '-'}```", inline=True)
 
     # 6-8 inline
@@ -218,18 +226,23 @@ class SummaryView(discord.ui.View):
 
         # Script-Daten
         script_characters, script_url = [], None
+        script_author, script_version = "", ""
         if not is_free and f.get("script"):
             sd, _ = lookup_script(f["script"])
             if sd:
                 script_characters = sd.get("characters", [])
-                bid, ver = sd.get("botcscripts_id"), sd.get("version")
-                if bid and ver: script_url = f"https://www.botcscripts.com/script/{bid}/{ver}"
+                script_author = sd.get("author", "")
+                script_version = sd.get("version", "")
+                bid = sd.get("botcscripts_id")
+                if bid and script_version:
+                    script_url = f"https://www.botcscripts.com/script/{bid}/{script_version}"
 
         event_data = {
             "title": title, "description": f.get("description"),
             "storyteller": f.get("storyteller") or "-",
             "co_storyteller": f.get("co_storyteller"),
             "script": script_display, "script_url": script_url,
+            "script_author": script_author, "script_version": script_version,
             "script_characters": script_characters,
             "level": f.get("level") or "Alle",
             "camera": f.get("camera"), "max_players": f.get("max_players") or 12,

@@ -192,13 +192,20 @@ def build_event_embed(event_data: dict) -> discord.Embed:
         for field_name, value, inline in _split_field("Beschreibung", description, inline=False):
             embed.add_field(name=field_name, value=value, inline=inline)
 
-    # ── Skript (verlinkt zu botcscripts) ─────────────────────────────
+    # ── Skript (verlinkt zu botcscripts, mit Autor + Version) ────────
     script = event_data.get("script") or "-"
+    script_author = event_data.get("script_author", "")
+    script_version = event_data.get("script_version", "")
+    script_val = script
+    if script_author:
+        script_val += f" von {script_author}"
+    if script_version:
+        script_val += f" · v{script_version}"
     script_url = event_data.get("script_url")
     if script_url:
-        embed.add_field(name="Skript", value=f"[{script}]({script_url})", inline=True)
+        embed.add_field(name="Skript", value=f"[{script_val}]({script_url})", inline=True)
     else:
-        embed.add_field(name="Skript", value=script, inline=True)
+        embed.add_field(name="Skript", value=script_val, inline=True)
 
     # ── NPCs (Fabled/Loric) — nur wenn vorhanden ────────────────────
     char_ids = event_data.get("script_characters", [])
