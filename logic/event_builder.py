@@ -15,10 +15,10 @@ from logic.script_cache import load_characters
 
 logger = logging.getLogger(__name__)
 
-# Custom Emojis
-EMOJI_ACCEPTED = "<:angenommen:1484616708558815282>"
-EMOJI_DECLINED = "<:abgelehnt:1484616609313325227>"
-EMOJI_TENTATIVE = "<:vorlaeufig:1484616662073212989>"
+# Custom Emojis (im Embed, vor den Listen)
+EMOJI_ACCEPTED = "<:accept_rec:1484978213863161986>"
+EMOJI_DECLINED = "<:decline_rec:1484978231957524661>"
+EMOJI_TENTATIVE = "<:tent_rec:1484978258553471066>"
 EMOJI_WAITLIST = "<:warteliste:1484675744389927193>"
 
 # Character-Rating-Datei

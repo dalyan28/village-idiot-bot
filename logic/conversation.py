@@ -303,10 +303,10 @@ def _call_llm_simple(session: EventSession, prompt: str) -> str | None:
     return text
 
 
-async def generate_title_and_description(session: EventSession) -> tuple[str, str] | None:
-    """Generiert Titel und Beschreibung basierend auf den Event-Feldern.
+async def generate_title_and_description(session: EventSession) -> tuple[str, str, str] | None:
+    """Generiert Titel, Beschreibung und Reasoning basierend auf den Event-Feldern.
 
-    Returns: (title, description) oder None bei Fehler.
+    Returns: (title, description, reasoning) oder None bei Fehler.
     """
     fields = session.fields
     co_st = fields.get("co_storyteller") or "Kein Co-ST"
@@ -322,10 +322,7 @@ async def generate_title_and_description(session: EventSession) -> tuple[str, st
         start_time=fields.get("start_time") or "TBD",
         is_casual=casual,
         is_academy=academy,
-        complexity_rating=analysis.get("rating", "unbekannt"),
-        tb_overlap=f"{analysis.get('tb_overlap', 0):.0%}",
-        base3_overlap=f"{analysis.get('base3_overlap', 0):.0%}",
-        complexity_reasoning=analysis.get("reasoning", "Keine Analyse verfügbar"),
+        analysis_facts=analysis.get("analysis_facts", "Keine Analyse verfügbar"),
     )
 
     raw = await asyncio.to_thread(_call_llm_simple, session, prompt)
@@ -338,9 +335,10 @@ async def generate_title_and_description(session: EventSession) -> tuple[str, st
         data = json.loads(cleaned)
         title = data.get("title", "")
         description = data.get("description", "")
+        reasoning = data.get("reasoning", "")
         if title and description:
-            logger.debug("Titel/Beschreibung generiert")
-            return title, description
+            logger.debug("Titel/Beschreibung/Reasoning generiert")
+            return title, description, reasoning
     except json.JSONDecodeError:
         logger.warning("Titel/Beschreibung JSON ungültig: %s", cleaned[:200])
 

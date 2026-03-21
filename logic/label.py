@@ -94,7 +94,12 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
     loric_ids = []
     unknown_ids = []
 
+    # Metadaten-Einträge filtern (z.B. _meta von botcscripts.com)
+    META_PREFIXES = ("_",)
+
     for cid in char_ids:
+        if any(cid.startswith(p) for p in META_PREFIXES):
+            continue
         info = char_db.get(cid)
         if info is None:
             unknown_ids.append(cid)
@@ -178,20 +183,16 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
     else:
         rating = "red"
 
-    # Reasoning generieren
-    reasoning = _build_reasoning(
+    # Kompakte Fakten-Zusammenfassung für Haiku
+    facts = _build_analysis_facts(
         rating=rating,
         is_homebrew=is_homebrew,
         is_amnesiac=is_amnesiac,
-        tb_high=tb_high,
-        base3_high=base3_high,
         tb_overlap=tb_overlap,
         base3_overlap=base3_overlap,
         non_tb_names=non_tb_names,
         non_base3_names=non_base3_names,
         loric_names=loric_names,
-        loric_count=loric_count,
-        game_changer_count=game_changer_count,
         score10_chars=score10_chars,
         score9_chars=score9_chars,
         unknown_names=unknown_names,
@@ -211,134 +212,38 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
         "non_tb_chars": non_tb_names,
         "non_base3_chars": non_base3_names,
         "loric_chars": loric_names,
-        "reasoning": reasoning,
+        "analysis_facts": facts,
     }
 
 
-def _build_reasoning(
-    *, rating, is_homebrew, is_amnesiac, tb_high, base3_high,
+def _build_analysis_facts(
+    *, rating, is_homebrew, is_amnesiac,
     tb_overlap, base3_overlap, non_tb_names, non_base3_names,
-    loric_names, loric_count, game_changer_count,
-    score10_chars, score9_chars, unknown_names,
+    loric_names, score10_chars, score9_chars, unknown_names,
 ) -> str:
-    """Generiert die deutsche Begründung für die Komplexitäts-Einschätzung."""
-    parts = []
+    """Baut eine kompakte Fakten-Zusammenfassung für den LLM-Prompt."""
+    lines = [f"RATING: {rating}"]
 
-    # Homebrew-Hinweis
     if is_homebrew:
-        parts.append(
-            f"Enthält unbekannte Charaktere ({', '.join(unknown_names)}) "
-            f"— wahrscheinlich Homebrew."
-        )
-
-    # Amnesiac-Hinweis
+        lines.append(f"HOMEBREW: Ja — unbekannte Charaktere: {', '.join(unknown_names)}")
     if is_amnesiac:
-        parts.append(
-            "Über die Hälfte der Charaktere sind Amnesiac — "
-            "das wird eine experimentelle Runde!"
-        )
-        return " ".join(parts)
+        lines.append("AMNESIAC: >50% der Charaktere sind Amnesiac")
 
-    # Grün: TB-nah, keine GC/Lorics
-    if rating == "green":
-        if tb_overlap == 1.0:
-            parts.append("Das Skript basiert vollständig auf Trouble Brewing — ideal für Einsteiger.")
-        else:
-            non_tb_str = ", ".join(non_tb_names) if non_tb_names else "keine"
-            parts.append(
-                f"Die allermeisten Charaktere stimmen mit denen aus TB überein. "
-                f"{non_tb_str} {'ist' if len(non_tb_names) == 1 else 'sind'} nicht aus TB, "
-                f"kann man aber unterm Strich Anfängern zumuten."
-            )
-            parts.append("Lorics sehe ich auch keine.")
+    lines.append(f"TB-Überlappung: {tb_overlap:.0%}")
+    lines.append(f"Base3-Überlappung (TB+BMR+S&V): {base3_overlap:.0%}")
 
-    # Gelb: TB-nah + 1 GC oder 1 Loric
-    elif rating == "yellow" and tb_high:
-        non_gc_non_tb = [n for n in non_tb_names if n not in score10_chars and n not in score9_chars]
-        if non_gc_non_tb:
-            parts.append(
-                f"Nah an TB. {', '.join(non_gc_non_tb)} "
-                f"{'ist' if len(non_gc_non_tb) == 1 else 'sind'} nicht aus TB, "
-                f"aber unterm Strich für Anfänger machbar."
-            )
-        else:
-            parts.append("Nah an TB.")
+    if non_tb_names:
+        lines.append(f"Nicht in TB: {', '.join(non_tb_names)}")
+    if non_base3_names:
+        lines.append(f"Nicht in Base3: {', '.join(non_base3_names)}")
+    if score10_chars:
+        lines.append(f"Game Changer (Score 10): {', '.join(score10_chars)}")
+    if score9_chars:
+        lines.append(f"Anspruchsvoll (Score 9): {', '.join(score9_chars)}")
+    if loric_names:
+        lines.append(f"Lorics: {', '.join(loric_names)}")
 
-        if loric_count == 1:
-            parts.append(
-                f"Nur der Loric {loric_names[0]} fügt deutlich Komplexität hinzu, "
-                f"deswegen gelb statt grün."
-            )
-        elif score10_chars:
-            parts.append(
-                f"Nur {score10_chars[0]} fügt deutlich Komplexität hinzu, "
-                f"deswegen gelb statt grün."
-            )
-        elif len(score9_chars) >= 2:
-            # GC kommt von 2x Score-9 — der Zusatz am Ende erklärt das,
-            # hier nur den Übergang zu gelb begründen
-            parts.append("Deswegen gelb statt grün.")
-
-    # Gelb: Base3-nah, keine GC/Lorics
-    elif rating == "yellow" and base3_high:
-        if base3_overlap == 1.0:
-            parts.append(
-                "Alle Charaktere sind aus den Base3-Skripten (TB/BMR/S&V) bekannt."
-            )
-        else:
-            non_b3_str = ", ".join(non_base3_names) if non_base3_names else "keine"
-            parts.append(
-                f"Die allermeisten Charaktere sind aus den Base3-Skripten bekannt. "
-                f"{non_b3_str} {'ist' if len(non_base3_names) == 1 else 'sind'} nicht dabei, "
-                f"aber für Spieler, die SnV und BMR schon kennen, gut machbar."
-            )
-        parts.append("Lorics sehe ich auch keine.")
-
-    # Rot: verschiedene Pfade
-    elif rating == "red":
-        gc_and_lorics = score10_chars + loric_names
-        all_complex = gc_and_lorics.copy()
-
-        if tb_high:
-            # TB-nah, aber zu viele GC/Lorics
-            parts.append(
-                f"Die allermeisten Charaktere stimmen zwar mit denen aus TB überein, "
-                f"aber {', '.join(all_complex)} {'ist' if len(all_complex) == 1 else 'sind'} "
-                f"in Summe zu viel, um es nur gelb einzuordnen."
-            )
-        elif base3_high:
-            # Base3-nah, aber GC/Lorics
-            parts.append(
-                f"Die allermeisten Charaktere stammen aus den Base3-Skripten, "
-                f"aber {', '.join(all_complex)} "
-                f"{'fügt' if len(all_complex) == 1 else 'fügen'} "
-                f"allesamt Komplexität hinzu. Für mich also nicht mehr Gelb."
-            )
-        elif game_changer_count + loric_count <= 2:
-            # Weit weg von Base3, aber wenige GC
-            gc_str = ", ".join(all_complex) if all_complex else "diversen exotischen Charakteren"
-            parts.append(
-                f"Crazy Skript, das du da anbietest! Klar rot einzuschätzen. "
-                f"Viel Spaß mit {gc_str}!"
-            )
-        else:
-            # Weit weg von Base3, viele GC — insane
-            gc_str = ", ".join(all_complex) if all_complex else "einem Haufen wilder Charaktere"
-            parts.append(
-                f"Also dieses Skript ist wirklich der Wahnsinn — tiefrot! "
-                f"Mit {gc_str} wird das eine wilde Fahrt. "
-                f"Hoffentlich weiß der Storyteller, worauf er sich einlässt!"
-            )
-
-    # Score-9-Chars Zusatz (wenn ≥2)
-    if len(score9_chars) >= 2:
-        s9_str = ", ".join(score9_chars)
-        parts.append(
-            f"Außerdem: {s9_str} fügen in Summe auch nochmal Komplexität hinzu, "
-            f"auch wenn keiner für sich allein ein totaler Game Changer ist."
-        )
-
-    return " ".join(parts)
+    return "\n".join(lines)
 
 
 # ── Label-Berechnung ──────────────────────────────────────────────────

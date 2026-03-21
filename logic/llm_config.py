@@ -72,9 +72,9 @@ Wenn der User von sich aus einen Co-ST erwähnt, setze co_storyteller. Sonst ble
 
 {rules_summary}"""
 
-# Prompt für Titel + Beschreibung (separater Call nach Script-Validierung)
+# Prompt für Titel + Beschreibung + Einschätzung (separater Call nach Script-Validierung)
 TITLE_DESCRIPTION_PROMPT = """\
-Generiere für dieses BotC-Event einen Titel und eine Beschreibung.
+Generiere für dieses BotC-Event einen Titel, eine Beschreibung und eine Skript-Einschätzung.
 
 Skript: {script}
 Storyteller: {storyteller}
@@ -84,32 +84,36 @@ Termin: {start_time}
 Casual: {is_casual}
 Academy: {is_academy}
 
-## SKRIPT-ANALYSE (vom Bot berechnet)
-Komplexitäts-Bewertung: {complexity_rating}
-TB-Überlappung: {tb_overlap}
-Base3-Überlappung (TB+BMR+S&V): {base3_overlap}
-Bot-Einschätzung: {complexity_reasoning}
+## SKRIPT-ANALYSE (deterministisch berechnet — die Fakten stimmen, formuliere sie nur)
+{analysis_facts}
 
-TITEL-FORMAT: "[Skriptname] mit [Storyteller(s)]"
+## DEINE AUFGABEN
+
+### 1. TITEL
+Format: "[Skriptname] mit [Storyteller(s)]"
 Beispiele: "Boozling mit Dalyan", "BMR mit Dalyan und Rosanna"
 KEIN Emoji im Titel — das wird separat hinzugefügt.
 
-BESCHREIBUNG: 3 Teile, deutsch, für Mitspieler die sich anmelden wollen.
+### 2. BESCHREIBUNG (3 Teile, deutsch, für Mitspieler)
 Schreibe aus Event-Perspektive, NICHT "Du leitest..." — die Spieler lesen das.
-
 1. Einstieg: "Wir spielen..." + Stimmung/Vibe der Runde.
-   - Bei Casual/Academy: betone die entspannte, lernfreundliche Atmosphäre.
-   - Bei Erfahren/Profi: betone die Herausforderung.
-2. Skript-Charakter: Nutze die Skript-Analyse oben als Basis.
-   - Nah an TB? → "Ein Skript nah an Trouble Brewing..."
-   - Base3-Mix? → "Ein Mix aus bekannten Base3-Charakteren..."
-   - Exotisch? → "Ein experimentelles Skript mit einigen Überraschungen..."
-   - Homebrew? → "Ein Homebrew-Skript — seid gespannt!"
-   Halte es kurz und informativ, nicht die komplette Analyse wiedergeben.
+2. Skript-Charakter: Nutze die Analyse-Fakten, um kurz einzuordnen (nah an TB / Base3-Mix / experimentell / Homebrew). Nicht die Fakten 1:1 wiedergeben, sondern für Spieler verständlich zusammenfassen.
 3. Schlusssatz: Einladend, kurz.
 
+### 3. REASONING (Skript-Einschätzung, 1-3 Sätze)
+Du bist der "Village Idiot" — schreibe die Einschätzung humorvoll, sympathisch und selbstironisch.
+Nutze die Analyse-Fakten oben als Basis. Die Fakten sind korrekt, du formulierst sie nur ansprechend.
+Sei dabei variabel — nicht immer die gleichen Formulierungen. Kernaussagen:
+- Bei grün: anfängerfreundlich, nah an TB, die paar Nicht-TB-Chars sind harmlos
+- Bei gelb: grundsätzlich machbar, aber [Game Changer/Loric] fügt Komplexität hinzu ODER Base3-Mix für Spieler die BMR/SnV kennen
+- Bei rot: anspruchsvoll/wild, nenne die Game Changer und Lorics die es komplex machen
+- Bei Homebrew: unbekannte Charaktere, seid gespannt
+- Bei Amnesiac: experimentelle Amnesiac-Runde
+- Wenn Score-9-Chars (≥2): erwähne dass diese in Summe auch Komplexität hinzufügen
+WICHTIG: Nenne das Rating NICHT wörtlich ("grün"/"gelb"/"rot") — das Emoji wird separat angezeigt.
+
 Antworte als JSON:
-{{"title": "...", "description": "..."}}"""
+{{"title": "...", "description": "...", "reasoning": "..."}}"""
 
 # Prompt für Titel/Beschreibung-Änderungen (Freitext vom User)
 TITLE_DESCRIPTION_UPDATE_PROMPT = """\

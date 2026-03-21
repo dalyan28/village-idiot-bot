@@ -235,22 +235,25 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
             height += max(_char_block_height(c["ability"]) for c in row)
         height += SECTION_GAP
 
+    # Jinx/Bootlegger wrap width (Text-Bereich ab Icon+Padding bis fast zum Rand)
+    _jinx_text_x = PADDING + ICON_SIZE + TEXT_PADDING
+    _jinx_text_w = img_width - _jinx_text_x - PADDING - 5
+    _jinx_wrap = max(40, _jinx_text_w // 7)
+    _boot_wrap = max(40, _jinx_text_w // 7)
+
     if fabled_loric or jinxes or bootlegger_rules:
         height += HEADER_HEIGHT + SECTION_GAP
         for fl in fabled_loric:
             height += _char_block_height(fl["ability"])
-            fl_jinxes = [j for j in jinxes if j["char_a"] == fl["id"] or j["char_b"] == fl["id"]]
-            for jnx in fl_jinxes:
-                jh = SZ_NAME + 4 + len(_wrap(jnx["reason"], 50)) * JINX_LINE_HEIGHT + 5
-                height += max(ICON_JINX + 3, jh)
-        if bootlegger_rules:
-            for rule in bootlegger_rules:
-                height += len(_wrap(rule, 55)) * JINX_LINE_HEIGHT + 10
-        other_jinxes = [j for j in jinxes if not any(
-            j["char_a"] == fl["id"] or j["char_b"] == fl["id"] for fl in fabled_loric)]
-        for jnx in other_jinxes:
-            jh = SZ_NAME + 4 + len(_wrap(jnx["reason"], 50)) * JINX_LINE_HEIGHT + 5
-            height += max(ICON_JINX + 3, jh)
+            # Alle Jinxes unter Djinn
+            if fl["id"] == DJINN_ID and jinxes:
+                for jnx in jinxes:
+                    jh = SZ_NAME + 4 + len(_wrap(jnx["reason"], _jinx_wrap)) * JINX_LINE_HEIGHT + 5
+                    height += max(ICON_JINX + 3, jh)
+            # Alle Bootlegger-Regeln unter Bootlegger
+            if fl["id"] == "bootlegger" and bootlegger_rules:
+                for rule in bootlegger_rules:
+                    height += len(_wrap(rule, _boot_wrap)) * JINX_LINE_HEIGHT + 10
         height += SECTION_GAP
 
     height += FOOTER_HEIGHT + PADDING
@@ -361,6 +364,13 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
 
         fl_text_width = img_width - PADDING * 2 - ICON_SIZE - TEXT_PADDING - 10
 
+        # Jinx/Bootlegger Textbereich: eingerückt auf Text-Ebene (nicht Icon-Ebene)
+        jinx_x = PADDING + ICON_SIZE + TEXT_PADDING  # Gleiche Einrückung wie Char-Text
+        jinx_text_w = img_width - jinx_x - PADDING - 5
+        jinx_icon_text_w = jinx_text_w - ICON_JINX * 2 + 4 - 6
+        jinx_wrap_chars = max(40, jinx_icon_text_w // 7)
+        boot_wrap_chars = max(40, (jinx_text_w - 12) // 7)
+
         for fl in fabled_loric:
             color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
             block_h = _char_block_height(fl["ability"])
@@ -383,115 +393,59 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
                               f_ability, f_ability_b, max_width=fl_text_width)
             y += block_h
 
-            # Jinxes für diesen Fabled/Loric
-            fl_jinxes = [j for j in jinxes if j["char_a"] == fl["id"] or j["char_b"] == fl["id"]]
-            jinx_text_width = img_width - PADDING - JINX_INDENT - ICON_JINX * 2 - 20
-            jinx_wrap_chars = max(40, jinx_text_width // 7)
+            # Alle Jinxes unter dem Djinn
+            if fl["id"] == DJINN_ID and jinxes:
+                for jnx in jinxes:
+                    char_a_info = chars_db.get(jnx["char_a"], {})
+                    char_b_info = chars_db.get(jnx["char_b"], {})
+                    name_a = char_a_info.get("character_name", jnx["char_a"])
+                    name_b = char_b_info.get("character_name", jnx["char_b"])
+                    team_a = char_a_info.get("character_type", "Townsfolk")
+                    team_b = char_b_info.get("character_type", "Townsfolk")
+                    color_a = NAME_COLORS.get(team_a, ABILITY_COLOR)
+                    color_b = NAME_COLORS.get(team_b, ABILITY_COLOR)
 
-            for jnx in fl_jinxes:
-                jx = PADDING + JINX_INDENT
+                    is_evil_a = team_a in ("Minion", "Demon")
+                    is_evil_b = team_b in ("Minion", "Demon")
+                    icon_a = _load_icon(jnx["char_a"], evil=is_evil_a, size=ICON_JINX) or ph_jinx
+                    icon_b = _load_icon(jnx["char_b"], evil=is_evil_b, size=ICON_JINX) or ph_jinx
 
-                # Char-Namen + Farben für Überschrift
-                char_a_info = chars_db.get(jnx["char_a"], {})
-                char_b_info = chars_db.get(jnx["char_b"], {})
-                name_a = char_a_info.get("character_name", jnx["char_a"])
-                name_b = char_b_info.get("character_name", jnx["char_b"])
-                team_a = char_a_info.get("character_type", "Townsfolk")
-                team_b = char_b_info.get("character_type", "Townsfolk")
-                color_a = NAME_COLORS.get(team_a, ABILITY_COLOR)
-                color_b = NAME_COLORS.get(team_b, ABILITY_COLOR)
+                    reason_lines = _wrap(jnx["reason"], jinx_wrap_chars)
+                    header_h = SZ_NAME + 4
+                    text_h = len(reason_lines) * JINX_LINE_HEIGHT
+                    content_h = header_h + text_h
+                    jh = max(ICON_JINX + 3, content_h + 5)
 
-                # Icons
-                is_evil_a = team_a in ("Minion", "Demon")
-                is_evil_b = team_b in ("Minion", "Demon")
-                icon_a = _load_icon(jnx["char_a"], evil=is_evil_a, size=ICON_JINX) or ph_jinx
-                icon_b = _load_icon(jnx["char_b"], evil=is_evil_b, size=ICON_JINX) or ph_jinx
+                    # Icons auf Text-Ebene eingerückt
+                    icon_y_j = y + (jh - ICON_JINX) // 2
+                    _paste(img, icon_a, jinx_x, icon_y_j)
+                    _paste(img, icon_b, jinx_x + ICON_JINX - 8, icon_y_j)
+                    text_x = jinx_x + ICON_JINX * 2 - 4
 
-                reason_lines = _wrap(jnx["reason"], jinx_wrap_chars)
-                # Höhe: Überschrift + Text
-                header_h = SZ_NAME + 4
-                text_h = len(reason_lines) * JINX_LINE_HEIGHT
-                content_h = header_h + text_h
-                jh = max(ICON_JINX + 3, content_h + 5)
+                    # Überschrift: "Char A & Char B"
+                    content_y = y + (jh - content_h) // 2
+                    draw.text((text_x, content_y), name_a, fill=color_a, font=f_name)
+                    ab = draw.textbbox((text_x, content_y), name_a, font=f_name)
+                    draw.text((ab[2], content_y), " & ", fill=ABILITY_COLOR, font=f_name)
+                    amp_bb = draw.textbbox((ab[2], content_y), " & ", font=f_name)
+                    draw.text((amp_bb[2], content_y), name_b, fill=color_b, font=f_name)
 
-                # Icons vertikal zentriert, eng zusammen
-                icon_y = y + (jh - ICON_JINX) // 2
-                _paste(img, icon_a, jx, icon_y)
-                _paste(img, icon_b, jx + ICON_JINX - 8, icon_y)  # Überlappend
-                text_x = jx + ICON_JINX * 2 - 4
+                    # Jinx-Text
+                    jt_y = content_y + header_h
+                    for li, line in enumerate(reason_lines):
+                        draw.text((text_x, jt_y + li * JINX_LINE_HEIGHT),
+                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                    y += jh
 
-                # Überschrift: "Char A & Char B" in jeweiliger Farbe
-                content_y = y + (jh - content_h) // 2
-                draw.text((text_x, content_y), name_a, fill=color_a, font=f_name)
-                ab = draw.textbbox((text_x, content_y), name_a, font=f_name)
-                draw.text((ab[2], content_y), " & ", fill=ABILITY_COLOR, font=f_name)
-                amp_bb = draw.textbbox((ab[2], content_y), " & ", font=f_name)
-                draw.text((amp_bb[2], content_y), name_b, fill=color_b, font=f_name)
-
-                # Jinx-Text
-                text_y = content_y + header_h
-                for li, line in enumerate(reason_lines):
-                    draw.text((text_x, text_y + li * JINX_LINE_HEIGHT),
-                              line, fill=ABILITY_COLOR, font=f_jinx)
-                y += jh
-
-        # Bootlegger-Regeln
-        if bootlegger_rules:
-            for rule in bootlegger_rules:
-                rx = PADDING + JINX_INDENT
-                lines = _wrap(rule, 55)
-                draw.text((rx, y), "•", fill=ABILITY_COLOR, font=f_jinx)
-                for li, line in enumerate(lines):
-                    draw.text((rx + 12, y + li * JINX_LINE_HEIGHT),
-                              line, fill=ABILITY_COLOR, font=f_jinx)
-                y += len(lines) * JINX_LINE_HEIGHT + 8
-
-        # Jinxes ohne Fabled-Bezug
-        other_jinxes = [j for j in jinxes if not any(
-            j["char_a"] == fl_c["id"] or j["char_b"] == fl_c["id"] for fl_c in fabled_loric)]
-        jinx_text_width_other = img_width - PADDING - JINX_INDENT - ICON_JINX * 2 - 20
-        jinx_wrap_other = max(40, jinx_text_width_other // 7)
-
-        for jnx in other_jinxes:
-            jx = PADDING + JINX_INDENT
-
-            char_a_info = chars_db.get(jnx["char_a"], {})
-            char_b_info = chars_db.get(jnx["char_b"], {})
-            name_a = char_a_info.get("character_name", jnx["char_a"])
-            name_b = char_b_info.get("character_name", jnx["char_b"])
-            team_a = char_a_info.get("character_type", "Townsfolk")
-            team_b = char_b_info.get("character_type", "Townsfolk")
-            color_a = NAME_COLORS.get(team_a, ABILITY_COLOR)
-            color_b = NAME_COLORS.get(team_b, ABILITY_COLOR)
-
-            is_evil_a = team_a in ("Minion", "Demon")
-            is_evil_b = team_b in ("Minion", "Demon")
-            icon_a = _load_icon(jnx["char_a"], evil=is_evil_a, size=ICON_JINX) or ph_jinx
-            icon_b = _load_icon(jnx["char_b"], evil=is_evil_b, size=ICON_JINX) or ph_jinx
-
-            reason_lines = _wrap(jnx["reason"], jinx_wrap_other)
-            header_h = SZ_NAME + 4
-            text_h = len(reason_lines) * JINX_LINE_HEIGHT
-            content_h = header_h + text_h
-            jh = max(ICON_JINX + 3, content_h + 5)
-
-            icon_y = y + (jh - ICON_JINX) // 2
-            _paste(img, icon_a, jx, icon_y)
-            _paste(img, icon_b, jx + ICON_JINX - 8, icon_y)
-            text_x = jx + ICON_JINX * 2 - 4
-
-            content_y = y + (jh - content_h) // 2
-            draw.text((text_x, content_y), name_a, fill=color_a, font=f_name)
-            ab = draw.textbbox((text_x, content_y), name_a, font=f_name)
-            draw.text((ab[2], content_y), " & ", fill=ABILITY_COLOR, font=f_name)
-            amp_bb = draw.textbbox((ab[2], content_y), " & ", font=f_name)
-            draw.text((amp_bb[2], content_y), name_b, fill=color_b, font=f_name)
-
-            text_y = content_y + header_h
-            for li, line in enumerate(reason_lines):
-                draw.text((text_x, text_y + li * JINX_LINE_HEIGHT),
-                          line, fill=ABILITY_COLOR, font=f_jinx)
-            y += jh
+            # Alle Bootlegger-Regeln unter dem Bootlegger
+            if fl["id"] == "bootlegger" and bootlegger_rules:
+                for rule in bootlegger_rules:
+                    lines = _wrap(rule, boot_wrap_chars)
+                    draw.text((jinx_x, y), "•", fill=ABILITY_COLOR, font=f_jinx)
+                    for li, line in enumerate(lines):
+                        draw.text((jinx_x + 12, y + li * JINX_LINE_HEIGHT),
+                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                    y += len(lines) * JINX_LINE_HEIGHT + 8
 
         y += SECTION_GAP
 

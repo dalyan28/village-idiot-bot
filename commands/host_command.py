@@ -357,8 +357,9 @@ class HostCommand(commands.Cog):
         async with channel.typing():
             result = await generate_title_and_description(session)
 
+        reasoning = ""
         if result:
-            title, desc = result
+            title, desc, reasoning = result
             session.fields["title"] = title
             session.fields["description"] = desc
         else:
@@ -375,9 +376,8 @@ class HostCommand(commands.Cog):
         prefix = build_title_prefix(session.fields)
         title_display = f"{prefix} {session.fields['title']}" if prefix else session.fields['title']
 
-        # Reasoning aus Analyse
+        # Rating-Emoji für Einschätzung
         analysis = session.fields.get("complexity_analysis") or {}
-        reasoning = analysis.get("reasoning", "")
         rating = analysis.get("rating")
         rating_emoji = LABEL_EMOJI.get(rating, "") if rating else ""
 
@@ -391,9 +391,12 @@ class HostCommand(commands.Cog):
         if reasoning:
             lines.append(f"\n{rating_emoji} **Skript-Einschätzung:** {reasoning}")
 
+        # Beschreibung: jede Zeile mit > prefixen für Discord-Zitat
+        desc_text = session.fields['description']
+        desc_quoted = "\n> ".join(desc_text.split("\n"))
         lines.append(
             f"\n> **Titel:** {title_display}\n"
-            f"> **Beschreibung:** {session.fields['description']}"
+            f"> **Beschreibung:** {desc_quoted}"
         )
         lines.append(
             "\nDu kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
