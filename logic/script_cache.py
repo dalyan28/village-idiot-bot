@@ -18,24 +18,41 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-# Statische Dateien aus Git — MUSS außerhalb des Railway-Volume-Mounts liegen
+# Pfade
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
-ICONS_DIR = os.path.join(STATIC_DIR, "icons")
+STATIC_DIR = os.path.join(PROJECT_ROOT, "static")  # Git-Fallback (wird bei Deploy überschrieben)
+
+# Volume-Pfad (Railway) oder lokaler data/-Ordner — hier werden /update Daten persistent gespeichert
+VOLUME_DIR = os.getenv("RAILWAY_VOLUME_MOUNT_PATH", os.path.join(PROJECT_ROOT, "data"))
+
+# Base Scripts: immer aus static/ (ändern sich nie)
 BASE_SCRIPTS_FILE = os.path.join(STATIC_DIR, "base_scripts.json")
-CHARACTERS_FILE = os.path.join(STATIC_DIR, "characters.json")
-JINXES_FILE = os.path.join(STATIC_DIR, "jinxes.json")
 
-# Cache auf Volume (Railway) oder lokal im data/ Ordner
-CACHE_FILE = os.path.join(
-    os.getenv("RAILWAY_VOLUME_MOUNT_PATH", os.path.join(PROJECT_ROOT, "data")),
-    "script_cache.json",
-)
 
+def _resolve_path(filename: str, subdir: str = "") -> str:
+    """Gibt den Pfad zu einer Datei zurück: Volume first, dann static/ Fallback."""
+    if subdir:
+        volume_path = os.path.join(VOLUME_DIR, subdir, filename)
+        static_path = os.path.join(STATIC_DIR, subdir, filename)
+    else:
+        volume_path = os.path.join(VOLUME_DIR, filename)
+        static_path = os.path.join(STATIC_DIR, filename)
+    if os.path.exists(volume_path):
+        return volume_path
+    return static_path
+
+
+# Dynamische Pfade: Volume → static/ Fallback
+# (werden von _resolve_path() aufgelöst, hier nur für Dokumentation)
+ICONS_DIR_VOLUME = os.path.join(VOLUME_DIR, "icons")
+ICONS_DIR_STATIC = os.path.join(STATIC_DIR, "icons")
+
+CACHE_FILE = os.path.join(VOLUME_DIR, "script_cache.json")
 CACHE_TTL_DAYS = 30
 
 # TPI GitHub URLs
 TPI_ROLES_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/data/roles.json"
+TPI_JINXES_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/data/jinxes.json"
 TPI_ICON_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/characters/{edition}/{filename}"
 
 # Lazy-loaded data
@@ -84,6 +101,8 @@ def lookup_base_script(query: str) -> dict | None:
 def load_characters() -> dict:
     """Lädt die offizielle Charakterdatenbank (TPI roles.json Format).
 
+    Sucht zuerst auf dem Volume, dann in static/ (Git-Fallback).
+
     Returns:
         Dict von character_id → {character_name, character_type, ability, edition}
     """
@@ -91,11 +110,12 @@ def load_characters() -> dict:
     if _characters is not None:
         return _characters
 
-    if not os.path.exists(CHARACTERS_FILE):
-        logger.warning("characters.json nicht gefunden: %s", CHARACTERS_FILE)
+    chars_file = _resolve_path("characters.json")
+    if not os.path.exists(chars_file):
+        logger.warning("characters.json nicht gefunden")
         return {}
 
-    with open(CHARACTERS_FILE, "r", encoding="utf-8") as f:
+    with open(chars_file, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
     _characters = {}
@@ -115,25 +135,27 @@ def load_characters() -> dict:
 
 
 def invalidate_characters_cache():
-    """Invalidiert den Characters-Cache, damit er beim nächsten Zugriff neu geladen wird."""
-    global _characters
+    """Invalidiert Characters- und Jinxes-Cache."""
+    global _characters, _jinxes
     _characters = None
-    logger.info("Characters-Cache invalidiert")
+    _jinxes = None
+    logger.info("Characters- und Jinxes-Cache invalidiert")
 
 
 # ── Jinxes ───────────────────────────────────────────────────────────────────
 
 
 def _load_jinxes_raw() -> list:
-    """Lädt die rohen Jinxes-Daten."""
+    """Lädt die rohen Jinxes-Daten. Volume first, dann static/ Fallback."""
     global _jinxes
     if _jinxes is not None:
         return _jinxes
-    if not os.path.exists(JINXES_FILE):
-        logger.warning("jinxes.json nicht gefunden: %s", JINXES_FILE)
+    jinxes_file = _resolve_path("jinxes.json")
+    if not os.path.exists(jinxes_file):
+        logger.warning("jinxes.json nicht gefunden")
         _jinxes = []
         return _jinxes
-    with open(JINXES_FILE, "r", encoding="utf-8") as f:
+    with open(jinxes_file, "r", encoding="utf-8") as f:
         _jinxes = json.load(f)
     logger.debug("Jinxes geladen: %d Einträge", len(_jinxes))
     return _jinxes
@@ -171,9 +193,7 @@ def get_jinxes_for_script(char_ids: list[str]) -> list[dict]:
 def get_character_icon_path(char_id: str, evil: bool = False) -> str | None:
     """Gibt den Pfad zum Character-Icon zurück, oder None wenn nicht vorhanden.
 
-    Args:
-        char_id: Character-ID
-        evil: True für böse Charaktere (Minion/Demon) → bevorzugt _e.webp (rot)
+    Sucht zuerst auf dem Volume, dann in static/icons/ (Git-Fallback).
     """
     if evil:
         variants = [f"{char_id}_e.webp", f"{char_id}.webp", f"{char_id}_g.webp"]
@@ -181,9 +201,14 @@ def get_character_icon_path(char_id: str, evil: bool = False) -> str | None:
         variants = [f"{char_id}_g.webp", f"{char_id}.webp", f"{char_id}_e.webp"]
 
     for filename in variants:
-        path = os.path.join(ICONS_DIR, filename)
-        if os.path.exists(path):
-            return path
+        # Volume first
+        volume_path = os.path.join(ICONS_DIR_VOLUME, filename)
+        if os.path.exists(volume_path):
+            return volume_path
+        # Static fallback
+        static_path = os.path.join(ICONS_DIR_STATIC, filename)
+        if os.path.exists(static_path):
+            return static_path
     return None
 
 
@@ -206,13 +231,15 @@ def _download_file(url: str, timeout: int = 15, silent: bool = False) -> bytes |
 
 
 def _update_characters_sync(force_icons: bool = False) -> dict:
-    """Synchron: Lädt characters + icons von TPI GitHub.
+    """Synchron: Lädt characters + jinxes + icons von TPI GitHub aufs Volume.
 
-    Returns: {characters_count, new_icons, skipped_icons, errors}
+    Returns: {characters_count, jinxes_count, new_icons, skipped_icons, errors}
     """
-    result = {"characters_count": 0, "new_icons": 0, "skipped_icons": 0, "errors": []}
+    result = {"characters_count": 0, "jinxes_count": 0, "new_icons": 0, "skipped_icons": 0, "errors": []}
 
-    # 1. roles.json downloaden
+    os.makedirs(VOLUME_DIR, exist_ok=True)
+
+    # 1. roles.json downloaden → Volume
     logger.info("Lade roles.json von TPI...")
     data = _download_file(TPI_ROLES_URL)
     if data is None:
@@ -229,20 +256,36 @@ def _update_characters_sync(force_icons: bool = False) -> dict:
         result["errors"].append("roles.json ist keine Liste")
         return result
 
-    # Validieren
     valid_roles = [r for r in roles if isinstance(r, dict) and r.get("id") and r.get("name") and r.get("team")]
     if not valid_roles:
         result["errors"].append("Keine gültigen Charaktere in roles.json")
         return result
 
-    # Speichern
-    with open(CHARACTERS_FILE, "w", encoding="utf-8") as f:
+    chars_path = os.path.join(VOLUME_DIR, "characters.json")
+    with open(chars_path, "w", encoding="utf-8") as f:
         json.dump(roles, f, indent=2, ensure_ascii=False)
     result["characters_count"] = len(valid_roles)
-    logger.info("roles.json gespeichert: %d Charaktere", len(valid_roles))
+    logger.info("roles.json auf Volume gespeichert: %d Charaktere", len(valid_roles))
 
-    # 2. Icons downloaden
-    os.makedirs(ICONS_DIR, exist_ok=True)
+    # 2. jinxes.json downloaden → Volume
+    logger.info("Lade jinxes.json von TPI...")
+    jinxes_data = _download_file(TPI_JINXES_URL)
+    if jinxes_data:
+        try:
+            jinxes = json.loads(jinxes_data)
+            jinxes_path = os.path.join(VOLUME_DIR, "jinxes.json")
+            with open(jinxes_path, "w", encoding="utf-8") as f:
+                json.dump(jinxes, f, indent=2, ensure_ascii=False)
+            result["jinxes_count"] = len(jinxes)
+            logger.info("jinxes.json auf Volume gespeichert: %d Einträge", len(jinxes))
+        except json.JSONDecodeError:
+            result["errors"].append("jinxes.json ist kein gültiges JSON")
+    else:
+        result["errors"].append("jinxes.json konnte nicht geladen werden")
+
+    # 3. Icons downloaden → Volume
+    icons_dir = os.path.join(VOLUME_DIR, "icons")
+    os.makedirs(icons_dir, exist_ok=True)
 
     for role in valid_roles:
         char_id = role["id"]
@@ -251,8 +294,10 @@ def _update_characters_sync(force_icons: bool = False) -> dict:
         # Beide Varianten downloaden: _g (good/blau) und _e (evil/rot)
         filenames_to_try = [f"{char_id}_g.webp", f"{char_id}_e.webp", f"{char_id}.webp"]
 
-        # Prüfen ob schon mindestens eine Variante vorhanden
-        existing = [fn for fn in filenames_to_try if os.path.exists(os.path.join(ICONS_DIR, fn))]
+        # Prüfen ob schon mindestens eine Variante vorhanden (auf Volume ODER static)
+        existing = [fn for fn in filenames_to_try
+                    if os.path.exists(os.path.join(icons_dir, fn))
+                    or os.path.exists(os.path.join(ICONS_DIR_STATIC, fn))]
         if existing and not force_icons:
             result["skipped_icons"] += 1
             continue
@@ -263,7 +308,7 @@ def _update_characters_sync(force_icons: bool = False) -> dict:
             url = TPI_ICON_URL.format(edition=edition, filename=filename)
             icon_data = _download_file(url, timeout=10, silent=True)
             if icon_data:
-                icon_path = os.path.join(ICONS_DIR, filename)
+                icon_path = os.path.join(icons_dir, filename)
                 with open(icon_path, "wb") as f:
                     f.write(icon_data)
                 any_downloaded = True

@@ -16,13 +16,14 @@ import anthropic
 
 from logic.llm_config import (
     DEFAULT_RULES,
-    DESCRIPTION_PROMPT,
     INITIAL_USER_MESSAGE,
     MAX_TOKENS,
     MODEL,
     PRICE_INPUT_PER_MTOK,
     PRICE_OUTPUT_PER_MTOK,
     SYSTEM_PROMPT_TEMPLATE,
+    TITLE_DESCRIPTION_PROMPT,
+    TITLE_DESCRIPTION_UPDATE_PROMPT,
 )
 from logic.label import compute_label
 
@@ -275,20 +276,8 @@ async def start_conversation(session: EventSession) -> dict | None:
     return await call_haiku(session, INITIAL_USER_MESSAGE)
 
 
-async def generate_description(session: EventSession) -> str | None:
-    """Generiert eine Event-Beschreibung basierend auf den gesammelten Feldern.
-
-    Separater LLM-Call, nicht Teil der Konversation.
-    Returns: Beschreibungstext oder None bei Fehler.
-    """
-    fields = session.fields
-    prompt = DESCRIPTION_PROMPT.format(
-        script=fields.get("script") or "Unbekannt",
-        storyteller=fields.get("storyteller") or session.user_display_name,
-        level=fields.get("level") or "Alle",
-        start_time=fields.get("start_time") or "TBD",
-    )
-
+def _call_llm_simple(session: EventSession, prompt: str) -> str | None:
+    """Einfacher LLM-Call ohne Konversations-History. Returns raw text."""
     try:
         client = _get_client()
         response = client.messages.create(
@@ -297,7 +286,7 @@ async def generate_description(session: EventSession) -> str | None:
             messages=[{"role": "user", "content": prompt}],
         )
     except anthropic.APIError as e:
-        logger.error("Description-Generierung fehlgeschlagen: %s", e)
+        logger.error("LLM-Call fehlgeschlagen: %s", e)
         return None
 
     text = response.content[0].text.strip()
@@ -310,5 +299,70 @@ async def generate_description(session: EventSession) -> str | None:
     session.total_cost_usd += call_cost
     session.call_count += 1
 
-    logger.debug("Description generiert: %d tokens, $%.5f", output_tokens, call_cost)
     return text
+
+
+async def generate_title_and_description(session: EventSession) -> tuple[str, str] | None:
+    """Generiert Titel und Beschreibung basierend auf den Event-Feldern.
+
+    Returns: (title, description) oder None bei Fehler.
+    """
+    fields = session.fields
+    co_st = fields.get("co_storyteller") or "Kein Co-ST"
+    casual = "Ja" if fields.get("is_casual") else "Nein"
+
+    prompt = TITLE_DESCRIPTION_PROMPT.format(
+        script=fields.get("script") or "Unbekannt",
+        storyteller=fields.get("storyteller") or session.user_display_name,
+        co_storyteller=co_st,
+        level=fields.get("level") or "Alle",
+        start_time=fields.get("start_time") or "TBD",
+        is_casual=casual,
+    )
+
+    raw = await asyncio.to_thread(_call_llm_simple, session, prompt)
+    if not raw:
+        return None
+
+    # JSON parsen
+    cleaned = _strip_markdown_fences(raw)
+    try:
+        data = json.loads(cleaned)
+        title = data.get("title", "")
+        description = data.get("description", "")
+        if title and description:
+            logger.debug("Titel/Beschreibung generiert")
+            return title, description
+    except json.JSONDecodeError:
+        logger.warning("Titel/Beschreibung JSON ungültig: %s", cleaned[:200])
+
+    return None
+
+
+async def update_title_description(session: EventSession, user_input: str) -> tuple[str, str, bool] | None:
+    """Verarbeitet Freitext-Änderungen an Titel/Beschreibung.
+
+    Returns: (new_title, new_description, accepted) oder None bei Fehler.
+    accepted=True wenn User zufrieden ist (keine Änderung).
+    """
+    prompt = TITLE_DESCRIPTION_UPDATE_PROMPT.format(
+        current_title=session.fields.get("title") or "",
+        current_description=session.fields.get("description") or "",
+        user_input=user_input,
+    )
+
+    raw = await asyncio.to_thread(_call_llm_simple, session, prompt)
+    if not raw:
+        return None
+
+    cleaned = _strip_markdown_fences(raw)
+    try:
+        data = json.loads(cleaned)
+        title = data.get("title", session.fields.get("title", ""))
+        description = data.get("description", session.fields.get("description", ""))
+        accepted = data.get("accepted", False)
+        return title, description, accepted
+    except json.JSONDecodeError:
+        logger.warning("Title/Desc Update JSON ungültig: %s", cleaned[:200])
+
+    return None

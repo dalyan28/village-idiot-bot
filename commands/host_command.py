@@ -1,9 +1,11 @@
 """Slash-Command /host — Event-Erstellung via DM.
 
-3-Phasen-Flow:
-A) Eingabe: Plain-Text Chat mit Haiku (max 1-2 Nachrichten)
-B) Script-Validierung: 1 Embed wenn Script nicht im Cache (isoliert)
-C) Zusammenfassung: 1 Embed mit allem + Buttons (Erstellen/Abbrechen)
+5-Schritte-Flow:
+1) Eingabe: Haiku sammelt 5 Pflichtfelder (script, time, ST, level, casual)
+2) Script-Validierung: Cache/Base oder botcscripts.com Suche
+3) Titel & Beschreibung: Haiku generiert, User kann per Freitext anpassen
+4) Summary: 1 Embed mit allem + Buttons (Erstellen/Abbrechen)
+5) Event erstellen
 """
 
 import json
@@ -20,10 +22,11 @@ from config import get_guild_config
 from logic.conversation import (
     call_haiku,
     end_session,
-    generate_description,
+    generate_title_and_description,
     get_session,
     has_active_session,
     start_session,
+    update_title_description,
     was_recently_expired,
 )
 from logic.label import (
@@ -36,7 +39,6 @@ from logic.label import (
 from logic.botcscripts import search_scripts
 from logic.script_cache import (
     cache_script,
-    is_base_script,
     load_characters,
     lookup_script,
     validate_script_json,
@@ -50,9 +52,8 @@ BERLIN_TZ = ZoneInfo("Europe/Berlin")
 BOT_COLOR = 0x5865F2
 
 CANCEL_KEYWORDS = {"abbrechen", "cancel", "stop"}
-CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes"}
+CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes", "passt", "gut"}
 
-# Felder für den Summary-Review (Nummer → Key → Label)
 SUMMARY_FIELDS = [
     ("title", "Titel"),
     ("description", "Beschreibung"),
@@ -72,21 +73,15 @@ def _cost_footer(session) -> str:
     if os.getenv("ENV") != "dev":
         return ""
     return (
-        f"💰 Nachricht {session.call_count} · "
+        f"💰 {session.call_count} Calls · "
         f"{session.total_input_tokens} in / {session.total_output_tokens} out · "
         f"${session.total_cost_usd:.4f}"
     )
 
 
-def _format_field_value(key: str, value) -> str:
+def _fmt(key, value):
     if value is None:
-        if key == "camera":
-            return "keine Pflicht"
-        if key == "co_storyteller":
-            return "Nicht möglich"
-        if key == "is_casual":
-            return "Nein"
-        return "-"
+        return {"camera": "keine Pflicht", "co_storyteller": "Nicht möglich", "is_casual": "Nein"}.get(key, "-")
     if key == "camera":
         return "Pflicht" if value is True else ("Aus" if value is False else "keine Pflicht")
     if key == "is_casual":
@@ -97,194 +92,138 @@ def _format_field_value(key: str, value) -> str:
     return str(value)
 
 
-def _parse_start_time(time_str: str) -> int | None:
+def _parse_start_time(s):
     for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M"]:
         try:
-            dt = datetime.strptime(time_str, fmt).replace(tzinfo=BERLIN_TZ)
-            return int(dt.timestamp())
+            return int(datetime.strptime(s, fmt).replace(tzinfo=BERLIN_TZ).timestamp())
         except ValueError:
             continue
     return None
 
 
-def _categorize_characters(char_ids: list[str]) -> dict[str, list[str]]:
-    characters_db = load_characters()
-    categories = {"Townsfolk": [], "Outsider": [], "Minion": [], "Demon": [],
-                  "Traveller": [], "Fabled": [], "Loric": [], "Weitere": []}
-    type_map = {"Townsfolk": "Townsfolk", "Outsider": "Outsider", "Minion": "Minion",
-                "Demon": "Demon", "Traveller": "Traveller", "Fabled": "Fabled", "Loric": "Loric"}
-    for char_id in char_ids:
-        char_info = characters_db.get(char_id)
-        if char_info:
-            cat = type_map.get(char_info.get("character_type", ""), "Weitere")
-            categories[cat].append(char_info.get("character_name", char_id))
-        else:
-            categories["Weitere"].append(char_id)
-    return categories
+# ── Embeds ───────────────────────────────────────────────────────────────────
 
 
-# ── Summary Embed (Phase C) ─────────────────────────────────────────────────
+def _build_summary_embed(session, script_data=None):
+    """Summary-Embed: Titel #1 (not inline), Beschreibung #2 (not inline), Rest inline."""
+    f = session.fields
+    is_free = bool(f.get("is_free_choice"))
 
+    embed = discord.Embed(title="Event-Zusammenfassung", color=BOT_COLOR)
 
-def _build_summary_embed(session, script_data: dict | None = None) -> discord.Embed:
-    """Baut DAS eine Summary-Embed mit Script-Info + allen Feldern + Description."""
-    fields = session.fields
-    is_free = bool(fields.get("is_free_choice"))
-
-    embed = discord.Embed(title="📋 Event-Zusammenfassung", color=BOT_COLOR)
-
-    # Script-Info (wenn verfügbar)
+    # Script-Info als Description
     if script_data and not is_free:
-        script_name = script_data.get("name", fields.get("script", ""))
-        author = script_data.get("author", "")
-        version = script_data.get("version", "")
-        chars = script_data.get("characters", [])
+        sn = script_data.get("name", f.get("script", ""))
+        au = script_data.get("author", "")
+        ve = script_data.get("version", "")
+        ch = script_data.get("characters", [])
+        info = f"**📜 {sn}**"
+        if au: info += f" von {au}"
+        if ve: info += f" · v{ve}"
+        if ch: info += f" · {len(ch)} Charaktere"
+        embed.description = info
 
-        script_info = f"**📜 {script_name}**"
-        if author:
-            script_info += f" von {author}"
-        if version:
-            script_info += f" · v{version}"
-        if chars:
-            script_info += f" · {len(chars)} Charaktere"
-        embed.description = script_info
+    # 1. Titel (not inline)
+    embed.add_field(name="1 · Titel", value=f"```{f.get('title') or '-'}```", inline=False)
 
-        # Kurze Charakter-Zusammenfassung
-        cats = _categorize_characters(chars)
-        char_lines = []
-        for cat_name, char_list in cats.items():
-            if char_list:
-                char_lines.append(f"**{cat_name}:** {', '.join(char_list[:8])}")
-                if len(char_list) > 8:
-                    char_lines[-1] += f" (+{len(char_list) - 8})"
-        if char_lines:
-            embed.add_field(name="Charaktere", value="\n".join(char_lines), inline=False)
-
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
-
-    # Event-Felder als inline 3er-Reihen
-    embed.add_field(name="1 · Titel", value=f"```{fields.get('title') or '-'}```", inline=True)
-    embed.add_field(name="3 · Storyteller:in", value=f"```{fields.get('storyteller') or '-'}```", inline=True)
-    embed.add_field(name="5 · Level", value=f"```{fields.get('level') or '-'}```", inline=True)
-
-    embed.add_field(name="6 · Termin", value=f"```{fields.get('start_time') or '-'}```", inline=True)
-    dur = _format_field_value("duration_minutes", fields.get("duration_minutes"))
-    embed.add_field(name="7 · Dauer", value=f"```{dur}```", inline=True)
-    embed.add_field(name="8 · Max Spieler", value=f"```{fields.get('max_players') or 12}```", inline=True)
-
-    cam = _format_field_value("camera", fields.get("camera"))
-    co_st = _format_field_value("co_storyteller", fields.get("co_storyteller"))
-    casual = _format_field_value("is_casual", fields.get("is_casual"))
-    embed.add_field(name="9 · Kamera", value=f"```{cam}```", inline=True)
-    embed.add_field(name="10 · Co-ST", value=f"```{co_st}```", inline=True)
-    embed.add_field(name="11 · Casual 🕊️", value=f"```{casual}```", inline=True)
-
-    # Beschreibung
-    desc = fields.get("description") or "*Wird automatisch generiert*"
-    if len(desc) > 1010:
-        desc = desc[:1007] + "..."
+    # 2. Beschreibung (not inline)
+    desc = f.get("description") or "*Wird generiert*"
+    if len(desc) > 1010: desc = desc[:1007] + "..."
     embed.add_field(name="2 · Beschreibung", value=f"```{desc}```", inline=False)
 
-    # Footer
+    # 3-5 inline
+    embed.add_field(name="3 · Storyteller:in", value=f"```{f.get('storyteller') or '-'}```", inline=True)
+    embed.add_field(name="4 · Skript", value=f"```{f.get('script') or '-'}```", inline=True)
+    embed.add_field(name="5 · Level", value=f"```{f.get('level') or '-'}```", inline=True)
+
+    # 6-8 inline
+    embed.add_field(name="6 · Termin", value=f"```{f.get('start_time') or '-'}```", inline=True)
+    embed.add_field(name="7 · Dauer", value=f"```{_fmt('duration_minutes', f.get('duration_minutes'))}```", inline=True)
+    embed.add_field(name="8 · Max Spieler", value=f"```{f.get('max_players') or 12}```", inline=True)
+
+    # 9-11 inline
+    embed.add_field(name="9 · Kamera", value=f"```{_fmt('camera', f.get('camera'))}```", inline=True)
+    embed.add_field(name="10 · Co-ST", value=f"```{_fmt('co_storyteller', f.get('co_storyteller'))}```", inline=True)
+    embed.add_field(name="11 · Casual 🕊️", value=f"```{_fmt('is_casual', f.get('is_casual'))}```", inline=True)
+
+    # 12 · Bild (Script-Bild als Attachment)
+    if session._summary_has_image:
+        embed.set_image(url="attachment://script_preview.png")
+
     footer = _cost_footer(session)
-    footer_text = "Antworte mit einer Nummer zum Ändern oder drücke ✅"
-    if footer:
-        footer_text = f"{footer_text}\n{footer}"
-    embed.set_footer(text=footer_text)
+    ft = "Antworte mit einer Nummer zum Ändern oder drücke Erstellen"
+    if footer: ft = f"{ft}\n{footer}"
+    embed.set_footer(text=ft)
 
     return embed
 
 
-# ── Script Choice Embed (Phase B) ───────────────────────────────────────────
-
-
-def _build_script_choice_embed(script_name: str, results: list[dict]) -> discord.Embed:
+def _build_script_choice_embed(script_name, results):
     embed = discord.Embed(
-        title=f"🔍 Skript-Suche: \"{script_name}\"",
+        title=f"Skript-Suche: \"{script_name}\"",
+        description="Ich suche dein Skript in der Datenbank...",
         color=BOT_COLOR,
     )
-    for i, result in enumerate(results, 1):
-        author = result.get("author") or "?"
-        version = result.get("version") or "?"
-        chars = result.get("characters", [])
-        count = f" · {len(chars)} Chars" if chars else ""
-        embed.add_field(
-            name=f"{i}. {result['name']}",
-            value=f"von {author} · v{version}{count}",
-            inline=False,
-        )
+    for i, r in enumerate(results, 1):
+        au = r.get("author") or "?"
+        ve = r.get("version") or "?"
+        ch = r.get("characters", [])
+        cnt = f" · {len(ch)} Chars" if ch else ""
+        embed.add_field(name=f"{i}. {r['name']}", value=f"von {au} · v{ve}{cnt}", inline=False)
     embed.set_footer(text="Antworte mit 1-5, 'custom' für eigenes Script, oder 'skip'.")
     return embed
 
 
-# ── Views ────────────────────────────────────────────────────────────────────
+# ── View ─────────────────────────────────────────────────────────────────────
 
 
 class SummaryView(discord.ui.View):
-    """Erstellen/Abbrechen Buttons im Summary-Embed."""
-
-    def __init__(self, cog: "HostCommand", session, dm_channel):
+    def __init__(self, cog, session, dm_channel):
         super().__init__(timeout=300)
         self.cog = cog
         self.session = session
         self.dm_channel = dm_channel
 
-    @discord.ui.button(label="Erstellen", emoji="✅", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Erstellen", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer()
         self.stop()
 
-        fields = self.session.fields
-        is_free = bool(fields.get("is_free_choice"))
+        f = self.session.fields
+        is_free = bool(f.get("is_free_choice"))
+        self.session.label = compute_label(f)
+        emoji = get_label_emoji(self.session.label, is_free_choice=is_free)
 
-        # Label berechnen
-        self.session.label = compute_label(fields)
-        label = self.session.label
-        emoji = get_label_emoji(label, is_free_choice=is_free)
-
-        # Zeitstempel
-        start_ts = _parse_start_time(fields.get("start_time") or "")
-        if start_ts is None:
+        start_ts = _parse_start_time(f.get("start_time") or "")
+        if not start_ts:
             await interaction.followup.send("Fehler: Termin konnte nicht verarbeitet werden.")
             end_session(self.session.user_id)
             return
 
-        duration = fields.get("duration_minutes") or 150
-        end_ts = start_ts + (duration * 60)
+        duration = f.get("duration_minutes") or 150
+        title = f.get("title") or "BotC Event"
+        if emoji: title = f"{emoji} {title}"
 
-        title = fields.get("title") or "BotC Event"
-        if emoji:
-            title = f"{emoji} {title}"
+        script_display = "Freie Skriptwahl" if is_free else (f.get("script") or "-")
 
-        script_display = fields.get("script") or "-"
-        if is_free:
-            script_display = "Freie Skriptwahl"
-
-        # Script-Daten für Embed
-        script_characters = []
-        script_url = None
-        if not is_free and fields.get("script"):
-            sd, _ = lookup_script(fields["script"])
+        # Script-Daten
+        script_characters, script_url = [], None
+        if not is_free and f.get("script"):
+            sd, _ = lookup_script(f["script"])
             if sd:
                 script_characters = sd.get("characters", [])
-                bid = sd.get("botcscripts_id")
-                ver = sd.get("version")
-                if bid and ver:
-                    script_url = f"https://www.botcscripts.com/script/{bid}/{ver}"
+                bid, ver = sd.get("botcscripts_id"), sd.get("version")
+                if bid and ver: script_url = f"https://www.botcscripts.com/script/{bid}/{ver}"
 
         event_data = {
-            "title": title,
-            "description": fields.get("description"),
-            "storyteller": fields.get("storyteller") or "-",
-            "co_storyteller": fields.get("co_storyteller"),
-            "script": script_display,
-            "script_url": script_url,
+            "title": title, "description": f.get("description"),
+            "storyteller": f.get("storyteller") or "-",
+            "co_storyteller": f.get("co_storyteller"),
+            "script": script_display, "script_url": script_url,
             "script_characters": script_characters,
-            "level": fields.get("level") or "Alle",
-            "camera": fields.get("camera"),
-            "max_players": fields.get("max_players") or 12,
-            "timestamp": start_ts,
-            "end_timestamp": end_ts,
+            "level": f.get("level") or "Alle",
+            "camera": f.get("camera"), "max_players": f.get("max_players") or 12,
+            "timestamp": start_ts, "end_timestamp": start_ts + duration * 60,
             "creator_id": self.session.user_id,
             "creator_name": self.session.user_display_name,
             "creator_avatar_url": self.session.user_avatar_url,
@@ -298,13 +237,13 @@ class SummaryView(discord.ui.View):
             end_session(self.session.user_id)
             return
 
-        # Script-Bild generieren
+        # Script-Bild
         script_file = None
         if script_characters and not is_free:
             try:
-                sd, _ = lookup_script(fields["script"])
+                sd, _ = lookup_script(f["script"])
                 img = await generate_script_image(
-                    fields.get("script", ""), (sd or {}).get("author", ""),
+                    f.get("script", ""), (sd or {}).get("author", ""),
                     script_characters, (sd or {}).get("version", ""),
                 )
                 script_file = discord.File(img, filename="script.png")
@@ -314,14 +253,13 @@ class SummaryView(discord.ui.View):
         try:
             msg = await event_cog.post_event(event_channel, event_data, script_image=script_file)
             await interaction.followup.send(f"Event erstellt! 🎉\n{msg.jump_url}")
-            logger.info("Event erstellt: '%s' (msg_id=%s)", title, msg.id)
         except Exception as e:
             logger.error("Fehler: %s", e)
             await interaction.followup.send(f"Fehler: {e}")
 
         end_session(self.session.user_id)
 
-    @discord.ui.button(label="Abbrechen", emoji="❌", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
         end_session(self.session.user_id)
@@ -339,13 +277,10 @@ class SummaryView(discord.ui.View):
 
 
 class HostCommand(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(
-        name="host",
-        description="Starte die Event-Erstellung — der Bot führt dich per DM durch den Prozess"
-    )
+    @app_commands.command(name="host", description="Starte die Event-Erstellung per DM")
     async def host(self, interaction: discord.Interaction):
         guild = interaction.guild
         if not guild:
@@ -353,27 +288,18 @@ class HostCommand(commands.Cog):
             return
 
         cfg = get_guild_config(guild.id)
-        event_channel_id = cfg.get("event_channel_id")
-        if not event_channel_id:
-            await interaction.response.send_message(
-                "Kein Event-Channel konfiguriert (`/set_event_channel`).", ephemeral=True)
-            return
-
-        if not self.bot.get_channel(event_channel_id):
-            await interaction.response.send_message("Event-Channel nicht gefunden.", ephemeral=True)
+        eci = cfg.get("event_channel_id")
+        if not eci or not self.bot.get_channel(eci):
+            await interaction.response.send_message("Event-Channel nicht konfiguriert (`/set_event_channel`).", ephemeral=True)
             return
 
         if has_active_session(interaction.user.id):
-            await interaction.response.send_message(
-                "Du hast bereits eine aktive Session. Schreibe **abbrechen** in den DMs.", ephemeral=True)
+            await interaction.response.send_message("Aktive Session läuft. Schreibe **abbrechen** in den DMs.", ephemeral=True)
             return
 
         session = start_session(
-            user_id=interaction.user.id,
-            guild_id=guild.id,
-            guild_name=guild.name,
-            event_channel_id=event_channel_id,
-            user_display_name=interaction.user.display_name,
+            user_id=interaction.user.id, guild_id=guild.id, guild_name=guild.name,
+            event_channel_id=eci, user_display_name=interaction.user.display_name,
             user_avatar_url=interaction.user.display_avatar.url,
         )
 
@@ -389,35 +315,84 @@ class HostCommand(commands.Cog):
                 f"-# Session läuft 5 Min · 'abbrechen' zum Beenden"
             )
         except discord.Forbidden:
-            await interaction.followup.send("Kann keine DM senden. Aktiviere DMs.", ephemeral=True)
+            await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
             end_session(interaction.user.id)
 
-    # ── Phase C: Summary anzeigen ────────────────────────────────────
+    # ── Schritt 3: Titel & Beschreibung ──────────────────────────────
+
+    async def _show_title_description_proposal(self, session, channel):
+        """Generiert und zeigt Titel/Beschreibung-Vorschlag."""
+        session.pending_title_description = True
+
+        async with channel.typing():
+            result = await generate_title_and_description(session)
+
+        if result:
+            title, desc = result
+            session.fields["title"] = title
+            session.fields["description"] = desc
+        else:
+            # Fallback
+            script = session.fields.get("script") or "Event"
+            st = session.fields.get("storyteller") or session.user_display_name
+            co = session.fields.get("co_storyteller")
+            title = f"{script} mit {st}" + (f" und {co}" if co else "")
+            desc = f"Wir spielen eine Runde {script}!"
+            session.fields["title"] = title
+            session.fields["description"] = desc
+
+        footer = _cost_footer(session)
+        msg = (
+            f"Hier ist mein Vorschlag:\n\n"
+            f"> **Titel:** {session.fields['title']}\n"
+            f"> **Beschreibung:** {session.fields['description']}\n\n"
+            f"Du kannst beides übernehmen, anpassen, oder eigenen Text schreiben.\n"
+            f"Schreibe **ok** wenn es passt."
+        )
+        if footer:
+            msg += f"\n-# {footer}"
+        await channel.send(msg)
+
+    # ── Schritt 4: Summary ───────────────────────────────────────────
 
     async def _show_summary(self, session, channel):
-        """Zeigt das Summary-Embed mit Buttons. Generiert Description wenn nötig."""
-        # Description generieren wenn noch nicht vorhanden
-        if not session.fields.get("description"):
-            async with channel.typing():
-                desc = await generate_description(session)
-            if desc:
-                session.fields["description"] = desc
+        """Zeigt das Summary-Embed mit Buttons und Script-Bild."""
+        session.pending_summary = True
+        session.pending_title_description = False
 
-        # Script-Daten laden
-        script_data = None
-        script_name = session.fields.get("script")
-        if script_name and not session.fields.get("is_free_choice"):
-            script_data, _ = lookup_script(script_name)
-
-        # Defaults setzen wenn nicht vorhanden
+        # Defaults setzen
         session.fields.setdefault("max_players", 12)
         session.fields.setdefault("duration_minutes", 150)
+
+        script_data = None
+        is_free = bool(session.fields.get("is_free_choice"))
+        sn = session.fields.get("script")
+        if sn and not is_free:
+            script_data, _ = lookup_script(sn)
+
+        # Script-Bild generieren
+        script_file = None
+        session._summary_has_image = False
+        if script_data and not is_free:
+            chars = script_data.get("characters", [])
+            if chars:
+                try:
+                    img = await generate_script_image(
+                        sn, script_data.get("author", ""),
+                        chars, script_data.get("version", ""),
+                    )
+                    script_file = discord.File(img, filename="script_preview.png")
+                    session._summary_has_image = True
+                except Exception as e:
+                    logger.warning("Script-Bild für Summary: %s", e)
 
         embed = _build_summary_embed(session, script_data)
         view = SummaryView(self, session, channel)
 
-        session.pending_summary = True
-        await channel.send(embed=embed, view=view)
+        kwargs = {"embed": embed, "view": view}
+        if script_file:
+            kwargs["file"] = script_file
+        await channel.send(**kwargs)
 
     # ── DM Listener ──────────────────────────────────────────────────
 
@@ -440,65 +415,51 @@ class HostCommand(commands.Cog):
             return
 
         async with session._lock:
-            await self._process_message(session, message)
+            await self._process(session, message)
 
-    async def _process_message(self, session, message: discord.Message):
-        channel = message.channel
+    async def _process(self, session, message):
+        ch = message.channel
+        text = message.content.strip()
 
-        # ── Feld-Edit ausstehend (aus Summary) ──────────────────────
+        # ── Feld-Edit (aus Summary) ──────────────────────────────────
         if getattr(session, "pending_field_edit", None):
             key = session.pending_field_edit
             session.pending_field_edit = None
-            value = message.content.strip()
-
-            # Typ-Konvertierung
+            val = text
             if key == "camera":
-                if value.lower() in ("keine pflicht", "optional", "egal"):
-                    value = None
-                else:
-                    value = value.lower() in ("an", "ja", "on", "true", "pflicht")
+                val = None if val.lower() in ("keine pflicht", "optional", "egal") else val.lower() in ("an", "ja", "pflicht")
             elif key == "is_casual":
-                value = value.lower() in ("ja", "yes", "true")
+                val = val.lower() in ("ja", "yes", "true")
             elif key in ("duration_minutes", "max_players"):
-                try:
-                    value = int(value)
-                except ValueError:
-                    pass
-
-            session.fields[key] = value
-            await self._show_summary(session, channel)
+                try: val = int(val)
+                except ValueError: pass
+            session.fields[key] = val
+            await self._show_summary(session, ch)
             return
 
-        # ── Script-Upload ausstehend ─────────────────────────────────
+        # ── Script-Upload ────────────────────────────────────────────
         if getattr(session, "pending_script_upload", False):
             session.touch()
-            text = message.content.strip().lower()
-
-            if text in ("skip", "überspringen", "s"):
+            if text.lower() in ("skip", "überspringen", "s"):
                 session.pending_script_upload = False
-                await self._show_summary(session, channel)
+                await self._show_title_description_proposal(session, ch)
                 return
-
             if not message.attachments:
-                await channel.send("Sende die Script-JSON als Datei (.json) oder 'skip'.")
+                await ch.send("Sende die Script-JSON als Datei (.json) oder 'skip'.")
                 return
-
             att = message.attachments[0]
             if not att.filename.endswith(".json"):
-                await channel.send(f"**{att.filename}** ist keine JSON-Datei.")
+                await ch.send(f"**{att.filename}** ist keine JSON-Datei.")
                 return
-
             try:
                 data = json.loads((await att.read()).decode("utf-8"))
             except (json.JSONDecodeError, UnicodeDecodeError):
-                await channel.send("Ungültiges JSON.")
+                await ch.send("Ungültiges JSON.")
                 return
-
             parsed, error = validate_script_json(data)
             if error:
-                await channel.send(error)
+                await ch.send(error)
                 return
-
             name = parsed["name"]
             if name == "Custom Script" and session.fields.get("script"):
                 name = session.fields["script"]
@@ -506,24 +467,23 @@ class HostCommand(commands.Cog):
             session.fields["script"] = name
             cache_script(name, parsed)
             session.pending_script_upload = False
-            await channel.send(f"✅ **{name}** hochgeladen!")
-            await self._show_summary(session, channel)
+            await ch.send(f"✅ **{name}** hochgeladen!")
+            await self._show_title_description_proposal(session, ch)
             return
 
-        # ── Script-Auswahl ausstehend (Phase B) ─────────────────────
+        # ── Script-Auswahl ───────────────────────────────────────────
         if getattr(session, "pending_script_choices", None):
             choices = session.pending_script_choices
-            text = message.content.strip().lower()
 
-            if text in ("skip", "überspringen", "s"):
+            if text.lower() in ("skip", "überspringen", "s"):
                 session.pending_script_choices = None
-                await self._show_summary(session, channel)
+                await self._show_title_description_proposal(session, ch)
                 return
 
-            if text in ("custom", "homebrew", "eigenes"):
+            if text.lower() in ("custom", "homebrew", "eigenes"):
                 session.pending_script_choices = None
                 session.pending_script_upload = True
-                await channel.send("Sende die **Script-JSON als Datei** (.json) oder 'skip'.")
+                await ch.send("Sende die **Script-JSON als Datei** (.json) oder 'skip'.")
                 return
 
             try:
@@ -532,111 +492,132 @@ class HostCommand(commands.Cog):
                     chosen = choices[idx]
                     session.fields["script"] = chosen["name"]
                     cache_script(chosen["name"], {
-                        "name": chosen["name"],
-                        "author": chosen.get("author", ""),
+                        "name": chosen["name"], "author": chosen.get("author", ""),
                         "version": chosen.get("version", ""),
                         "botcscripts_id": chosen.get("botcscripts_id", ""),
                         "characters": chosen.get("characters", []),
-                        "url": chosen.get("url", ""),
-                        "source": "botcscripts",
+                        "url": chosen.get("url", ""), "source": "botcscripts",
                     })
                     session.pending_script_choices = None
-                    await channel.send(f"✅ **{chosen['name']}** ausgewählt!")
-                    await self._show_summary(session, channel)
+                    await ch.send(f"✅ **{chosen['name']}** ausgewählt!")
+                    await self._show_title_description_proposal(session, ch)
                     return
-                else:
-                    await channel.send(f"Bitte wähle 1-{len(choices)}.")
-                    return
+                await ch.send(f"Bitte wähle 1-{len(choices)}.")
+                return
             except ValueError:
-                await channel.send(f"Antworte mit 1-{len(choices)}, 'custom' oder 'skip'.")
+                await ch.send(f"Antworte mit 1-{len(choices)}, 'custom' oder 'skip'.")
                 return
 
-        # ── Summary-Review ausstehend (Phase C) ─────────────────────
-        if getattr(session, "pending_summary", False):
-            text = message.content.strip()
-            text_lower = text.lower()
+        # ── Titel/Beschreibung Bestätigung (Schritt 3) ───────────────
+        if getattr(session, "pending_title_description", False):
+            if text.lower() in CONFIRM_KEYWORDS:
+                await self._show_summary(session, ch)
+                return
 
-            # Nummer → Feld editieren
+            # Freitext → Haiku versteht was geändert werden soll
+            async with ch.typing():
+                result = await update_title_description(session, text)
+
+            footer = _cost_footer(session)
+
+            if result:
+                new_title, new_desc, accepted = result
+                session.fields["title"] = new_title
+                session.fields["description"] = new_desc
+
+                if accepted:
+                    await self._show_summary(session, ch)
+                    return
+
+                msg = (
+                    f"Aktualisiert:\n\n"
+                    f"> **Titel:** {new_title}\n"
+                    f"> **Beschreibung:** {new_desc}\n\n"
+                    f"Passt das so? Schreibe **ok** oder passe weiter an."
+                )
+                if footer: msg += f"\n-# {footer}"
+                await ch.send(msg)
+            else:
+                await ch.send("Konnte die Änderung nicht verarbeiten. Versuche es nochmal.")
+            return
+
+        # ── Summary Review (Schritt 4) ───────────────────────────────
+        if getattr(session, "pending_summary", False):
             try:
-                number = int(text_lower)
+                num = int(text)
                 for i, (key, label) in enumerate(SUMMARY_FIELDS, 1):
-                    if i == number:
+                    if i == num:
                         session.pending_field_edit = key
-                        await channel.send(f"Was soll der neue Wert für **{label}** sein?")
+                        await ch.send(f"Was soll der neue Wert für **{label}** sein?")
                         return
-                await channel.send(f"Bitte wähle 1-{len(SUMMARY_FIELDS)}.")
+                await ch.send(f"Bitte wähle 1-{len(SUMMARY_FIELDS)}.")
                 return
             except ValueError:
                 pass
 
-            # Freitext-Korrektur → an Haiku senden
-            async with channel.typing():
-                response = await call_haiku(
-                    session, f"Der User möchte ändern: {text}\nPasse die Felder an, action='done'."
-                )
+            # Freitext → an Haiku
+            async with ch.typing():
+                response = await call_haiku(session, f"Der User möchte ändern: {text}\nPasse Felder an, action='done'.")
             if response and response.get("action") == "done":
                 session.pending_summary = False
-                await self._show_summary(session, channel)
+                await self._show_summary(session, ch)
             elif response:
-                haiku_msg = response.get("message", "")
-                if haiku_msg:
-                    await channel.send(haiku_msg)
+                m = response.get("message", "")
+                if m: await ch.send(m)
             return
 
-        # ── Phase A: Normaler Haiku-Chat ─────────────────────────────
-        async with channel.typing():
-            response = await call_haiku(session, message.content)
+        # ── Schritt 1: Haiku-Chat ────────────────────────────────────
+        async with ch.typing():
+            response = await call_haiku(session, text)
 
-        if response is None:
-            await channel.send("Fehler bei der Verarbeitung. Versuche es nochmal oder `/host` neu.")
+        if not response:
+            await ch.send("Fehler. Versuche es nochmal oder `/host` neu.")
             return
 
         action = response.get("action", "ask")
-        haiku_message = response.get("message", "")
+        haiku_msg = response.get("message", "")
         footer = _cost_footer(session)
 
         if action == "done":
-            # Phase A fertig → Phase B (Script) → Phase C (Summary)
-            if haiku_message:
-                msg = f"{haiku_message}\n-# {footer}" if footer else haiku_message
-                await channel.send(msg)
+            # Schritt 1 fertig → Schritt 2 (Script)
+            if haiku_msg:
+                m = f"{haiku_msg}\n-# {footer}" if footer else haiku_msg
+                await ch.send(m)
 
-            # Script validieren (Phase B)
             script_name = session.fields.get("script")
             if script_name and not session.fields.get("is_free_choice"):
                 _, source = lookup_script(script_name)
                 if source == "miss":
-                    # Nicht im Cache → botcscripts.com suchen
-                    async with channel.typing():
+                    await ch.send(f"Ich suche **{script_name}** in der Datenbank...")
+                    async with ch.typing():
                         results = await search_scripts(script_name, limit=5)
                     session.touch()
 
                     if results:
                         session.pending_script_choices = results
                         embed = _build_script_choice_embed(script_name, results)
-                        await channel.send(embed=embed)
+                        await ch.send(embed=embed)
                         return
                     else:
                         session.pending_script_upload = True
-                        await channel.send(
-                            f"**{script_name}** nicht gefunden.\n"
+                        await ch.send(
+                            f"**{script_name}** nicht in der Datenbank gefunden.\n"
                             "Sende die **Script-JSON als Datei** oder 'skip'."
                         )
                         return
 
-            # Script OK oder nicht nötig → Summary (Phase C)
-            await self._show_summary(session, channel)
+            # Script OK → Schritt 3 (Titel/Beschreibung)
+            await self._show_title_description_proposal(session, ch)
 
         elif action == "refuse":
-            embed = discord.Embed(title="⚠️", description=haiku_message, color=0xED4245)
-            await channel.send(embed=embed)
+            embed = discord.Embed(description=haiku_msg, color=0xED4245)
+            await ch.send(embed=embed)
 
         else:
             # ask
-            if haiku_message:
-                msg = f"{haiku_message}\n-# {footer}" if footer else haiku_message
-                await channel.send(msg)
+            m = f"{haiku_msg}\n-# {footer}" if footer else haiku_msg
+            await ch.send(m)
 
 
-async def setup(bot: commands.Bot):
+async def setup(bot):
     await bot.add_cog(HostCommand(bot))

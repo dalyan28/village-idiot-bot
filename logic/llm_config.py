@@ -18,11 +18,11 @@ Extrahiere Event-Daten aus den Nachrichten des Users. Antworte IMMER als JSON.
 ## GUARDRAILS
 - NUR Event-Erstellung. Off-Topic → action="refuse", message="Das hat nichts mit der Event-Erstellung zu tun."
 - Erfinde NICHTS. Verweise NIEMALS auf externe Quellen, Regeln oder Websites.
-- Du weißt NICHTS über Skript-Versionen oder Charaktere — das erledigt der Bot automatisch.
+- Du weißt NICHTS über Skript-Versionen oder Charaktere.
 
 ## JSON-FORMAT
 {{
-  "message": "Kurze Antwort an den User (deutsch, natürliche Sprache)",
+  "message": "Kurze Antwort (deutsch, 1-2 Sätze)",
   "action": "ask" | "done" | "refuse",
   "fields": {{
     "title": null,
@@ -42,44 +42,69 @@ Extrahiere Event-Daten aus den Nachrichten des Users. Antworte IMMER als JSON.
   }}
 }}
 
-## PFLICHTFELDER (nur diese 4 müssen vom User kommen)
-- `script`: Skriptname. Bei "freie Skriptwahl"/"Storyteller's Choice" → "Freie Skriptwahl", is_free_choice=true.
-- `start_time`: IMMER als "YYYY-MM-DD HH:MM". Heute ist {today_date}, {today_weekday}.
-- `storyteller`: IMMER "{user_display_name}" verwenden wenn der User ST ist, nie "Du".
-- `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
+## 5 PFLICHTFELDER (alle müssen vom User kommen)
+1. `script`: Skriptname. Bei "freie Skriptwahl" → "Freie Skriptwahl", is_free_choice=true.
+2. `start_time`: IMMER als "YYYY-MM-DD HH:MM". Heute ist {today_date}, {today_weekday}.
+3. `storyteller`: IMMER "{user_display_name}" verwenden, nie "Du". Bei Co-ST: "{user_display_name} und [Name]".
+4. `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
+5. `is_casual`: true/false. Frage: "Soll das eine Casual-Runde sein? 🕊️ (besondere Rücksicht, mehr Weltenbau, hohe Fehlertoleranz)"
 
-## DEFAULTS (NICHT nachfragen — still setzen wenn User nichts sagt)
+## DEFAULTS (NICHT nachfragen, NICHT erwähnen, still setzen)
 - max_players: 12
 - duration_minutes: 150
-- camera: null (= keine Pflicht)
-- co_storyteller: null (= nicht möglich)
-- is_casual: false
+- camera: null
+- co_storyteller: null
 - is_recorded: false
+ERWÄHNE DIESE DEFAULTS NICHT. Frage NICHT danach. Setze sie still.
 
 ## VERHALTEN
 - Extrahiere so viel wie möglich aus der ERSTEN Nachricht.
 - Wenn Pflichtfelder fehlen: ALLE fehlenden in EINER Nachricht fragen.
-- Sobald die 4 Pflichtfelder da sind → action="done".
-- Setze action="done" auch wenn optionale Felder fehlen (Defaults greifen).
-- Leite einen passenden Titel ab wenn keiner explizit genannt wird.
-- Halte deine Antworten KURZ (1-2 Sätze).
-- Gib in fields IMMER den kompletten Stand aller Felder zurück.
+- Sobald ALLE 5 Pflichtfelder da → action="done".
+- Halte Antworten KURZ (1-2 Sätze + Fragen).
+- Gib in fields IMMER den kompletten Stand zurück.
+- Setze KEINEN Titel — der wird später generiert.
+- Setze KEINE Description — die wird später generiert.
 
 {rules_summary}"""
 
-# Prompt für Description-Generierung (separater Call)
-DESCRIPTION_PROMPT = """\
-Schreibe eine kurze, einladende Beschreibung (2-3 Sätze, deutsch) für dieses BotC-Event:
+# Prompt für Titel + Beschreibung (separater Call nach Script-Validierung)
+TITLE_DESCRIPTION_PROMPT = """\
+Generiere für dieses BotC-Event einen Titel und eine Beschreibung.
 
 Skript: {script}
 Storyteller: {storyteller}
+Co-ST: {co_storyteller}
 Level: {level}
 Termin: {start_time}
+Casual: {is_casual}
 
-ZIELGRUPPE sind Mitspieler die sich anmelden wollen.
+TITEL-FORMAT: "[Skriptname] mit [Storyteller(s)]"
+Beispiele: "Boozling mit Dalyan", "BMR mit Dalyan und Rosanna"
+
+BESCHREIBUNG: 2-3 Sätze, deutsch, für Mitspieler die sich anmelden wollen.
 Schreibe aus Event-Perspektive: "Wir spielen..." / "Eine Runde..."
 NICHT "Du leitest..." — die Spieler lesen das.
-Antworte NUR mit dem Beschreibungstext, kein JSON."""
+
+Antworte als JSON:
+{{"title": "...", "description": "..."}}"""
+
+# Prompt für Titel/Beschreibung-Änderungen (Freitext vom User)
+TITLE_DESCRIPTION_UPDATE_PROMPT = """\
+Der User möchte Titel und/oder Beschreibung anpassen.
+
+Aktueller Titel: {current_title}
+Aktuelle Beschreibung: {current_description}
+
+User sagt: {user_input}
+
+Verstehe was der User ändern will (Titel, Beschreibung, oder beides).
+Wenn der User nur "ok"/"passt"/"ja" sagt → keine Änderung nötig.
+
+Antworte als JSON:
+{{"title": "...", "description": "...", "accepted": true/false}}
+accepted=true wenn der User zufrieden ist (keine Änderung nötig).
+accepted=false wenn Änderungen vorgenommen wurden."""
 
 DEFAULT_RULES = ""
 

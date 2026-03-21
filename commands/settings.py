@@ -60,6 +60,7 @@ class Settings(commands.Cog):
             await interaction.followup.send(
                 f"✅ Update erfolgreich!\n"
                 f"**Charaktere:** {result['characters_count']}\n"
+                f"**Jinxes:** {result.get('jinxes_count', 0)}\n"
                 f"**Neue Icons:** {result['new_icons']}\n"
                 f"**Übersprungen:** {result['skipped_icons']}",
                 ephemeral=True,

@@ -46,6 +46,12 @@ async def _handle_rsvp(interaction: discord.Interaction, category: str):
     logger.info("RSVP: %s → %s (%s) für Event '%s'", interaction.user, category, action, event_data.get("title"))
 
     embed = build_event_embed(event_data)
+
+    # Bild-URL aus dem originalen Embed beibehalten (Attachment geht sonst verloren)
+    original_embed = interaction.message.embeds[0] if interaction.message.embeds else None
+    if original_embed and original_embed.image and original_embed.image.url:
+        embed.set_image(url=original_embed.image.url)
+
     await interaction.response.edit_message(embed=embed)
 
 
