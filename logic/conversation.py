@@ -16,6 +16,7 @@ import anthropic
 
 from logic.llm_config import (
     DEFAULT_RULES,
+    DESCRIPTION_PROMPT,
     INITIAL_USER_MESSAGE,
     MAX_TOKENS,
     MODEL,
@@ -270,9 +271,44 @@ async def call_haiku(session: EventSession, user_message: str) -> dict | None:
 
 
 async def start_conversation(session: EventSession) -> dict | None:
-    """Startet die Konversation mit einer initialen Nachricht.
-
-    Returns:
-        Erste Haiku-Antwort oder None bei Fehler.
-    """
+    """Startet die Konversation mit einer initialen Nachricht."""
     return await call_haiku(session, INITIAL_USER_MESSAGE)
+
+
+async def generate_description(session: EventSession) -> str | None:
+    """Generiert eine Event-Beschreibung basierend auf den gesammelten Feldern.
+
+    Separater LLM-Call, nicht Teil der Konversation.
+    Returns: Beschreibungstext oder None bei Fehler.
+    """
+    fields = session.fields
+    prompt = DESCRIPTION_PROMPT.format(
+        script=fields.get("script") or "Unbekannt",
+        storyteller=fields.get("storyteller") or session.user_display_name,
+        level=fields.get("level") or "Alle",
+        start_time=fields.get("start_time") or "TBD",
+    )
+
+    try:
+        client = _get_client()
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=512,
+            messages=[{"role": "user", "content": prompt}],
+        )
+    except anthropic.APIError as e:
+        logger.error("Description-Generierung fehlgeschlagen: %s", e)
+        return None
+
+    text = response.content[0].text.strip()
+    input_tokens = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
+    call_cost = (input_tokens * PRICE_INPUT_PER_MTOK + output_tokens * PRICE_OUTPUT_PER_MTOK) / 1_000_000
+
+    session.total_input_tokens += input_tokens
+    session.total_output_tokens += output_tokens
+    session.total_cost_usd += call_cost
+    session.call_count += 1
+
+    logger.debug("Description generiert: %d tokens, $%.5f", output_tokens, call_cost)
+    return text

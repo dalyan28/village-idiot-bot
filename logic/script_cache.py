@@ -24,6 +24,7 @@ STATIC_DIR = os.path.join(PROJECT_ROOT, "static")
 ICONS_DIR = os.path.join(STATIC_DIR, "icons")
 BASE_SCRIPTS_FILE = os.path.join(STATIC_DIR, "base_scripts.json")
 CHARACTERS_FILE = os.path.join(STATIC_DIR, "characters.json")
+JINXES_FILE = os.path.join(STATIC_DIR, "jinxes.json")
 
 # Cache auf Volume (Railway) oder lokal im data/ Ordner
 CACHE_FILE = os.path.join(
@@ -40,6 +41,7 @@ TPI_ICON_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-r
 # Lazy-loaded data
 _base_scripts: dict | None = None
 _characters: dict | None = None
+_jinxes: list | None = None
 
 
 def normalize_name(name: str) -> str:
@@ -117,6 +119,53 @@ def invalidate_characters_cache():
     global _characters
     _characters = None
     logger.info("Characters-Cache invalidiert")
+
+
+# ── Jinxes ───────────────────────────────────────────────────────────────────
+
+
+def _load_jinxes_raw() -> list:
+    """Lädt die rohen Jinxes-Daten."""
+    global _jinxes
+    if _jinxes is not None:
+        return _jinxes
+    if not os.path.exists(JINXES_FILE):
+        logger.warning("jinxes.json nicht gefunden: %s", JINXES_FILE)
+        _jinxes = []
+        return _jinxes
+    with open(JINXES_FILE, "r", encoding="utf-8") as f:
+        _jinxes = json.load(f)
+    logger.debug("Jinxes geladen: %d Einträge", len(_jinxes))
+    return _jinxes
+
+
+def get_jinxes_for_script(char_ids: list[str]) -> list[dict]:
+    """Findet alle Jinxes die für ein Script relevant sind.
+
+    Nur Jinxes wo BEIDE beteiligten Charaktere im Script sind.
+
+    Returns:
+        Liste von {char_a, char_b, reason} Dicts.
+    """
+    char_set = set(char_ids)
+    jinxes_raw = _load_jinxes_raw()
+    result = []
+
+    for entry in jinxes_raw:
+        char_a = entry.get("id", "")
+        if char_a not in char_set:
+            continue
+        for jinx in entry.get("jinx", []):
+            char_b = jinx.get("id", "")
+            if char_b in char_set:
+                result.append({
+                    "char_a": char_a,
+                    "char_b": char_b,
+                    "reason": jinx.get("reason", ""),
+                })
+
+    logger.debug("Jinxes für Script: %d gefunden", len(result))
+    return result
 
 
 def get_character_icon_path(char_id: str, evil: bool = False) -> str | None:

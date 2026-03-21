@@ -1,9 +1,10 @@
 """Script-Bild-Generierung mit Pillow.
 
-Erzeugt ein PNG-Bild eines BotC-Scripts mit Character-Icons, Namen und Abilities,
-gruppiert nach Team (Townsfolk, Outsider, Minion, Demon, Traveller, Fabled, Loric).
-
-Layout: 2 Charaktere pro Reihe, weißer Hintergrund, Kategorie-Header mit Trennlinie.
+Erzeugt ein PNG im Stil der botcscripts.com PDFs:
+- Titel + Autor + Fabled/Loric Icons
+- Townsfolk/Outsider/Minion/Demon Sektionen (2 Spalten)
+- Fabled & Loric Sektion mit Jinxes und Bootlegger-Regeln
+- Footer mit Copyright
 """
 
 import asyncio
@@ -15,344 +16,406 @@ import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
-from logic.script_cache import get_character_icon_path, load_characters, STATIC_DIR
+from logic.script_cache import (
+    get_character_icon_path,
+    get_jinxes_for_script,
+    load_characters,
+    STATIC_DIR,
+)
 
 logger = logging.getLogger(__name__)
 
-# ── Layout-Konstanten ────────────────────────────────────────────────────────
+# ── Layout ───────────────────────────────────────────────────────────────────
 
 COLS = 2
 ICON_SIZE = 90
+ICON_SMALL = 28            # Kleine Icons für Jinxes und Fabled/Loric neben Titel
 CHAR_WIDTH = 420
-CHAR_HEIGHT_BASE = 100     # Mindesthöhe, wird dynamisch erweitert
-ABILITY_LINE_HEIGHT = 14
-MAX_ABILITY_LINES = 6       # Mehr Zeilen erlauben, kein Cropping
 PADDING = 30
 SECTION_GAP = 15
-TITLE_HEIGHT = 70
-HEADER_HEIGHT = 35
+TITLE_HEIGHT = 50
+AUTHOR_HEIGHT = 20
+FABLED_TITLE_HEIGHT = 30   # Fabled/Loric Icons unter Autor
+HEADER_HEIGHT = 30
+ABILITY_LINE_HEIGHT = 13
+JINX_LINE_HEIGHT = 14
+JINX_INDENT = 40
+FOOTER_HEIGHT = 25
 TEXT_PADDING = 10
 DIVIDER_THICKNESS = 2
-FOOTER_HEIGHT = 30
 
-# Farben
-BG_COLOR = (255, 255, 255)          # Weiß
-TITLE_COLOR = (4, 4, 4)             # Schwarz (#040404)
-SUBTITLE_COLOR = (100, 100, 100)    # Grau
-HEADER_COLOR = (4, 4, 4)            # Schwarz für Kategorie-Header
-ABILITY_COLOR = (4, 4, 4)           # Schwarz für Beschreibungstext
-ABILITY_BOLD_COLOR = (4, 4, 4)      # Schwarz für fette Teile
-DIVIDER_COLOR = (200, 200, 200)     # Hellgrau
-FOOTER_COLOR = (150, 150, 150)      # Grau
+# ── Farben ───────────────────────────────────────────────────────────────────
 
-# Charakter-Name-Farben nach Team
+BG_COLOR = (255, 255, 255)
+TITLE_COLOR = (4, 4, 4)
+SUBTITLE_COLOR = (100, 100, 100)
+HEADER_COLOR = (4, 4, 4)
+ABILITY_COLOR = (4, 4, 4)
+DIVIDER_COLOR = (200, 200, 200)
+FOOTER_COLOR = (150, 150, 150)
+LINE_COLOR = (4, 4, 4)
+
 NAME_COLORS = {
-    "Townsfolk": (0, 100, 172),     # #0064ac — Blau (gut)
-    "Outsider":  (0, 100, 172),     # #0064ac — Blau (gut)
-    "Minion":    (180, 40, 40),     # Rot (böse)
-    "Demon":     (180, 40, 40),     # Rot (böse)
+    "Townsfolk": (0, 100, 172),
+    "Outsider":  (0, 100, 172),
+    "Minion":    (180, 40, 40),
+    "Demon":     (180, 40, 40),
     "Traveller": (150, 120, 200),
-    "Fabled":    (107, 99, 60),     # #6b633c
-    "Loric":     (117, 138, 84),    # #758a54
+    "Fabled":    (107, 99, 60),
+    "Loric":     (117, 138, 84),
 }
 
-# Trennlinien-Farbe: schwarz
-TEAM_LINE_COLOR = (4, 4, 4)
+# ── Fonts ────────────────────────────────────────────────────────────────────
 
-# Font-Pfade
 FONT_DIR = os.path.join(STATIC_DIR, "fonts")
-_FONT_TITLE = os.path.join(FONT_DIR, "Dumbledor.ttf")           # Dumbledor — Script-Titel
-_FONT_AUTHOR = os.path.join(FONT_DIR, "Inter.ttf")              # Serif/Neutral — Autorname
-_FONT_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")          # Dumbledor — Kategorie-Header
-_FONT_CHAR_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")  # Trade Gothic Bold Condensed — Charakter-Name
-_FONT_CHAR_ABILITY = os.path.join(FONT_DIR, "TradeGothic-Regular.otf") # Trade Gothic Regular — Ability-Text
+_F_TITLE = os.path.join(FONT_DIR, "Dumbledor.ttf")
+_F_AUTHOR = os.path.join(FONT_DIR, "Inter.ttf")
+_F_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")
+_F_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")
+_F_ABILITY = os.path.join(FONT_DIR, "TradeGothic-Regular.otf")
 
-TEAM_ORDER = ["Townsfolk", "Outsider", "Minion", "Demon", "Traveller", "Fabled", "Loric"]
+# Schriftgrößen (skaliert von A4-PDF pt → Pixel für ~900px breites Bild)
+# Faktor ~1.5x gegenüber PDF pt
+SZ_TITLE = 36
+SZ_AUTHOR = 14
+SZ_FABLED_TITLE = 12       # 8pt
+SZ_HEADER = 14              # 9pt
+SZ_NAME = 15                # 10pt
+SZ_ABILITY = 13             # 8.5pt
+SZ_JINX = 12
+SZ_FOOTER = 9
+
+TEAM_ORDER = ["Townsfolk", "Outsider", "Minion", "Demon"]
+TEAM_ORDER_ALL = ["Townsfolk", "Outsider", "Minion", "Demon", "Traveller", "Fabled", "Loric"]
 
 
-def _get_font(path: str, size: int) -> ImageFont.FreeTypeFont:
+def _font(path: str, size: int) -> ImageFont.FreeTypeFont:
     try:
         return ImageFont.truetype(path, size)
     except (OSError, IOError):
-        logger.warning("Font nicht gefunden: %s", path)
         return ImageFont.load_default()
 
 
-def _load_icon(char_id: str, evil: bool = False) -> Image.Image | None:
+def _load_icon(char_id: str, evil: bool = False, size: int = ICON_SIZE) -> Image.Image | None:
     icon_path = get_character_icon_path(char_id, evil=evil)
-    if icon_path is None:
+    if not icon_path:
         return None
     try:
         img = Image.open(icon_path).convert("RGBA")
-        img = img.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
-        return img
-    except Exception as e:
-        logger.debug("Icon laden fehlgeschlagen für %s: %s", char_id, e)
+        return img.resize((size, size), Image.Resampling.LANCZOS)
+    except Exception:
         return None
 
 
-def _create_placeholder_icon() -> Image.Image:
-    img = Image.new("RGBA", (ICON_SIZE, ICON_SIZE), (220, 220, 230, 200))
+def _placeholder(size: int = ICON_SIZE) -> Image.Image:
+    img = Image.new("RGBA", (size, size), (220, 220, 230, 200))
     draw = ImageDraw.Draw(img)
-    font = _get_font(_FONT_CHAR_NAME, 24)
-    draw.text((ICON_SIZE // 2, ICON_SIZE // 2), "?", fill=(100, 100, 100), font=font, anchor="mm")
+    f = _font(_F_NAME, size // 3)
+    draw.text((size // 2, size // 2), "?", fill=(100, 100, 100), font=f, anchor="mm")
     return img
 
 
-def _wrap_ability(text: str, max_chars: int = 42) -> list[str]:
-    """Bricht Ability-Text um. Kein Cropping — vollständiger Text."""
+def _paste_icon(canvas: Image.Image, icon: Image.Image, x: int, y: int):
+    if icon.mode == "RGBA":
+        bg = Image.new("RGB", icon.size, BG_COLOR)
+        bg.paste(icon, (0, 0), icon)
+        canvas.paste(bg, (x, y))
+    else:
+        canvas.paste(icon, (x, y))
+
+
+def _wrap(text: str, max_chars: int = 42) -> list[str]:
     return textwrap.wrap(text, width=max_chars)
 
 
-def _calc_char_height(ability_lines: int) -> int:
-    """Berechnet die Höhe eines Character-Blocks basierend auf Ability-Zeilen."""
-    text_height = 22 + ability_lines * ABILITY_LINE_HEIGHT + 5
-    return max(CHAR_HEIGHT_BASE, text_height, ICON_SIZE + 10)
-
-
-def _split_text_with_brackets(text: str) -> list[tuple[str, bool]]:
-    """Splittet Text in Segmente: (text, is_bold).
-
-    Alles innerhalb [...] wird als bold markiert (inkl. Klammern).
-    """
-    segments = []
-    parts = re.split(r'(\[[^\]]*\])', text)
-    for part in parts:
-        if not part:
+def _draw_ability(draw, x, y, text, font_r, font_b, max_width=310):
+    """Zeichnet Ability-Text mit [bracketed] Teilen fett. Returns end_y."""
+    segments = re.split(r'(\[[^\]]*\])', text)
+    words = []
+    for seg in segments:
+        if not seg:
             continue
-        if part.startswith('[') and part.endswith(']'):
-            segments.append((part, True))
+        if seg.startswith('[') and seg.endswith(']'):
+            words.append((seg, True))
         else:
-            segments.append((part, False))
-    return segments
+            for w in seg.split():
+                words.append((w, False))
 
-
-def _draw_ability_with_bold(draw: ImageDraw.Draw, x: int, y: int, text: str,
-                             font_regular, font_bold, color: tuple, bold_color: tuple,
-                             max_width: int = 320) -> int:
-    """Zeichnet Ability-Text mit [bracketed] Teilen fett.
-
-    Splitted erst nach Brackets, dann wrapped jedes Segment einzeln,
-    damit Brackets nie zerrissen werden.
-
-    Returns: Anzahl gezeichneter Zeilen.
-    """
-    # Erst Bracket-Segmente identifizieren, dann als Ganzes wrappen
-    segments = _split_text_with_brackets(text)
-
-    # Alles in Wörter mit Bold-Info aufteilen
-    words: list[tuple[str, bool]] = []
-    for segment_text, is_bold in segments:
-        if is_bold:
-            # Bracket-Inhalt als ein Wort behandeln (nicht umbrechen)
-            words.append((segment_text, True))
-        else:
-            for word in segment_text.split():
-                words.append((word, False))
-
-    # Zeilenweise rendern mit Wort-Wrapping
-    line_count = 0
     curr_x = x
-    max_x = x + max_width
-
-    for i, (word, is_bold) in enumerate(words):
-        font = font_bold if is_bold else font_regular
-        fill = bold_color if is_bold else color
-
+    for word, bold in words:
+        f = font_b if bold else font_r
         space = " " if curr_x > x else ""
-        test_text = space + word
-        bbox = draw.textbbox((0, 0), test_text, font=font)
-        word_width = bbox[2] - bbox[0]
-
-        # Passt das Wort noch in die aktuelle Zeile?
-        if curr_x + word_width > max_x and curr_x > x:
-            # Neue Zeile
+        bbox = draw.textbbox((0, 0), space + word, font=f)
+        w = bbox[2] - bbox[0]
+        if curr_x + w > x + max_width and curr_x > x:
             y += ABILITY_LINE_HEIGHT
-            line_count += 1
             curr_x = x
             space = ""
-            test_text = word
-
-        draw.text((curr_x, y), space + word if curr_x > x else word, fill=fill, font=font)
-        bbox = draw.textbbox((curr_x, y), space + word if curr_x > x else word, font=font)
+        draw.text((curr_x, y), space + word if curr_x > x else word,
+                  fill=ABILITY_COLOR, font=f)
+        bbox = draw.textbbox((curr_x, y), space + word if curr_x > x else word, font=f)
         curr_x = bbox[2]
 
-    line_count += 1  # Letzte Zeile zählen
-    return line_count
+    return y + ABILITY_LINE_HEIGHT
 
 
-def _categorize_for_image(char_ids: list[str]) -> dict[str, list[dict]]:
-    characters_db = load_characters()
-    categories: dict[str, list[dict]] = {team: [] for team in TEAM_ORDER}
-
-    for char_id in char_ids:
-        char_info = characters_db.get(char_id)
-        if char_info:
-            team = char_info.get("character_type", "Townsfolk")
-            name = char_info.get("character_name", char_id)
-            ability = char_info.get("ability", "")
-        else:
+def _categorize(char_ids, chars_db):
+    cats = {t: [] for t in TEAM_ORDER_ALL}
+    for cid in char_ids:
+        info = chars_db.get(cid, {})
+        team = info.get("character_type", "Townsfolk")
+        if team not in cats:
             team = "Townsfolk"
-            name = char_id.replace("_", " ").title()
-            ability = ""
-
-        if team not in categories:
-            team = "Townsfolk"
-
-        categories[team].append({
-            "id": char_id,
-            "name": name,
-            "ability": ability,
-            "team": team,
+        cats[team].append({
+            "id": cid, "name": info.get("character_name", cid),
+            "ability": info.get("ability", ""), "team": team,
         })
+    return cats
 
-    return categories
+
+def _calc_char_height(ability: str, font_r) -> int:
+    lines = len(_wrap(ability)) if ability else 1
+    return max(ICON_SIZE + 5, 22 + lines * ABILITY_LINE_HEIGHT + 5)
 
 
-def _calculate_image_height(categories: dict[str, list[dict]]) -> int:
-    height = PADDING + TITLE_HEIGHT + SECTION_GAP
+def _generate_sync(script_name: str, author: str, char_ids: list[str],
+                    version: str = "", meta: dict | None = None) -> io.BytesIO:
+    chars_db = load_characters()
+    cats = _categorize(char_ids, chars_db)
+    jinxes = get_jinxes_for_script(char_ids)
+    bootlegger_rules = (meta or {}).get("bootlegger", [])
+    placeholder = _placeholder()
+    placeholder_sm = _placeholder(ICON_SMALL)
+
+    fabled_loric = cats.get("Fabled", []) + cats.get("Loric", [])
+
+    font_title = _font(_F_TITLE, SZ_TITLE)
+    font_author = _font(_F_AUTHOR, SZ_AUTHOR)
+    font_fabled_title = _font(_F_AUTHOR, SZ_FABLED_TITLE)
+    font_header = _font(_F_HEADER, SZ_HEADER)
+    font_name = _font(_F_NAME, SZ_NAME)
+    font_ability = _font(_F_ABILITY, SZ_ABILITY)
+    font_ability_bold = _font(_F_NAME, SZ_ABILITY)
+    font_jinx = _font(_F_ABILITY, SZ_JINX)
+    font_jinx_bold = _font(_F_NAME, SZ_JINX)
+    font_footer = _font(_F_AUTHOR, SZ_FOOTER)
+
+    img_width = PADDING * 2 + COLS * CHAR_WIDTH
+
+    # ── Höhe berechnen ───────────────────────────────────────────────
+    height = PADDING + TITLE_HEIGHT + AUTHOR_HEIGHT
+    if fabled_loric:
+        height += FABLED_TITLE_HEIGHT
+    height += SECTION_GAP
 
     for team in TEAM_ORDER:
-        chars = categories.get(team, [])
+        chars = cats.get(team, [])
         if not chars:
             continue
-        height += HEADER_HEIGHT + SECTION_GAP
+        height += HEADER_HEIGHT
+        for i in range(0, len(chars), COLS):
+            row = chars[i:i + COLS]
+            height += max(_calc_char_height(c["ability"], font_ability) for c in row)
+        height += SECTION_GAP
 
-        # Pro Reihe: max Höhe der beiden Spalten
-        for row_start in range(0, len(chars), COLS):
-            row_chars = chars[row_start:row_start + COLS]
-            row_height = 0
-            for char in row_chars:
-                lines = len(_wrap_ability(char["ability"]))
-                row_height = max(row_height, _calc_char_height(lines))
-            height += row_height
+    # Fabled & Loric Sektion
+    if fabled_loric or jinxes or bootlegger_rules:
+        height += HEADER_HEIGHT + SECTION_GAP
+        for fl in fabled_loric:
+            height += _calc_char_height(fl["ability"], font_ability)
+            # Jinxes für diesen Fabled
+            fl_jinxes = [j for j in jinxes if j["char_a"] == fl["id"] or j["char_b"] == fl["id"]]
+            for _ in fl_jinxes:
+                height += max(ICON_SMALL + 5, 3 * JINX_LINE_HEIGHT)
+        # Bootlegger-Regeln
+        if bootlegger_rules:
+            for rule in bootlegger_rules:
+                height += len(_wrap(rule, 60)) * JINX_LINE_HEIGHT + 10
+        # Restliche Jinxes (nicht Fabled-bezogen)
+        other_jinxes = [j for j in jinxes if not any(
+            j["char_a"] == fl["id"] or j["char_b"] == fl["id"] for fl in fabled_loric
+        )]
+        for _ in other_jinxes:
+            height += max(ICON_SMALL + 5, 3 * JINX_LINE_HEIGHT)
         height += SECTION_GAP
 
     height += FOOTER_HEIGHT + PADDING
-    return height
 
-
-def _generate_sync(script_name: str, author: str, char_ids: list[str], version: str = "") -> io.BytesIO:
-    categories = _categorize_for_image(char_ids)
-    placeholder = _create_placeholder_icon()
-
-    img_width = PADDING * 2 + COLS * CHAR_WIDTH
-    img_height = _calculate_image_height(categories)
-
-    img = Image.new("RGB", (img_width, img_height), BG_COLOR)
+    # ── Zeichnen ─────────────────────────────────────────────────────
+    img = Image.new("RGB", (img_width, height), BG_COLOR)
     draw = ImageDraw.Draw(img)
-
-    font_title = _get_font(_FONT_TITLE, 36)
-    font_author = _get_font(_FONT_AUTHOR, 14)
-    font_header = _get_font(_FONT_HEADER, 18)
-    font_name = _get_font(_FONT_CHAR_NAME, 16)
-    font_ability = _get_font(_FONT_CHAR_ABILITY, 12)
-    font_ability_bold = _get_font(_FONT_CHAR_NAME, 12)  # Bold-Variante für [brackets]
-    font_footer = _get_font(_FONT_AUTHOR, 9)
-
     y = PADDING
 
-    # ── Titel (links) + Version (rechts neben Titel, am oberen Rand aligned) ─
+    # Titel + Version
     draw.text((PADDING, y), script_name, fill=TITLE_COLOR, font=font_title)
     if version:
-        title_bbox = draw.textbbox((PADDING, y), script_name, font=font_title)
-        title_mid = (title_bbox[1] + title_bbox[3]) // 2
-        version_bbox = draw.textbbox((0, 0), f"v{version}", font=font_author)
-        version_h = version_bbox[3] - version_bbox[1]
-        version_x = title_bbox[2] + 12
-        version_y = title_mid - version_h // 2  # Vertikal zentriert am Titel
-        draw.text((version_x, version_y), f"v{version}", fill=SUBTITLE_COLOR, font=font_author)
-    y += 36
+        tb = draw.textbbox((PADDING, y), script_name, font=font_title)
+        mid = (tb[1] + tb[3]) // 2
+        vb = draw.textbbox((0, 0), f"v{version}", font=font_author)
+        draw.text((tb[2] + 12, mid - (vb[3] - vb[1]) // 2),
+                  f"v{version}", fill=SUBTITLE_COLOR, font=font_author)
+    y += TITLE_HEIGHT
+
+    # Autor
     if author:
         draw.text((PADDING, y), f"by {author}", fill=SUBTITLE_COLOR, font=font_author)
-    y += 28
+    y += AUTHOR_HEIGHT
 
-    # ── Kategorien ───────────────────────────────────────────────────
+    # Fabled/Loric Icons + Namen neben Autor
+    if fabled_loric:
+        fx = PADDING
+        for fl in fabled_loric:
+            icon = _load_icon(fl["id"], size=ICON_SMALL)
+            if icon:
+                _paste_icon(img, icon, fx, y)
+            else:
+                _paste_icon(img, placeholder_sm, fx, y)
+            fx += ICON_SMALL + 4
+            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
+            draw.text((fx, y + 6), fl["name"], fill=color, font=font_fabled_title)
+            name_bb = draw.textbbox((fx, y + 6), fl["name"], font=font_fabled_title)
+            fx = name_bb[2] + 15
+        y += FABLED_TITLE_HEIGHT
+
+    y += SECTION_GAP
+
+    # ── Character Sektionen ──────────────────────────────────────────
     for team in TEAM_ORDER:
-        chars = categories.get(team, [])
+        chars = cats.get(team, [])
         if not chars:
             continue
 
-        # Header mit Trennlinie
-        line_color = TEAM_LINE_COLOR
+        # Header
         header_text = team.upper()
-        draw.text((PADDING, y + 6), header_text, fill=HEADER_COLOR, font=font_header)
-
-        text_bbox = draw.textbbox((PADDING, y + 6), header_text, font=font_header)
-        line_start_x = text_bbox[2] + 12
+        draw.text((PADDING, y + 4), header_text, fill=HEADER_COLOR, font=font_header)
+        hb = draw.textbbox((PADDING, y + 4), header_text, font=font_header)
         line_y = y + HEADER_HEIGHT // 2
-        draw.line(
-            [(line_start_x, line_y), (img_width - PADDING, line_y)],
-            fill=line_color,
-            width=DIVIDER_THICKNESS,
-        )
+        draw.line([(hb[2] + 10, line_y), (img_width - PADDING, line_y)],
+                  fill=LINE_COLOR, width=DIVIDER_THICKNESS)
         y += HEADER_HEIGHT
 
-        # Characters in 2er-Reihen
         name_color = NAME_COLORS.get(team, (0, 100, 172))
+        is_evil = team in ("Minion", "Demon")
 
-        for row_start in range(0, len(chars), COLS):
-            row_chars = chars[row_start:row_start + COLS]
+        for i in range(0, len(chars), COLS):
+            row = chars[i:i + COLS]
+            row_h = max(_calc_char_height(c["ability"], font_ability) for c in row)
 
-            # Maximale Höhe dieser Reihe berechnen
-            row_height = 0
-            for char in row_chars:
-                lines = len(_wrap_ability(char["ability"]))
-                row_height = max(row_height, _calc_char_height(lines))
-
-            for col_idx, char in enumerate(row_chars):
-                x = PADDING + col_idx * CHAR_WIDTH
-                char_y = y
-
-                # Icon (evil-Variante für Minion/Demon)
-                is_evil = team in ("Minion", "Demon")
+            for col, char in enumerate(row):
+                x = PADDING + col * CHAR_WIDTH
                 icon = _load_icon(char["id"], evil=is_evil)
-                if icon is None:
-                    icon = placeholder
+                _paste_icon(img, icon or placeholder, x, y)
 
-                # Weißen Hintergrund unter Icon (falls RGBA)
-                if icon.mode == "RGBA":
-                    icon_bg = Image.new("RGB", (ICON_SIZE, ICON_SIZE), BG_COLOR)
-                    icon_bg.paste(icon, (0, 0), icon)
-                    img.paste(icon_bg, (x, char_y))
-                else:
-                    img.paste(icon, (x, char_y))
+                tx = x + ICON_SIZE + TEXT_PADDING
+                draw.text((tx, y + 3), char["name"], fill=name_color, font=font_name)
 
-                # Name (farbig nach Team)
-                text_x = x + ICON_SIZE + TEXT_PADDING
-                draw.text((text_x, char_y + 3), char["name"], fill=name_color, font=font_name)
-
-                # Ability (schwarz, mit [bold]-Erkennung, vollständig)
                 if char["ability"]:
-                    _draw_ability_with_bold(
-                        draw, text_x, char_y + 20, char["ability"],
-                        font_ability, font_ability_bold,
-                        ABILITY_COLOR, ABILITY_BOLD_COLOR,
-                    )
+                    _draw_ability(draw, tx, y + 22, char["ability"],
+                                 font_ability, font_ability_bold)
+            y += row_h
+        y += SECTION_GAP
 
-            y += row_height
+    # ── Fabled & Loric Sektion ───────────────────────────────────────
+    if fabled_loric or jinxes or bootlegger_rules:
+        header_text = "FABLED & LORIC"
+        draw.text((PADDING, y + 4), header_text, fill=HEADER_COLOR, font=font_header)
+        hb = draw.textbbox((PADDING, y + 4), header_text, font=font_header)
+        line_y = y + HEADER_HEIGHT // 2
+        draw.line([(hb[2] + 10, line_y), (img_width - PADDING, line_y)],
+                  fill=LINE_COLOR, width=DIVIDER_THICKNESS)
+        y += HEADER_HEIGHT
+
+        for fl in fabled_loric:
+            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
+            icon = _load_icon(fl["id"], size=ICON_SIZE)
+            _paste_icon(img, icon or placeholder, PADDING, y)
+
+            tx = PADDING + ICON_SIZE + TEXT_PADDING
+            draw.text((tx, y + 3), fl["name"], fill=color, font=font_name)
+            if fl["ability"]:
+                end_y = _draw_ability(draw, tx, y + 22, fl["ability"],
+                                      font_ability, font_ability_bold)
+            else:
+                end_y = y + 22
+
+            char_h = max(ICON_SIZE + 5, end_y - y + 5)
+            y += char_h
+
+            # Jinxes für diesen Fabled/Loric
+            fl_jinxes = [j for j in jinxes if j["char_a"] == fl["id"] or j["char_b"] == fl["id"]]
+            for jinx in fl_jinxes:
+                # Icons der beiden beteiligten Chars
+                other_id = jinx["char_b"] if jinx["char_a"] == fl["id"] else jinx["char_a"]
+                jx = PADDING + JINX_INDENT
+
+                icon_a = _load_icon(jinx["char_a"], evil=True, size=ICON_SMALL)
+                icon_b = _load_icon(jinx["char_b"], evil=True, size=ICON_SMALL)
+                _paste_icon(img, icon_a or placeholder_sm, jx, y)
+                jx += ICON_SMALL + 4
+                _paste_icon(img, icon_b or placeholder_sm, jx, y)
+                jx += ICON_SMALL + 8
+
+                # Jinx-Text
+                reason_lines = _wrap(jinx["reason"], 55)
+                for li, line in enumerate(reason_lines):
+                    draw.text((jx, y + 2 + li * JINX_LINE_HEIGHT),
+                              line, fill=ABILITY_COLOR, font=font_jinx)
+
+                jinx_h = max(ICON_SMALL + 5, len(reason_lines) * JINX_LINE_HEIGHT + 8)
+                y += jinx_h
+
+        # Bootlegger-Regeln
+        if bootlegger_rules:
+            for rule in bootlegger_rules:
+                rx = PADDING + JINX_INDENT
+                draw.text((rx, y), "•", fill=ABILITY_COLOR, font=font_jinx)
+                lines = _wrap(rule, 60)
+                for li, line in enumerate(lines):
+                    draw.text((rx + 12, y + li * JINX_LINE_HEIGHT),
+                              line, fill=ABILITY_COLOR, font=font_jinx)
+                y += len(lines) * JINX_LINE_HEIGHT + 8
+
+        # Restliche Jinxes (nicht Fabled-bezogen)
+        other_jinxes = [j for j in jinxes if not any(
+            j["char_a"] == fl_char["id"] or j["char_b"] == fl_char["id"]
+            for fl_char in fabled_loric
+        )]
+        for jinx in other_jinxes:
+            jx = PADDING + JINX_INDENT
+            icon_a = _load_icon(jinx["char_a"], size=ICON_SMALL)
+            icon_b = _load_icon(jinx["char_b"], size=ICON_SMALL)
+            _paste_icon(img, icon_a or placeholder_sm, jx, y)
+            jx += ICON_SMALL + 4
+            _paste_icon(img, icon_b or placeholder_sm, jx, y)
+            jx += ICON_SMALL + 8
+
+            reason_lines = _wrap(jinx["reason"], 55)
+            for li, line in enumerate(reason_lines):
+                draw.text((jx, y + 2 + li * JINX_LINE_HEIGHT),
+                          line, fill=ABILITY_COLOR, font=font_jinx)
+            y += max(ICON_SMALL + 5, len(reason_lines) * JINX_LINE_HEIGHT + 8)
 
         y += SECTION_GAP
 
     # ── Footer ───────────────────────────────────────────────────────
-    y = img_height - FOOTER_HEIGHT
-    draw.text((PADDING, y + 8), "© Steven Medway  bloodontheclocktower.com", fill=FOOTER_COLOR, font=font_footer)
-
-    # "*not the first night" rechts
-    nfn_text = "*not the first night"
-    nfn_bbox = draw.textbbox((0, 0), nfn_text, font=font_footer)
-    nfn_width = nfn_bbox[2] - nfn_bbox[0]
-    draw.text((img_width - PADDING - nfn_width, y + 8), nfn_text, fill=FOOTER_COLOR, font=font_footer)
+    y = height - FOOTER_HEIGHT
+    draw.text((PADDING, y + 5), "© Steven Medway  bloodontheclocktower.com",
+              fill=FOOTER_COLOR, font=font_footer)
+    nfn = "*not the first night"
+    nb = draw.textbbox((0, 0), nfn, font=font_footer)
+    draw.text((img_width - PADDING - (nb[2] - nb[0]), y + 5), nfn,
+              fill=FOOTER_COLOR, font=font_footer)
 
     # ── Export ────────────────────────────────────────────────────────
-    buffer = io.BytesIO()
-    img.save(buffer, format="PNG", optimize=True)
-    buffer.seek(0)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    logger.info("Script-Bild: '%s' (%dx%d, %d chars, %d jinxes)",
+                script_name, img_width, height, len(char_ids), len(jinxes))
+    return buf
 
-    logger.info("Script-Bild generiert: '%s' (%dx%d, %d chars)", script_name, img_width, img_height, len(char_ids))
-    return buffer
 
-
-async def generate_script_image(script_name: str, author: str, char_ids: list[str], version: str = "") -> io.BytesIO:
+async def generate_script_image(script_name: str, author: str, char_ids: list[str],
+                                 version: str = "", meta: dict | None = None) -> io.BytesIO:
     """Generiert ein Script-Bild als PNG."""
-    return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, version)
+    return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, version, meta)
