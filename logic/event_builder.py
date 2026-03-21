@@ -172,7 +172,7 @@ def build_event_embed(event_data: dict) -> discord.Embed:
 
     # ── Co-Storytelling ──────────────────────────────────────────────
     co_st = event_data.get("co_storyteller")
-    embed.add_field(name="Co-Storytelling", value=co_st or "Nicht möglich", inline=False)
+    embed.add_field(name="Co-Storytelling", value=co_st or "Nicht möglich", inline=True)
 
     # ── Termin ────────────────────────────────────────────────────────
     ts = event_data.get("timestamp")
@@ -184,7 +184,7 @@ def build_event_embed(event_data: dict) -> discord.Embed:
             termin_value = f"<t:{ts}:F>\n<t:{ts}:R>"
     else:
         termin_value = "-"
-    embed.add_field(name="Termin", value=termin_value, inline=False)
+    embed.add_field(name="Termin", value=termin_value, inline=True)
 
     # ── Beschreibung ─────────────────────────────────────────────────
     description = event_data.get("description")
@@ -207,11 +207,11 @@ def build_event_embed(event_data: dict) -> discord.Embed:
         if npcs:
             embed.add_field(name="NPCs", value=npcs, inline=False)
 
-    # ── Relevante Charaktere — nur wenn vorhanden ────────────────────
-    if char_ids:
-        relevant = _get_relevant_characters(char_ids)
-        if relevant:
-            embed.add_field(name="Relevante Charaktere", value=relevant, inline=False)
+    # ── Relevante Charaktere — deaktiviert, ggf. später wieder nutzen ──
+    # if char_ids:
+    #     relevant = _get_relevant_characters(char_ids)
+    #     if relevant:
+    #         embed.add_field(name="Relevante Charaktere", value=relevant, inline=False)
 
     # ── Separator ────────────────────────────────────────────────────
     embed.add_field(name="\u200b", value="\u200b", inline=False)

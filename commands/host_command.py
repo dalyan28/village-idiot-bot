@@ -125,8 +125,12 @@ def _build_summary_embed(session, script_data=None):
         if ch: info += f" · {len(ch)} Charaktere"
         embed.description = info
 
-    # 1. Titel (not inline)
-    embed.add_field(name="1 · Titel", value=f"```{f.get('title') or '-'}```", inline=False)
+    # 1. Titel (not inline) — mit Label-Prefix
+    prefix = build_title_prefix(f)
+    if is_free:
+        prefix = get_label_emoji(None, is_free_choice=True)
+    title_display = f"{prefix} {f.get('title') or '-'}" if prefix else (f.get('title') or '-')
+    embed.add_field(name="1 · Titel", value=f"```{title_display}```", inline=False)
 
     # 2. Beschreibung (not inline)
     desc = f.get("description") or "*Wird generiert*"

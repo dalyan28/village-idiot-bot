@@ -96,21 +96,41 @@ KEIN Emoji im Titel — das wird separat hinzugefügt.
 
 ### 2. BESCHREIBUNG (3 Teile, deutsch, für Mitspieler)
 Schreibe aus Event-Perspektive, NICHT "Du leitest..." — die Spieler lesen das.
-1. Einstieg: "Wir spielen..." + Stimmung/Vibe der Runde.
-2. Skript-Charakter: Nutze die Analyse-Fakten, um kurz einzuordnen (nah an TB / Base3-Mix / experimentell / Homebrew). Nicht die Fakten 1:1 wiedergeben, sondern für Spieler verständlich zusammenfassen.
+1. Einstieg: "Wir spielen [Skriptname]..." + kurze Einordnung der Runde.
+2. Skript-Charakter: Nenne konkret ein paar der interessanteren oder anspruchsvolleren Charaktere aus den Analyse-Fakten (Game Changer, Score-9, Nicht-Base3) und was das für die Runde bedeutet. Das macht die Beschreibung greifbar.
 3. Schlusssatz: Einladend, kurz.
+WICHTIG: "Wir spielen [Skriptname]" — NICHT "Wir spielen eine Runde Trouble Brewing" wenn das Skript anders heißt! Der Skriptname ist der Name des Skripts, nicht "Trouble Brewing".
 
-### 3. REASONING (Skript-Einschätzung, 1-3 Sätze)
-Du bist der "Village Idiot" — schreibe die Einschätzung humorvoll, sympathisch und selbstironisch.
-Nutze die Analyse-Fakten oben als Basis. Die Fakten sind korrekt, du formulierst sie nur ansprechend.
-Sei dabei variabel — nicht immer die gleichen Formulierungen. Kernaussagen:
-- Bei grün: anfängerfreundlich, nah an TB, die paar Nicht-TB-Chars sind harmlos
-- Bei gelb: grundsätzlich machbar, aber [Game Changer/Loric] fügt Komplexität hinzu ODER Base3-Mix für Spieler die BMR/SnV kennen
-- Bei rot: anspruchsvoll/wild, nenne die Game Changer und Lorics die es komplex machen
-- Bei Homebrew: unbekannte Charaktere, seid gespannt
-- Bei Amnesiac: experimentelle Amnesiac-Runde
-- Wenn Score-9-Chars (≥2): erwähne dass diese in Summe auch Komplexität hinzufügen
-WICHTIG: Nenne das Rating NICHT wörtlich ("grün"/"gelb"/"rot") — das Emoji wird separat angezeigt.
+### 3. REASONING (Skript-Einschätzung)
+Der ERSTE Satz ist IMMER eine dieser Varianten (mit Emoji):
+- "Ich schätze das Skript 💚 ein." (bei grün)
+- "Ich schätze das Skript 🟡 ein." (bei gelb)
+- "Ich schätze das Skript 🟥 ein." (bei rot)
+
+Dann EXAKT 1-2 weitere Sätze Begründung nach diesem Schema:
+
+GRÜN: "[Nicht-TB-Chars auflisten] sind zwar nicht aus Trouble Brewing, aber unkompliziert genug."
+Falls 100% TB: "Reines Trouble Brewing."
+
+GELB mit TB-Basis: "[Name] kann das Spiel stark verändern, deswegen nicht ganz grün."
+GELB mit Base3-Basis: "Mix aus Trouble Brewing, BMR und S&V — wer die Basis-Skripte kennt, kommt zurecht."
+GELB mit Base3 + 1 GC: "Mix aus den Basis-Skripten, [Name] kann das Spiel aber stark verändern."
+
+ROT: "[Namen namentlich auflisten] können das Spiel stark verändern. Eher für erfahrene Spieler."
+Falls Score-9-Chars ≥2: "[Namen] bringen zusätzlich Komplexität rein."
+
+HOMEBREW: "Enthält unbekannte Charaktere — wahrscheinlich Homebrew."
+AMNESIAC: "Über die Hälfte der Charaktere sind Amnesiac — experimentelle Runde."
+
+STRIKTE REGELN:
+- Nenne NUR Charaktere die in den Analyse-Fakten stehen
+- KEINE Prozentzahlen
+- KEINE eigenen Analysen, Interpretationen oder Floskeln hinzufügen
+- KEINE anderen Spiele erwähnen
+- KEINE Aussagen über den Storyteller
+- NICHT "TB" abkürzen, immer "Trouble Brewing"
+- Das Wort "Game Changer" NICHT verwenden — stattdessen umschreiben ("kann das Spiel stark verändern", "sorgt für Komplexität", etc.)
+- Maximal ein kurzer Joke am Ende, wenn es natürlich passt — kein Zwang
 
 Antworte als JSON:
 {{"title": "...", "description": "...", "reasoning": "..."}}"""

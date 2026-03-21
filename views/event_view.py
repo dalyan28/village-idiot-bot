@@ -93,23 +93,23 @@ class EventView(discord.ui.View):
         super().__init__(timeout=None)
 
     @discord.ui.button(
-        emoji=discord.PartialEmoji(name="accept_wht", id=1484978864131407902),
-        style=discord.ButtonStyle.success,
+        emoji=discord.PartialEmoji(name="accept_rec", id=1484978213863161986),
+        style=discord.ButtonStyle.secondary,
         custom_id="event_accept",
     )
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _handle_rsvp(interaction, "accepted")
 
     @discord.ui.button(
-        emoji=discord.PartialEmoji(name="decline_wht", id=1484978932708020504),
-        style=discord.ButtonStyle.danger,
+        emoji=discord.PartialEmoji(name="decline_rec", id=1484978231957524661),
+        style=discord.ButtonStyle.secondary,
         custom_id="event_decline",
     )
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         await _handle_rsvp(interaction, "declined")
 
     @discord.ui.button(
-        emoji=discord.PartialEmoji(name="tent_wht", id=1484978888928137327),
+        emoji=discord.PartialEmoji(name="tent_rec", id=1484978258553471066),
         style=discord.ButtonStyle.secondary,
         custom_id="event_tentative",
     )

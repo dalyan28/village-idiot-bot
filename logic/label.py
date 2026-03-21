@@ -168,8 +168,8 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
     game_changer_count = len(score10_chars) + len(score9_chars) // 2
 
     # Rating bestimmen
-    tb_high = tb_overlap >= 0.8
-    base3_high = base3_overlap >= 0.8
+    tb_high = tb_overlap >= 0.6
+    base3_high = base3_overlap >= 0.6
 
     if is_amnesiac:
         rating = "red"
@@ -178,7 +178,7 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
     elif tb_high and ((game_changer_count == 1 and loric_count == 0) or
                        (game_changer_count == 0 and loric_count == 1)):
         rating = "yellow"
-    elif base3_high and game_changer_count == 0 and loric_count == 0:
+    elif base3_high and game_changer_count <= 1 and loric_count == 0:
         rating = "yellow"
     else:
         rating = "red"
