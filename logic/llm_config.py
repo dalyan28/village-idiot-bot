@@ -114,6 +114,7 @@ STRIKTE REGELN:
 - KEINE Absätze — alles in einem Block.
 - KEINE Aussagen über Zielgruppe/Schwierigkeit ("Anfänger sollten sich wohlfühlen", "für erfahrene Spieler"). Das Rating übernimmt diese Einordnung bereits.
 - Das Wort "experimentell" NICHT verwenden. Stattdessen: "enthält Charaktere, die nicht in den Basis-Skripten vertreten sind" oder ähnlich sachlich.
+- NIEMALS "im Spiel" schreiben wenn du über Charaktere sprichst. Charaktere sind "auf dem Skript", nicht "im Spiel". Sie KÖNNTEN im Spiel landen, sind aber nicht automatisch alle gleichzeitig aktiv. Schreibe z.B. "Auf dem Skript finden sich drei Demons" statt "Im Spiel haben wir drei Demons".
 
 ### 3. REASONING (Skript-Einschätzung)
 Der ERSTE Satz ist IMMER eine dieser Varianten (mit Emoji):
