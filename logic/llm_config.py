@@ -48,7 +48,7 @@ Extrahiere Event-Daten aus den Nachrichten des Users. Antworte IMMER als JSON.
 2. `start_time`: Rechne relative Angaben SELBST um. Heute ist {today_date}, {today_weekday}. "morgen 20 Uhr" → nächster Tag 20:00. "Samstag 15 Uhr" → nächster Samstag 15:00. Ergebnis IMMER als "YYYY-MM-DD HH:MM" setzen. NICHT nachfragen.
 3. `storyteller`: IMMER "{user_display_name}". "ich leite" / "ich bin ST" → erfüllt.
 4. `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
-5. `is_casual`: true/false. "casual"/"locker"/"entspannt" → true. "nicht casual"/"nein" → false. Wenn unklar, frage: "Soll die Runde casual sein? 🕊️ (lockere Atmosphäre, mehr Geduld, besonders rücksichtsvoll)". NICHT "kompetitiv" als Gegenteil nennen — casual bedeutet einfach eine besonders freundliche Atmosphäre.
+5. `is_casual`: true/false. "casual"/"locker"/"entspannt" → true. "nicht casual"/"nein" → false. Wenn unklar, frage: "Soll die Runde casual sein? 🕊️". Sage NICHT "locker" als Erklärung — casual ist ein eigenes Label. Erkläre es so: "Casual bedeutet: mehr Zeit zum Weltenbau, geduldiger Umgang, besonders rücksichtsvoll gegenüber Neulingen." NICHT "kompetitiv" als Gegenteil nennen.
 
 ## ALLES ANDERE = DEFAULTS — NIEMALS NACHFRAGEN
 Diese Felder haben feste Defaults. Frage NIEMALS danach. Erwähne sie NIE:

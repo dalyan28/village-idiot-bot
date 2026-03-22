@@ -251,6 +251,39 @@ def _fetch_script_json_sync(botcscripts_id: str) -> list | None:
         return None
 
 
+def _search_versions_sync(script_name: str, author: str = "", limit: int = 10) -> list[dict]:
+    """Sucht alle Versionen eines Scripts per API."""
+    url = API_SEARCH.format(query=quote_plus(script_name), limit=limit)
+    r = _get(url)
+    if r is None or r.status_code != 200:
+        return []
+    try:
+        data = r.json()
+    except (json.JSONDecodeError, ValueError):
+        return []
+
+    results_raw = data.get("results", [])
+    versions = []
+    for raw in results_raw:
+        parsed = _parse_api_result(raw)
+        # Nur exakte Name-Matches (case-insensitive)
+        if parsed["name"].lower() == script_name.lower():
+            # Optional: gleicher Autor
+            if author and parsed.get("author", "").lower() != author.lower():
+                continue
+            versions.append(parsed)
+    return versions
+
+
+async def search_versions(script_name: str, author: str = "") -> list[dict]:
+    """Async: Sucht alle Versionen eines Scripts auf botcscripts.com.
+
+    Returns:
+        Liste von Script-Dicts mit verschiedenen Versionen.
+    """
+    return await asyncio.to_thread(_search_versions_sync, script_name, author)
+
+
 async def fetch_script_json(botcscripts_id: str) -> list | None:
     """Async: Holt die Script-JSON von botcscripts.com.
 

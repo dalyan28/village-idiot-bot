@@ -532,15 +532,39 @@ class HostCommand(commands.Cog):
 
     # ── Schritt 3: Titel & Beschreibung ──────────────────────────────
 
+    def _build_char_list_by_team(self, char_ids: list[str], content_data: list | None = None) -> dict[str, list[str]]:
+        """Gruppiert Charaktere nach Team und gibt {team: [namen]} zurück."""
+        chars_db = load_characters()
+        # Content-Daten als dict aufbereiten (id → entry)
+        content_map = {}
+        if content_data:
+            for entry in content_data:
+                if isinstance(entry, dict) and entry.get("id") and entry["id"] != "_meta":
+                    content_map[entry["id"]] = entry
+
+        teams = {"Townsfolk": [], "Outsider": [], "Minion": [], "Demon": []}
+        for cid in char_ids:
+            info = chars_db.get(cid, {})
+            hw = content_map.get(cid, {})
+            name = info.get("character_name") or hw.get("name") or cid
+            team = info.get("character_type") or ""
+            if not team and hw.get("team"):
+                team = hw["team"].capitalize()
+            if team not in teams:
+                team = "Townsfolk"
+            teams[team].append(name)
+        return teams
+
     async def _show_title_description_proposal(self, session, channel):
         """Analysiert Skript-Komplexität, generiert Titel/Beschreibung-Vorschlag."""
         session.pending_title_description = True
 
         # Skript-Komplexitätsanalyse
         script_name = session.fields.get("script")
+        sd_lookup = None
         if script_name and not session.fields.get("is_free_choice"):
-            sd, _ = lookup_script(script_name)
-            chars = sd.get("characters", []) if sd else []
+            sd_lookup, _ = lookup_script(script_name)
+            chars = sd_lookup.get("characters", []) if sd_lookup else []
             if chars:
                 analysis = analyze_script_complexity(chars)
                 session.fields["complexity_analysis"] = analysis
@@ -562,7 +586,6 @@ class HostCommand(commands.Cog):
             session.fields["title"] = title
             session.fields["description"] = desc
         else:
-            # Fallback
             script = session.fields.get("script") or "Event"
             st = session.fields.get("storyteller") or session.user_display_name
             co = session.fields.get("co_storyteller")
@@ -575,71 +598,160 @@ class HostCommand(commands.Cog):
         prefix = build_title_prefix(session.fields)
         title_display = f"{prefix} {session.fields['title']}" if prefix else session.fields['title']
 
-        # Rating-Emoji für Einschätzung
+        # Rating + Farbe
         analysis = session.fields.get("complexity_analysis") or {}
         rating = analysis.get("rating")
         rating_emoji = LABEL_EMOJI.get(rating, "") if rating else ""
 
-        footer = _cost_footer(session)
-        lines = []
+        EMBED_COLORS = {
+            "green": 0x78B159, "yellow": 0xFDCB58, "red": 0xDD2E44,
+            "hammer": 0xF4900C, "dove": 0x78B159,
+        }
+        embed_color = EMBED_COLORS.get(rating, 0xFDCB58)
 
-        # Skript-Info (Name, Author, Version)
-        sd = getattr(session, "_selected_script_data", None) or {}
-        script_name = session.fields.get("script") or "?"
+        # Skript-Info
+        sd = getattr(session, "_selected_script_data", None) or sd_lookup or {}
         script_author = sd.get("author", "")
         script_version = sd.get("version", "")
-        script_info = f"```{script_name}```"
-        if script_author:
-            script_info += f" von ```{script_author}```"
-        if script_version:
-            script_info += f" ```v{script_version}```"
-        lines.append(f"*Skript ausgewählt*\n{script_info}")
+        char_ids = sd.get("characters", [])
+        char_count = len(char_ids)
 
-        if reasoning:
-            lines.append(f"\n*Skript-Einschätzung*\n```{reasoning}```")
+        # Intro-Text (vor dem Embed)
+        rating_word = {"green": "grün", "yellow": "gelb", "red": "rot", "hammer": "homebrew"}.get(rating, "")
+        intro_parts = [f"Ich hab das Skript für dich ausgewählt: **{script_name}**"]
+        if script_author:
+            intro_parts[0] += f" von **{script_author}**"
+        if script_version:
+            intro_parts[0] += f" **v{script_version}**"
+        intro_parts[0] += "."
+        if rating_word:
+            intro_parts.append(f"Ich schätze das Skript {rating_emoji} **{rating_word}** ein.")
+        intro_parts.append(
+            "Ebenfalls habe ich einen Titel und eine Beschreibung für deine Veranstaltung erstellt. "
+            "Aber ich bin nur ein Village Idiot und hab keine Ahnung, ob ich sober bin. "
+            "Also schau lieber nochmal drüber:"
+        )
 
         if is_retrigger:
-            lines.append(
-                "\nNeues Skript — ich habe Titel und Beschreibung neu generiert. "
-                "Du kannst die neuen übernehmen oder **alt** schreiben, um bei den bisherigen zu bleiben:"
-            )
+            intro_parts = [
+                f"Neues Skript: **{script_name}**.",
+                "Ich habe Titel und Beschreibung neu generiert. "
+                "Du kannst die neuen übernehmen oder **alt** schreiben, um bei den bisherigen zu bleiben:",
+            ]
             session._old_title = old_title
             session._old_desc = old_desc
 
-        lines.append(f"\n*Titel*\n```{title_display}```")
-        lines.append(f"*Beschreibung*\n```{session.fields['description']}```")
-        lines.append(
-            "Ich sende dir noch das Skript als Bild im Anhang zur Prüfung. "
-            "Du kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
-            "Auch die Einschätzung kannst du korrigieren, falls ich daneben liege.\n"
-            "Sag Bescheid, was du machen willst."
+        intro_text = " ".join(intro_parts)
+
+        # Embed bauen
+        embed = discord.Embed(
+            title="Skript- und Eventinformationen",
+            color=embed_color,
         )
 
-        msg = "\n".join(lines)
+        # Field: Skript
+        script_info = f"{script_name}"
+        if script_author:
+            script_info += f" von {script_author}"
+        if script_version:
+            script_info += f" · v{script_version}"
+        if char_count:
+            script_info += f" · {char_count} Charaktere"
+        embed.add_field(name="Skript", value=f"```{script_info}```", inline=True)
+
+        # Field: Einschätzung
+        if reasoning:
+            embed.add_field(
+                name=f"{rating_emoji} Einschätzung des Skripts",
+                value=f"```{reasoning}```",
+                inline=True,
+            )
+
+        # Charakterliste nach Teams
+        if char_ids and not session.fields.get("is_free_choice"):
+            content_data = sd.get("content")
+            teams = self._build_char_list_by_team(char_ids, content_data)
+            team_lines = []
+            for team_name in ("Townsfolk", "Outsider", "Minion", "Demon"):
+                names = teams.get(team_name, [])
+                if names:
+                    team_lines.append(f"**{team_name}**\n```{', '.join(names)}```")
+            if team_lines:
+                embed.add_field(name="\u200b", value="\n".join(team_lines), inline=False)
+
+        # Field: Titel
+        embed.add_field(name="Titel", value=f"```{title_display}```", inline=False)
+
+        # Field: Beschreibung
+        embed.add_field(name="Beschreibung", value=f"```{session.fields['description']}```", inline=False)
+
+        footer = _cost_footer(session)
         if footer:
-            msg += f"\n-# {footer}"
+            embed.set_footer(text=footer)
 
         # Script-PNG generieren und anhängen
         script_file = None
-        if script_name and not session.fields.get("is_free_choice"):
-            sd_lookup, _ = lookup_script(script_name)
-            if sd_lookup:
-                chars = sd_lookup.get("characters", [])
-                if chars:
-                    try:
-                        img = await generate_script_image(
-                            script_name, sd_lookup.get("author", ""),
-                            chars, sd_lookup.get("version", ""),
-                            content=sd_lookup.get("content"),
-                        )
-                        script_file = discord.File(img, filename="script_preview.png")
-                    except Exception as e:
-                        logger.warning("Script-Bild für Proposal: %s", e)
+        if script_name and not session.fields.get("is_free_choice") and sd_lookup:
+            chars = sd_lookup.get("characters", [])
+            if chars:
+                try:
+                    img = await generate_script_image(
+                        script_name, sd_lookup.get("author", ""),
+                        chars, sd_lookup.get("version", ""),
+                        content=sd_lookup.get("content"),
+                    )
+                    script_file = discord.File(img, filename="script_preview.png")
+                except Exception as e:
+                    logger.warning("Script-Bild für Proposal: %s", e)
 
+        # Nach dem Embed: Hinweistext
+        outro = (
+            "Du kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
+            "Auch die Einschätzung kannst du korrigieren, falls ich daneben liege. "
+            "Wir können ebenfalls das Skript oder die Version ändern, wenn du möchtest.\n"
+            "Schreibe **ok** wenn alles passt."
+        )
+
+        # Senden: Intro + Embed + Outro + optionales Bild
+        kwargs = {"content": intro_text, "embed": embed}
         if script_file:
-            await channel.send(msg, file=script_file)
-        else:
-            await channel.send(msg)
+            kwargs["file"] = script_file
+        await channel.send(**kwargs)
+        await channel.send(outro)
+
+    async def _show_version_choices(self, session, channel):
+        """Sucht alle Versionen des aktuellen Scripts und zeigt sie zur Auswahl."""
+        from logic.botcscripts import search_versions
+
+        sd = getattr(session, "_selected_script_data", None) or {}
+        script_name = session.fields.get("script") or ""
+        author = sd.get("author", "")
+
+        async with channel.typing():
+            versions = await search_versions(script_name, author)
+
+        if not versions:
+            # Ohne Author-Filter nochmal versuchen
+            async with channel.typing():
+                versions = await search_versions(script_name)
+
+        if not versions:
+            await channel.send(f"Keine Versionen von **{script_name}** gefunden.")
+            return
+
+        # Sortieren nach Version (absteigend)
+        versions.sort(key=lambda v: v.get("version", ""), reverse=True)
+
+        session._pending_version_choices = versions
+        session.pending_title_description = False
+
+        lines = [f"**Verfügbare Versionen von {script_name}:**\n"]
+        for i, v in enumerate(versions, 1):
+            char_count = len(v.get("characters", []))
+            lines.append(f"**{i}** — v{v.get('version', '?')} ({char_count} Charaktere)")
+
+        lines.append("\nWähle eine Version (Nummer):")
+        await channel.send("\n".join(lines))
 
     # ── Schritt 4: Summary ───────────────────────────────────────────
 
@@ -1000,6 +1112,24 @@ class HostCommand(commands.Cog):
                 await ch.send(msg)
             return
 
+        # ── Versions-Auswahl ───────────────────────────────────────────
+        version_choices = getattr(session, "_pending_version_choices", None)
+        if version_choices:
+            try:
+                idx = int(text) - 1
+                if 0 <= idx < len(version_choices):
+                    chosen = version_choices[idx]
+                    session._pending_version_choices = None
+                    session._retrigger_proposal = True
+                    await self._select_script(session, ch, chosen)
+                    return
+                else:
+                    await ch.send(f"Wähle eine Nummer von 1 bis {len(version_choices)}.")
+                    return
+            except ValueError:
+                await ch.send(f"Bitte gib eine Nummer von 1 bis {len(version_choices)} ein.")
+                return
+
         # ── Titel/Beschreibung Bestätigung (Schritt 3) ───────────────
         if getattr(session, "pending_title_description", False):
             if text.lower() in CONFIRM_KEYWORDS:
@@ -1016,6 +1146,11 @@ class HostCommand(commands.Cog):
                     "**1** — In der Datenbank suchen\n"
                     "**2** — Selbst einen Namen eingeben"
                 )
+                return
+
+            # "andere Version" → Versions-Auswahl
+            if any(kw in tl_script for kw in ("andere version", "version ändern", "version wechseln")):
+                await self._show_version_choices(session, ch)
                 return
 
             # "alt" → alte Titel/Beschreibung wiederherstellen (bei Skript-Wechsel)
@@ -1050,20 +1185,8 @@ class HostCommand(commands.Cog):
                     break
 
             if rating_changed:
-                # Proposal mit neuem Rating neu anzeigen
-                prefix = build_title_prefix(session.fields)
-                title_display = f"{prefix} {session.fields['title']}" if prefix else session.fields['title']
-                rating_emoji = LABEL_EMOJI.get(rating, "")
-
-                footer = _cost_footer(session)
-                msg = (
-                    f"Einschätzung auf {rating_emoji} geändert.\n\n"
-                    f"*Titel*\n```{title_display}```\n"
-                    f"*Beschreibung*\n```{session.fields['description']}```\n"
-                    f"Sag Bescheid, was du machen willst."
-                )
-                if footer: msg += f"\n-# {footer}"
-                await ch.send(msg)
+                # Proposal komplett neu anzeigen mit neuem Rating
+                await self._show_title_description_proposal(session, ch)
                 return
 
             # Freitext → Haiku versteht was geändert werden soll
@@ -1081,16 +1204,8 @@ class HostCommand(commands.Cog):
                     await self._show_summary(session, ch)
                     return
 
-                prefix = build_title_prefix(session.fields)
-                title_display = f"{prefix} {new_title}" if prefix else new_title
-                msg = (
-                    f"Aktualisiert:\n\n"
-                    f"*Titel*\n```{title_display}```\n"
-                    f"*Beschreibung*\n```{new_desc}```\n"
-                    f"Passt das so? Sag Bescheid, was du machen willst."
-                )
-                if footer: msg += f"\n-# {footer}"
-                await ch.send(msg)
+                # Proposal komplett neu anzeigen mit aktualisierten Werten
+                await self._show_title_description_proposal(session, ch)
             else:
                 await ch.send("Konnte die Änderung nicht verarbeiten. Versuche es nochmal.")
             return
