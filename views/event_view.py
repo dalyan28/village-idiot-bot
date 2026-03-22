@@ -52,10 +52,9 @@ async def _handle_rsvp(interaction: discord.Interaction, category: str):
     if image_url:
         embed.set_image(url=image_url)
 
-    # defer + message.edit statt interaction.response.edit_message
-    # verhindert das Attachment-Detach-Problem bei Discord
-    await interaction.response.defer()
-    await interaction.message.edit(embed=embed)
+    # attachments=[] entfernt das verwaiste File-Attachment (script.png),
+    # das Bild bleibt über die CDN-URL im Embed erhalten.
+    await interaction.response.edit_message(embed=embed, attachments=[])
 
 
 def _has_manage_permission(interaction: discord.Interaction, event_data: dict) -> bool:
