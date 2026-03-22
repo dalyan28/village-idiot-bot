@@ -25,19 +25,21 @@ logger = logging.getLogger(__name__)
 
 # ── Layout ───────────────────────────────────────────────────────────────────
 
+SCALE = 2  # Retina-Faktor: 2x für scharfe Darstellung auf Mobile
+
 COLS = 2
-ICON_SIZE = 120
-ICON_SMALL = 54
-ICON_JINX = 72
-CHAR_WIDTH = 420
-PADDING = 25
-SECTION_GAP = 8
-HEADER_HEIGHT = 28
-ABILITY_LINE_HEIGHT = 13
-JINX_LINE_HEIGHT = 14
-FOOTER_HEIGHT = 22
-TEXT_PADDING = 6
-DIVIDER_THICKNESS = 1
+ICON_SIZE = 120 * SCALE
+ICON_SMALL = 54 * SCALE
+ICON_JINX = 72 * SCALE
+CHAR_WIDTH = 420 * SCALE
+PADDING = 25 * SCALE
+SECTION_GAP = 8 * SCALE
+HEADER_HEIGHT = 28 * SCALE
+ABILITY_LINE_HEIGHT = 13 * SCALE
+JINX_LINE_HEIGHT = 14 * SCALE
+FOOTER_HEIGHT = 22 * SCALE
+TEXT_PADDING = 6 * SCALE
+DIVIDER_THICKNESS = 1 * SCALE
 DJINN_ID = "djinn"
 
 # ── Farben ───────────────────────────────────────────────────────────────────
@@ -69,14 +71,14 @@ _F_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")
 _F_ABILITY = os.path.join(FONT_DIR, "TradeGothic-Regular.otf")
 
-SZ_TITLE = 36
-SZ_AUTHOR = 14
-SZ_FABLED_TITLE = 13
-SZ_HEADER = 14
-SZ_NAME = 15
-SZ_ABILITY = 13
-SZ_JINX = 12
-SZ_FOOTER = 9
+SZ_TITLE = 36 * SCALE
+SZ_AUTHOR = 14 * SCALE
+SZ_FABLED_TITLE = 13 * SCALE
+SZ_HEADER = 14 * SCALE
+SZ_NAME = 15 * SCALE
+SZ_ABILITY = 13 * SCALE
+SZ_JINX = 12 * SCALE
+SZ_FOOTER = 9 * SCALE
 
 TEAM_ORDER = ["Townsfolk", "Outsider", "Minion", "Demon"]
 TEAM_ORDER_ALL = ["Townsfolk", "Outsider", "Minion", "Demon", "Traveller", "Fabled", "Loric"]
@@ -194,11 +196,11 @@ def _text_y_centered(draw, text, font, y, container_h):
     return y + (container_h - text_h) // 2 - offset_y
 
 
-ICON_OVERLAP_ALLOW = 20  # Icons dürfen so viele Pixel über die Textzeile hinausragen
+ICON_OVERLAP_ALLOW = 20 * SCALE  # Icons dürfen so viele Pixel über die Textzeile hinausragen
 
 def _row_height(ability_text, icon_size=ICON_SIZE):
     """Berechnet die Höhe einer Zeile. Icons dürfen überlappen."""
-    text_h = SZ_NAME + 4 + _text_height(ability_text)
+    text_h = SZ_NAME + 4 * SCALE + _text_height(ability_text)
     # Icon darf über die Zeile hinausragen (Overlap erlaubt)
     return max(icon_size - ICON_OVERLAP_ALLOW, text_h)
 
@@ -207,13 +209,14 @@ def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_widt
     """Zeichnet eine Zeile (Icon + Name + Ability) vertikal zentriert. Gibt row_height zurück."""
     # Sichtbare Texthöhe berechnen (mit Font-Offset-Korrektur)
     name_bb = draw.textbbox((0, 0), name, font=fonts["name"])
-    name_h = name_bb[3] - name_bb[1] + 4
+    name_h = name_bb[3] - name_bb[1] + 4 * SCALE
     name_offset = name_bb[1]
     ability_h = _text_height(ability)
     text_h = name_h + ability_h
-    row_h = max(icon_size, text_h)
+    # row_h muss mit _row_height() übereinstimmen (Overlap erlaubt)
+    row_h = _row_height(ability, icon_size)
 
-    # Icon: vertikal zentriert
+    # Icon: vertikal zentriert in der Zeile (darf oben/unten überlappen)
     icon_y = y + (row_h - icon_size) // 2
     _paste(img, icon, x, icon_y)
 
@@ -311,20 +314,20 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     f_footer = _font(_F_AUTHOR, SZ_FOOTER)
 
     img_width = PADDING * 2 + COLS * CHAR_WIDTH
-    text_area_width = CHAR_WIDTH - ICON_SIZE - TEXT_PADDING - 5
-    fl_text_width = img_width - PADDING * 2 - ICON_SIZE - TEXT_PADDING - 10
+    text_area_width = CHAR_WIDTH - ICON_SIZE - TEXT_PADDING - 5 * SCALE
+    fl_text_width = img_width - PADDING * 2 - ICON_SIZE - TEXT_PADDING - 10 * SCALE
 
     # Jinx/Bootlegger text area
     jinx_x = PADDING + ICON_SIZE + TEXT_PADDING
-    jinx_text_w = img_width - jinx_x - PADDING - 5
-    jinx_icon_text_w = jinx_text_w - ICON_JINX * 2 + 4 - 6
-    jinx_wrap_chars = max(40, jinx_icon_text_w // 7)
-    boot_wrap_chars = max(40, (jinx_text_w - 12) // 7)
+    jinx_text_w = img_width - jinx_x - PADDING - 5 * SCALE
+    jinx_icon_text_w = jinx_text_w - ICON_JINX * 2 + 4 * SCALE - 6 * SCALE
+    jinx_wrap_chars = max(40, jinx_icon_text_w // (7 * SCALE))
+    boot_wrap_chars = max(40, (jinx_text_w - 12 * SCALE) // (7 * SCALE))
 
     # ── Höhe berechnen ────────────────────────────────────────────────
-    height = PADDING + 42 + 18  # title + author
+    height = PADDING + 42 * SCALE + 18 * SCALE  # title + author
     if fabled_loric:
-        height += 40  # fabled row
+        height += 40 * SCALE  # fabled row
     height += SECTION_GAP
 
     for team in TEAM_ORDER:
@@ -343,11 +346,11 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
             height += _row_height(fl["ability"])
             if fl["id"] == DJINN_ID and jinxes:
                 for jnx in jinxes:
-                    jh = SZ_NAME + 4 + len(_wrap(jnx["reason"], jinx_wrap_chars)) * JINX_LINE_HEIGHT + 5
-                    height += max(ICON_JINX + 3, jh)
+                    jh = SZ_NAME + 4 * SCALE + len(_wrap(jnx["reason"], jinx_wrap_chars)) * JINX_LINE_HEIGHT + 5 * SCALE
+                    height += max(ICON_JINX + 3 * SCALE, jh)
             if fl["id"] == "bootlegger" and bootlegger_rules:
                 for rule in bootlegger_rules:
-                    height += len(_wrap(rule, boot_wrap_chars)) * JINX_LINE_HEIGHT + 10
+                    height += len(_wrap(rule, boot_wrap_chars)) * JINX_LINE_HEIGHT + 10 * SCALE
         height += SECTION_GAP
 
     height += FOOTER_HEIGHT + PADDING
@@ -363,24 +366,24 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         tb = draw.textbbox((PADDING, y), script_name, font=f_title)
         mid = (tb[1] + tb[3]) // 2
         vb = draw.textbbox((0, 0), f"v{version}", font=f_author)
-        draw.text((tb[2] + 12, mid - (vb[3] - vb[1]) // 2),
+        draw.text((tb[2] + 12 * SCALE, mid - (vb[3] - vb[1]) // 2),
                   f"v{version}", fill=SUBTITLE_COLOR, font=f_author)
-    y += 42
+    y += 42 * SCALE
 
     # Autor
     if author:
         draw.text((PADDING, y), f"by {author}", fill=SUBTITLE_COLOR, font=f_author)
-    y += 18
+    y += 18 * SCALE
 
     # Fabled/Loric Icons unter Autor
     if fabled_loric:
         fx = PADDING
-        fabled_h = 40
+        fabled_h = 40 * SCALE
         for fl in fabled_loric:
             icon = _load_icon(fl["id"], size=ICON_SMALL, icon_urls=fl.get("icon_urls")) or ph_sm
             icon_y = y + (fabled_h - ICON_SMALL) // 2
             _paste(img, icon, fx, icon_y)
-            fx += ICON_SMALL + 5
+            fx += ICON_SMALL + 5 * SCALE
             color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
             # Text vertikal zentriert zum Icon (bbox offset korrigieren)
             text_bb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
@@ -389,7 +392,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
             text_y = y + (fabled_h - text_h) // 2 - text_offset_y
             draw.text((fx, text_y), fl["name"], fill=color, font=f_fabled_t)
             nb = draw.textbbox((fx, text_y), fl["name"], font=f_fabled_t)
-            fx = nb[2] + 15
+            fx = nb[2] + 15 * SCALE
         y += fabled_h
 
     y += SECTION_GAP
@@ -402,10 +405,10 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
 
         # Header
         header_text = team.upper()
-        draw.text((PADDING, y + 4), header_text, fill=HEADER_COLOR, font=f_header)
-        hb = draw.textbbox((PADDING, y + 4), header_text, font=f_header)
+        draw.text((PADDING, y + 4 * SCALE), header_text, fill=HEADER_COLOR, font=f_header)
+        hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
         text_mid_y = (hb[1] + hb[3]) // 2
-        draw.line([(hb[2] + 10, text_mid_y), (img_width - PADDING, text_mid_y)],
+        draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
                   fill=LINE_COLOR, width=DIVIDER_THICKNESS)
         y += HEADER_HEIGHT
 
@@ -429,10 +432,10 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     # ── Fabled & Loric Sektion ────────────────────────────────────────
     if fabled_loric or jinxes or bootlegger_rules:
         header_text = "FABLED & LORIC"
-        draw.text((PADDING, y + 4), header_text, fill=HEADER_COLOR, font=f_header)
-        hb = draw.textbbox((PADDING, y + 4), header_text, font=f_header)
+        draw.text((PADDING, y + 4 * SCALE), header_text, fill=HEADER_COLOR, font=f_header)
+        hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
         text_mid_y = (hb[1] + hb[3]) // 2
-        draw.line([(hb[2] + 10, text_mid_y), (img_width - PADDING, text_mid_y)],
+        draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
                   fill=LINE_COLOR, width=DIVIDER_THICKNESS)
         y += HEADER_HEIGHT
 
@@ -463,16 +466,16 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
                                         icon_urls=hw_b.get("image")) or ph_jinx
 
                     reason_lines = _wrap(jnx["reason"], jinx_wrap_chars)
-                    header_h = SZ_NAME + 4
+                    header_h = SZ_NAME + 4 * SCALE
                     text_h = len(reason_lines) * JINX_LINE_HEIGHT
                     content_h = header_h + text_h
-                    jh = max(ICON_JINX + 3, content_h + 5)
+                    jh = max(ICON_JINX + 3 * SCALE, content_h + 5 * SCALE)
 
                     # Icons + Text zentriert
                     icon_y = y + (jh - ICON_JINX) // 2
                     _paste(img, icon_a, jinx_x, icon_y)
-                    _paste(img, icon_b, jinx_x + ICON_JINX - 8, icon_y)
-                    text_x = jinx_x + ICON_JINX * 2 - 4
+                    _paste(img, icon_b, jinx_x + ICON_JINX - 8 * SCALE, icon_y)
+                    text_x = jinx_x + ICON_JINX * 2 - 4 * SCALE
 
                     content_y = y + (jh - content_h) // 2
                     draw.text((text_x, content_y), f"{name_a} & {name_b}",
@@ -490,19 +493,19 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
                     lines = _wrap(rule, boot_wrap_chars)
                     draw.text((jinx_x, y), "•", fill=ABILITY_COLOR, font=f_jinx)
                     for li, line in enumerate(lines):
-                        draw.text((jinx_x + 12, y + li * JINX_LINE_HEIGHT),
+                        draw.text((jinx_x + 12 * SCALE, y + li * JINX_LINE_HEIGHT),
                                   line, fill=ABILITY_COLOR, font=f_jinx)
-                    y += len(lines) * JINX_LINE_HEIGHT + 8
+                    y += len(lines) * JINX_LINE_HEIGHT + 8 * SCALE
 
         y += SECTION_GAP
 
     # ── Footer ────────────────────────────────────────────────────────
     y = height - FOOTER_HEIGHT
-    draw.text((PADDING, y + 4), "© Steven Medway  bloodontheclocktower.com",
+    draw.text((PADDING, y + 4 * SCALE), "© Steven Medway  bloodontheclocktower.com",
               fill=FOOTER_COLOR, font=f_footer)
     nfn = "*not the first night"
     nb = draw.textbbox((0, 0), nfn, font=f_footer)
-    draw.text((img_width - PADDING - (nb[2] - nb[0]), y + 4), nfn,
+    draw.text((img_width - PADDING - (nb[2] - nb[0]), y + 4 * SCALE), nfn,
               fill=FOOTER_COLOR, font=f_footer)
 
     # ── Export ────────────────────────────────────────────────────────

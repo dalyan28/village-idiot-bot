@@ -6,6 +6,7 @@ __pycache__/
 config.json
 events.json
 data/script_cache.json
+data/icons/
 MOD_DOKU.md
 .vscode/
 phase0/
@@ -14,3 +15,5 @@ boozling_test/
 custom_emojis/
 test_scripts/
 test_ksr*.png
+test_output/
+test_generate_image.py
