@@ -49,28 +49,13 @@ async def _handle_rsvp(interaction: discord.Interaction, category: str):
 
     # Gespeicherte CDN-URL verwenden
     image_url = event_data.get("image_url")
-    logger.info(
-        "RSVP edit: msg_id=%s, image_url=%s, attachments=%d, embeds=%d",
-        message_id,
-        image_url[:80] if image_url else "NONE",
-        len(interaction.message.attachments),
-        len(interaction.message.embeds),
-    )
-
-    # Original-Embed Image URL loggen
-    if interaction.message.embeds:
-        orig = interaction.message.embeds[0]
-        orig_img = orig.image.url if orig.image else "NONE"
-        logger.info("RSVP edit: original embed image=%s", orig_img[:80] if orig_img != "NONE" else orig_img)
-
     if image_url:
         embed.set_image(url=image_url)
 
-    try:
-        await interaction.response.edit_message(embed=embed)
-        logger.info("RSVP edit: edit_message SUCCESS")
-    except Exception as e:
-        logger.error("RSVP edit: edit_message FAILED: %s", e)
+    # defer + message.edit statt interaction.response.edit_message
+    # verhindert das Attachment-Detach-Problem bei Discord
+    await interaction.response.defer()
+    await interaction.message.edit(embed=embed)
 
 
 def _has_manage_permission(interaction: discord.Interaction, event_data: dict) -> bool:
