@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 BOTCSCRIPTS_BASE = "https://www.botcscripts.com"
 
 # REST API
-API_SEARCH = "https://www.botcscripts.com/api/scripts/?format=json&search={query}&limit={limit}"
+API_SEARCH = "https://www.botcscripts.com/api/scripts/?format=json&search={query}&limit={limit}&include_homebrew=true&include_hybrid=true"
 
 # HTML Fallback
 HTML_SEARCH = "https://www.botcscripts.com/?search={query}"
@@ -63,6 +63,7 @@ def _parse_api_result(result: dict) -> dict:
         "botcscripts_id": str(script_id) if script_id else str(pk),
         "pk": pk,
         "characters": characters,
+        "script_type": result.get("script_type", ""),
         "url": f"{BOTCSCRIPTS_BASE}/script/{script_id}/{version}/" if script_id else "",
     }
 

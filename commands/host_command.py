@@ -26,6 +26,7 @@ from logic.conversation import (
     generate_title_and_description,
     get_session,
     has_active_session,
+    interpret_script_choice,
     start_session,
     update_title_description,
     was_recently_expired,
@@ -214,7 +215,6 @@ def _build_summary_embed(session, script_data=None):
 def _build_script_choice_embed(script_name, results):
     embed = discord.Embed(
         title=f"Skript-Suche: \"{script_name}\"",
-        description="Ich suche dein Skript in der Datenbank...",
         color=BOT_COLOR,
     )
     for i, r in enumerate(results, 1):
@@ -222,9 +222,17 @@ def _build_script_choice_embed(script_name, results):
         ve = r.get("version") or "?"
         ch = r.get("characters", [])
         cnt = f" · {len(ch)} Chars" if ch else ""
-        embed.add_field(name=f"{i}. {r['name']}", value=f"von {au} · v{ve}{cnt}", inline=False)
-    embed.set_footer(text="Antworte mit 1-5, 'custom' für eigenes Script, oder 'skip'.")
+        stype = r.get("script_type", "")
+        tag = f" · {stype}" if stype and stype != "Full" else ""
+        embed.add_field(name=f"{i}. {r['name']}", value=f"von {au} · v{ve}{cnt}{tag}", inline=False)
+    embed.set_footer(text="Quelle: botcscripts.com")
     return embed
+
+
+SCRIPT_CHOICE_HELP = (
+    "Ist dein Skript dabei? Du kannst auch einen anderen Suchbegriff eingeben "
+    "oder eine Script-JSON (.json) hochladen."
+)
 
 
 # ── View ─────────────────────────────────────────────────────────────────────
@@ -474,6 +482,7 @@ class HostCommand(commands.Cog):
             "version": chosen.get("version", ""),
             "botcscripts_id": chosen.get("botcscripts_id", ""),
             "characters": chosen.get("characters", []),
+            "script_type": chosen.get("script_type", ""),
             "url": chosen.get("url", ""), "source": "botcscripts",
         })
         session.pending_script_choices = None
@@ -658,8 +667,9 @@ class HostCommand(commands.Cog):
                 session._script_choice_return_to_summary = True
                 embed = _build_script_choice_embed(text, results)
                 await ch.send(embed=embed)
+                await ch.send(SCRIPT_CHOICE_HELP)
             else:
-                await ch.send(f"**{text}** nicht gefunden. Gib einen anderen Namen ein oder 'abbrechen'.")
+                await ch.send(f"**{text}** nicht gefunden. Gib einen anderen Suchbegriff ein oder 'abbrechen'.")
                 session.pending_script_search = True
             return
 
@@ -849,11 +859,66 @@ class HostCommand(commands.Cog):
                 await self._select_script(session, ch, choices[best_match])
                 return
 
-            await ch.send(
-                "Ich konnte nicht erkennen, welches Skript du meinst.\n"
-                f"Antworte mit einer Nummer (1-{len(choices)}), einem Skriptnamen, "
-                "'custom' für eigenes Script, oder 'skip'."
-            )
+            # JSON-Upload direkt in der Script-Auswahl
+            if message.attachments and message.attachments[0].filename.endswith(".json"):
+                session.pending_script_choices = None
+                session.pending_script_upload = True
+                await self._process(session, message)
+                return
+
+            # Kein deterministischer Match → Haiku als Fallback
+            async with ch.typing():
+                result = await interpret_script_choice(session, text, choices)
+
+            if not result:
+                await ch.send("Das konnte ich nicht verarbeiten. Versuch es nochmal.")
+                return
+
+            action = result.get("action")
+
+            if action == "select":
+                idx = (result.get("index") or 1) - 1
+                if 0 <= idx < len(choices):
+                    await self._select_script(session, ch, choices[idx])
+                else:
+                    await ch.send(f"Nummer {idx+1} gibt es nicht. Wähle 1-{len(choices)}.")
+                return
+
+            if action == "search":
+                term = result.get("search_term") or text
+                session.pending_script_choices = None
+                await ch.send(f"Ich suche **{term}** in der Datenbank...")
+                async with ch.typing():
+                    new_results = await search_scripts(term, limit=5)
+                session.touch()
+                if new_results:
+                    session.pending_script_choices = new_results
+                    embed = _build_script_choice_embed(term, new_results)
+                    await ch.send(embed=embed)
+                    await ch.send(SCRIPT_CHOICE_HELP)
+                else:
+                    await ch.send(f"**{term}** nicht gefunden. Versuch einen anderen Suchbegriff.")
+                    session.pending_script_choices = choices
+                return
+
+            if action == "upload":
+                session.pending_script_choices = None
+                session.pending_script_upload = True
+                await ch.send("Lade deine **Script-JSON** (.json) hoch.")
+                return
+
+            if action == "skip":
+                session.pending_script_choices = None
+                await self._show_title_description_proposal(session, ch)
+                return
+
+            # unclear → Haiku erklärt die Möglichkeiten
+            msg = result.get("message", "")
+            if msg:
+                footer = _cost_footer(session)
+                if footer:
+                    msg += f"\n-# {footer}"
+                await ch.send(msg)
             return
 
         # ── Titel/Beschreibung Bestätigung (Schritt 3) ───────────────
@@ -1035,12 +1100,13 @@ class HostCommand(commands.Cog):
                         session.pending_script_choices = results
                         embed = _build_script_choice_embed(script_name, results)
                         await ch.send(embed=embed)
+                        await ch.send(SCRIPT_CHOICE_HELP)
                         return
                     else:
                         session.pending_script_upload = True
                         await ch.send(
                             f"**{script_name}** nicht in der Datenbank gefunden.\n"
-                            "Sende die **Script-JSON als Datei** oder 'skip'."
+                            "Sende die **Script-JSON als Datei** (.json) hoch oder schreibe **skip**."
                         )
                         return
 

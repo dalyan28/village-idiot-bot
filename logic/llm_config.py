@@ -43,28 +43,31 @@ Extrahiere Event-Daten aus den Nachrichten des Users. Antworte IMMER als JSON.
   }}
 }}
 
-## 6 PFLICHTFELDER (alle müssen vom User kommen)
+## 5 PFLICHTFELDER (alle müssen vom User kommen)
 1. `script`: Skriptname. Bei "freie Skriptwahl" → "Freie Skriptwahl", is_free_choice=true.
 2. `start_time`: IMMER als "YYYY-MM-DD HH:MM". Heute ist {today_date}, {today_weekday}.
-3. `storyteller`: IMMER "{user_display_name}" verwenden, nie "Du". Bei Co-ST: "{user_display_name} und [Name]".
+3. `storyteller`: Der User ist IMMER der ST. Setze IMMER "{user_display_name}". Wenn der User "ich bin ST" oder "ich leite" sagt, ist das erfüllt. Bei Co-ST: "{user_display_name} und [Name]".
 4. `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
-5. `is_casual`: true/false. Frage: "Soll das eine Casual-Runde sein? 🕊️ (besondere Rücksicht, mehr Weltenbau, hohe Fehlertoleranz)"
-6. `is_academy`: true/false (Default: false). Wenn der User andeutet, dass es eine Academy-Runde, Lern-Runde, oder ein Lehr-Angebot ist → is_academy=true. Wenn is_academy=true, frage NICHT mehr nach is_casual (Academy überschreibt Casual).
+5. `is_casual`: true/false. "casual ja", "casual", "locker" → true. "casual nein", "nicht casual" → false. Wenn unklar, frage: "Soll das eine Casual-Runde sein? 🕊️"
 
-## DEFAULTS (NICHT nachfragen, NICHT erwähnen, still setzen)
+## ERKENNUNG (nicht nachfragen, automatisch setzen wenn erkannt)
+- `is_academy`: Wenn der User "Academy", "Lern-Runde", "Lehr-Angebot" sagt → true. Sonst false. Wenn is_academy=true, ist is_casual automatisch irrelevant (NICHT nachfragen).
+
+## DEFAULTS (NIEMALS nachfragen, NIEMALS erwähnen, still setzen)
 - max_players: 12
 - duration_minutes: 150
-- camera: null (= keine Pflicht)
-- co_storyteller: null (= nicht möglich)
+- camera: null
+- co_storyteller: null
 - is_recorded: false
 - is_academy: false
-ERWÄHNE DIESE DEFAULTS NICHT. Frage NICHT danach. Setze sie still.
-Wenn der User von sich aus einen Co-ST erwähnt, setze co_storyteller. Sonst bleibt es null.
+FRAGE NIEMALS nach diesen Feldern. Erwähne sie NICHT. Setze sie still auf den Default.
+Wenn der User von sich aus einen Co-ST erwähnt, setze co_storyteller.
 
 ## VERHALTEN
 - Extrahiere so viel wie möglich aus der ERSTEN Nachricht.
+- Wenn ALLE 5 Pflichtfelder in der ersten Nachricht stehen → action="done" SOFORT. Keine Rückfragen.
 - Wenn Pflichtfelder fehlen: ALLE fehlenden in EINER Nachricht fragen.
-- Sobald ALLE Pflichtfelder da → action="done". Beachte: is_academy hat Default false, zählt also als gesetzt wenn nicht explizit vom User angedeutet.
+- Sobald ALLE 5 Pflichtfelder da → action="done".
 - Halte Antworten KURZ (1-2 Sätze + Fragen).
 - Gib in fields IMMER den kompletten Stand zurück.
 - Setze KEINEN Titel — der wird später generiert.
@@ -164,6 +167,36 @@ Antworte als JSON:
 {{"title": "...", "description": "...", "accepted": true/false}}
 accepted=true wenn der User zufrieden ist (keine Änderung nötig).
 accepted=false wenn Änderungen vorgenommen wurden."""
+
+# Prompt für Script-Auswahl Fallback (Haiku interpretiert natürliche Sprache)
+SCRIPT_CHOICE_FALLBACK_PROMPT = """\
+Der User sieht eine Liste von 5 Skripten aus der botcscripts.com-Datenbank und antwortet darauf.
+
+## AKTUELLE SKRIPT-ERGEBNISSE
+{script_list}
+
+## USER SAGT
+"{user_input}"
+
+## DEINE OPTIONEN (du kannst NUR eine davon wählen)
+1. `select` — Der User will eines der 5 Skripte auswählen. Gib den Index (1-5) zurück.
+2. `search` — Der User will nach etwas anderem suchen. Extrahiere den Suchbegriff.
+3. `upload` — Der User will eine eigene JSON-Datei hochladen.
+4. `skip` — Der User will die Skript-Suche überspringen.
+5. `unclear` — Du kannst nicht erkennen, was der User will. Erkläre freundlich die Möglichkeiten.
+
+## LIMITATIONEN (erkläre diese, wenn der User etwas Unmögliches will)
+- Du kannst NUR nach Skriptnamen auf botcscripts.com suchen
+- Du kannst NICHT nach bestimmten Charakteren suchen
+- Du kannst NICHT Skripte erstellen oder erfinden
+- Wenn der User etwas völlig Themenfremdes will → höflich darauf hinweisen, dass wir gerade ein Skript suchen
+
+Antworte als JSON:
+{{"action": "select|search|upload|skip|unclear", "index": null, "search_term": null, "message": "..."}}
+- Bei `select`: setze `index` (1-5)
+- Bei `search`: setze `search_term` (der extrahierte Suchbegriff)
+- Bei `unclear`: setze `message` (deine Antwort an den User, deutsch, kurz, freundlich)
+- Bei `upload`/`skip`: nur action setzen"""
 
 DEFAULT_RULES = ""
 

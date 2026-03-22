@@ -24,6 +24,7 @@ from logic.llm_config import (
     SYSTEM_PROMPT_TEMPLATE,
     TITLE_DESCRIPTION_PROMPT,
     TITLE_DESCRIPTION_UPDATE_PROMPT,
+    SCRIPT_CHOICE_FALLBACK_PROMPT,
 )
 from logic.label import compute_label
 
@@ -373,5 +374,39 @@ async def update_title_description(session: EventSession, user_input: str) -> tu
         return title, description, accepted
     except json.JSONDecodeError:
         logger.warning("Title/Desc Update JSON ungültig: %s", cleaned[:200])
+
+    return None
+
+
+async def interpret_script_choice(session: EventSession, user_input: str, choices: list) -> dict | None:
+    """Haiku interpretiert natürliche Sprache bei der Script-Auswahl.
+
+    Returns: dict mit action, index, search_term, message oder None bei Fehler.
+    """
+    script_list = ""
+    for i, c in enumerate(choices, 1):
+        au = c.get("author", "?")
+        ve = c.get("version", "?")
+        ch = c.get("characters", [])
+        cnt = f", {len(ch)} Chars" if ch else ""
+        script_list += f"{i}. {c['name']} (von {au}, v{ve}{cnt})\n"
+
+    prompt = SCRIPT_CHOICE_FALLBACK_PROMPT.format(
+        script_list=script_list.strip(),
+        user_input=user_input,
+    )
+
+    raw = await asyncio.to_thread(_call_llm_simple, session, prompt)
+    if not raw:
+        return None
+
+    cleaned = _strip_markdown_fences(raw)
+    try:
+        data = json.loads(cleaned)
+        action = data.get("action")
+        if action in ("select", "search", "upload", "skip", "unclear"):
+            return data
+    except json.JSONDecodeError:
+        logger.warning("Script-Choice Fallback JSON ungültig: %s", cleaned[:200])
 
     return None

@@ -174,18 +174,6 @@ def build_event_embed(event_data: dict) -> discord.Embed:
     co_st = event_data.get("co_storyteller")
     embed.add_field(name="Co-Storytelling", value=co_st or "Nicht möglich", inline=True)
 
-    # ── Termin ────────────────────────────────────────────────────────
-    ts = event_data.get("timestamp")
-    end_ts = event_data.get("end_timestamp")
-    if ts:
-        if end_ts:
-            termin_value = f"<t:{ts}:F> - <t:{end_ts}:t>\n<t:{ts}:R>"
-        else:
-            termin_value = f"<t:{ts}:F>\n<t:{ts}:R>"
-    else:
-        termin_value = "-"
-    embed.add_field(name="Termin", value=termin_value, inline=True)
-
     # ── Beschreibung ─────────────────────────────────────────────────
     description = event_data.get("description")
     if description:
@@ -207,6 +195,18 @@ def build_event_embed(event_data: dict) -> discord.Embed:
     else:
         embed.add_field(name="Skript", value=script_val, inline=True)
 
+    # ── Termin ────────────────────────────────────────────────────────
+    ts = event_data.get("timestamp")
+    end_ts = event_data.get("end_timestamp")
+    if ts:
+        if end_ts:
+            termin_value = f"<t:{ts}:F> - <t:{end_ts}:t>\n<t:{ts}:R>"
+        else:
+            termin_value = f"<t:{ts}:F>\n<t:{ts}:R>"
+    else:
+        termin_value = "-"
+    embed.add_field(name="Termin", value=termin_value, inline=False)
+
     # ── NPCs (Fabled/Loric) — deaktiviert, ggf. später wieder nutzen ──
     char_ids = event_data.get("script_characters", [])
     # if char_ids:
@@ -219,9 +219,6 @@ def build_event_embed(event_data: dict) -> discord.Embed:
     #     relevant = _get_relevant_characters(char_ids)
     #     if relevant:
     #         embed.add_field(name="Relevante Charaktere", value=relevant, inline=False)
-
-    # ── Separator ────────────────────────────────────────────────────
-    embed.add_field(name="\u200b", value="\u200b", inline=False)
 
     # ── RSVP-Listen (inline, eine Reihe) ─────────────────────────────
     accepted = event_data.get("accepted", [])
