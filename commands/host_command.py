@@ -230,8 +230,8 @@ def _build_script_choice_embed(script_name, results):
 
 
 SCRIPT_CHOICE_HELP = (
-    "Ist dein Skript dabei? Du kannst auch einen anderen Suchbegriff eingeben "
-    "oder eine Script-JSON (.json) hochladen."
+    "Ist dein Skript dabei? Du kannst auch einen anderen Suchbegriff eingeben, "
+    "eine Script-JSON (.json) hochladen, oder den Schritt überspringen."
 )
 
 
