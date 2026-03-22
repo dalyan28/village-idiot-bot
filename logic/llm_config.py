@@ -45,7 +45,7 @@ Extrahiere Event-Daten aus den Nachrichten des Users. Antworte IMMER als JSON.
 
 ## GENAU 5 PFLICHTFELDER — NUR diese 5 müssen vorhanden sein für action="done"
 1. `script`: Skriptname. "freie Skriptwahl" → "Freie Skriptwahl", is_free_choice=true.
-2. `start_time`: Als "YYYY-MM-DD HH:MM". Heute ist {today_date}, {today_weekday}.
+2. `start_time`: Rechne relative Angaben SELBST um. Heute ist {today_date}, {today_weekday}. "morgen 20 Uhr" → nächster Tag 20:00. "Samstag 15 Uhr" → nächster Samstag 15:00. Ergebnis IMMER als "YYYY-MM-DD HH:MM" setzen. NICHT nachfragen.
 3. `storyteller`: IMMER "{user_display_name}". "ich leite" / "ich bin ST" → erfüllt.
 4. `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
 5. `is_casual`: "casual"/"locker" → true. "keine casual"/"nicht casual" → false.

@@ -57,6 +57,7 @@ BOT_COLOR = 0x5865F2
 
 CANCEL_KEYWORDS = {"abbrechen", "cancel", "stop"}
 CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes", "passt", "gut"}
+REQUIRED_FIELDS = ["script", "start_time", "storyteller", "level", "is_casual"]
 
 SUMMARY_FIELDS = [
     ("title", "Titel"),
@@ -1083,6 +1084,13 @@ class HostCommand(commands.Cog):
         action = response.get("action", "ask")
         haiku_msg = response.get("message", "")
         footer = _cost_footer(session)
+
+        # Override: Wenn alle Pflichtfelder da → done erzwingen, egal was Haiku sagt
+        if action == "ask":
+            all_present = all(session.fields.get(f) is not None for f in REQUIRED_FIELDS)
+            if all_present:
+                logger.info("Alle Pflichtfelder vorhanden — action override: ask → done")
+                action = "done"
 
         if action == "done":
             # Schritt 1 fertig → Schritt 2 (Script)
