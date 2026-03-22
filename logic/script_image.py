@@ -93,15 +93,38 @@ def _font(path, size):
         return ImageFont.load_default()
 
 
-def _load_icon(char_id, evil=False, size=ICON_SIZE):
+def _load_icon(char_id, evil=False, size=ICON_SIZE, icon_urls=None):
+    """Lädt ein Icon: lokal zuerst, dann URL-Fallback für Homebrew."""
+    # Lokales Icon versuchen
     icon_path = get_character_icon_path(char_id, evil=evil)
-    if not icon_path:
-        return None
-    try:
-        img = Image.open(icon_path).convert("RGBA")
-        return img.resize((size, size), Image.Resampling.LANCZOS)
-    except Exception:
-        return None
+    if icon_path:
+        try:
+            img = Image.open(icon_path).convert("RGBA")
+            return img.resize((size, size), Image.Resampling.LANCZOS)
+        except Exception:
+            pass
+
+    # URL-Fallback für Homebrew-Icons
+    if icon_urls:
+        url = None
+        if isinstance(icon_urls, list) and len(icon_urls) >= 2:
+            url = icon_urls[1] if evil else icon_urls[0]
+        elif isinstance(icon_urls, list) and len(icon_urls) == 1:
+            url = icon_urls[0]
+        elif isinstance(icon_urls, str):
+            url = icon_urls
+
+        if url:
+            try:
+                import requests
+                r = requests.get(url, timeout=10)
+                if r.status_code == 200:
+                    img = Image.open(io.BytesIO(r.content)).convert("RGBA")
+                    return img.resize((size, size), Image.Resampling.LANCZOS)
+            except Exception as e:
+                logger.debug("Homebrew-Icon download failed for %s: %s", char_id, e)
+
+    return None
 
 
 def _placeholder(size=ICON_SIZE):
@@ -163,18 +186,44 @@ def _draw_ability(draw, x, y, text, font_r, font_b, max_width=300):
     return y + ABILITY_LINE_HEIGHT
 
 
-def _categorize(char_ids, chars_db):
+def _categorize(char_ids, chars_db, content_data=None):
+    """Kategorisiert Charaktere nach Team.
+
+    content_data: Dict {char_id: {name, team, ability, image}} aus dem Script-Content
+                  für Homebrew-Fallback.
+    """
+    content_data = content_data or {}
     cats = {t: [] for t in TEAM_ORDER_ALL}
     for cid in char_ids:
         info = chars_db.get(cid, {})
-        team = info.get("character_type", "Townsfolk")
+        hw = content_data.get(cid, {})
+
+        # Team: chars_db > content_data > default
+        team = info.get("character_type") or _team_from_content(hw.get("team")) or "Townsfolk"
         if team not in cats:
             team = "Townsfolk"
+
         cats[team].append({
-            "id": cid, "name": info.get("character_name", cid),
-            "ability": info.get("ability", ""), "team": team,
+            "id": cid,
+            "name": info.get("character_name") or hw.get("name") or cid,
+            "ability": info.get("ability") or hw.get("ability") or "",
+            "team": team,
+            "icon_urls": hw.get("image"),
         })
     return cats
+
+
+def _team_from_content(team_str):
+    """Konvertiert team-String aus Content ('townsfolk') zu Display ('Townsfolk')."""
+    if not team_str:
+        return None
+    mapping = {
+        "townsfolk": "Townsfolk", "outsider": "Outsider",
+        "minion": "Minion", "demon": "Demon",
+        "traveller": "Traveller", "traveler": "Traveller",
+        "fabled": "Fabled", "loric": "Loric",
+    }
+    return mapping.get(team_str.lower())
 
 
 def _char_block_height(ability_text):
@@ -183,9 +232,22 @@ def _char_block_height(ability_text):
     return max(ICON_SIZE + ICON_OVERLAP, text_h)
 
 
-def _generate_sync(script_name, author, char_ids, version="", meta=None):
+def _generate_sync(script_name, author, char_ids, version="", meta=None, content=None):
     chars_db = load_characters()
-    cats = _categorize(char_ids, chars_db)
+
+    # Content-Dict für Homebrew-Fallback aufbauen
+    content_data = {}
+    if content:
+        for item in content:
+            if isinstance(item, dict) and item.get("id") and item["id"] != "_meta":
+                content_data[item["id"]] = {
+                    "name": item.get("name"),
+                    "team": item.get("team"),
+                    "ability": item.get("ability"),
+                    "image": item.get("image"),
+                }
+
+    cats = _categorize(char_ids, chars_db, content_data)
     jinxes = get_jinxes_for_script(char_ids)
     bootlegger_rules = (meta or {}).get("bootlegger", [])
     ph = _placeholder()
@@ -282,7 +344,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
     if fabled_loric:
         fx = PADDING + 8
         for fl in fabled_loric:
-            icon = _load_icon(fl["id"], size=ICON_SMALL) or ph_sm
+            icon = _load_icon(fl["id"], size=ICON_SMALL, icon_urls=fl.get("icon_urls")) or ph_sm
             # Icon und Text jeweils zur Mitte der Zeile zentrieren
             icon_y = y + (FABLED_TITLE_HEIGHT - ICON_SMALL) // 2
             _paste(img, icon, fx, icon_y)
@@ -338,7 +400,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
 
                 # Icon vertikal zentriert zum Text
                 icon_y = content_y + (total_content_h - ICON_SIZE) // 2
-                icon = _load_icon(char["id"], evil=is_evil) or ph
+                icon = _load_icon(char["id"], evil=is_evil, icon_urls=char.get("icon_urls")) or ph
                 _paste(img, icon, x, icon_y)
 
                 # Text vertikal zentriert
@@ -376,7 +438,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
             block_h = _char_block_height(fl["ability"])
 
             # Icon
-            icon = _load_icon(fl["id"], size=ICON_SIZE) or ph
+            icon = _load_icon(fl["id"], size=ICON_SIZE, icon_urls=fl.get("icon_urls")) or ph
             icon_y = y + (block_h - ICON_SIZE) // 2
             _paste(img, icon, PADDING, icon_y)
 
@@ -407,8 +469,10 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
 
                     is_evil_a = team_a in ("Minion", "Demon")
                     is_evil_b = team_b in ("Minion", "Demon")
-                    icon_a = _load_icon(jnx["char_a"], evil=is_evil_a, size=ICON_JINX) or ph_jinx
-                    icon_b = _load_icon(jnx["char_b"], evil=is_evil_b, size=ICON_JINX) or ph_jinx
+                    icon_a = _load_icon(jnx["char_a"], evil=is_evil_a, size=ICON_JINX,
+                                        icon_urls=content_data.get(jnx["char_a"], {}).get("image")) or ph_jinx
+                    icon_b = _load_icon(jnx["char_b"], evil=is_evil_b, size=ICON_JINX,
+                                        icon_urls=content_data.get(jnx["char_b"], {}).get("image")) or ph_jinx
 
                     reason_lines = _wrap(jnx["reason"], jinx_wrap_chars)
                     header_h = SZ_NAME + 4
@@ -468,6 +532,9 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None):
 
 
 async def generate_script_image(script_name, author, char_ids,
-                                 version="", meta=None):
-    """Generiert ein Script-Bild als PNG."""
-    return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, version, meta)
+                                 version="", meta=None, content=None):
+    """Generiert ein Script-Bild als PNG.
+
+    content: Rohe Character-Dicts aus dem Script-JSON (für Homebrew-Icons/Namen/Abilities).
+    """
+    return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, version, meta, content)

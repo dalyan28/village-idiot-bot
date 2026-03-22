@@ -63,6 +63,7 @@ def _parse_api_result(result: dict) -> dict:
         "botcscripts_id": str(script_id) if script_id else str(pk),
         "pk": pk,
         "characters": characters,
+        "content": content,
         "script_type": result.get("script_type", ""),
         "url": f"{BOTCSCRIPTS_BASE}/script/{script_id}/{version}/" if script_id else "",
     }

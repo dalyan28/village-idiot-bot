@@ -324,6 +324,7 @@ class SummaryView(discord.ui.View):
                 img = await generate_script_image(
                     f.get("script", ""), (sd or {}).get("author", ""),
                     script_characters, (sd or {}).get("version", ""),
+                    content=(sd or {}).get("content"),
                 )
                 script_file = discord.File(img, filename="script.png")
             except Exception as e:
@@ -482,6 +483,7 @@ class HostCommand(commands.Cog):
             "version": chosen.get("version", ""),
             "botcscripts_id": chosen.get("botcscripts_id", ""),
             "characters": chosen.get("characters", []),
+            "content": chosen.get("content", []),
             "script_type": chosen.get("script_type", ""),
             "url": chosen.get("url", ""), "source": "botcscripts",
         })
@@ -597,6 +599,7 @@ class HostCommand(commands.Cog):
                     img = await generate_script_image(
                         sn, script_data.get("author", ""),
                         chars, script_data.get("version", ""),
+                        content=script_data.get("content"),
                     )
                     script_file = discord.File(img, filename="script_preview.png")
                     session._summary_has_image = True
