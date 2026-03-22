@@ -1,2 +1,2 @@
 [phases.setup]
-aptPkgs = ["chromium", "chromium-driver"]
+aptPkgs = ["chromium-browser", "fonts-liberation", "libgbm1", "libnss3", "libatk-bridge2.0-0", "libgtk-3-0", "libasound2"]

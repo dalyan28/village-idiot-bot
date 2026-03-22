@@ -481,14 +481,26 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     )
 
     # Render HTML → PNG
+    import shutil
     import tempfile
+
+    # Chromium-Pfad finden (Linux: chromium-browser oder chromium)
+    chrome_path = None
+    for name in ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable"]:
+        found = shutil.which(name)
+        if found:
+            chrome_path = found
+            break
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        hti = Html2Image(
-            browser="chrome",
-            size=(IMG_WIDTH, 8000),  # Groß genug, wird per Auto-Crop zugeschnitten
-            output_path=tmpdir,
-            custom_flags=["--no-sandbox", "--disable-gpu", "--hide-scrollbars"],
-        )
+        kwargs = {
+            "size": (IMG_WIDTH, 8000),
+            "output_path": tmpdir,
+            "custom_flags": ["--no-sandbox", "--disable-gpu", "--hide-scrollbars"],
+        }
+        if chrome_path:
+            kwargs["browser_executable"] = chrome_path
+        hti = Html2Image(**kwargs)
         hti.screenshot(html_str=html, save_as="script.png")
 
         png_path = os.path.join(tmpdir, "script.png")
