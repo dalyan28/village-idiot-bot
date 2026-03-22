@@ -1086,9 +1086,11 @@ class HostCommand(commands.Cog):
 
         if action == "done":
             # Schritt 1 fertig → Schritt 2 (Script)
-            if haiku_msg:
-                m = f"{haiku_msg}\n-# {footer}" if footer else haiku_msg
-                await ch.send(m)
+            # Haiku-Message ignorieren — wir steuern den Flow ab hier selbst
+            done_msg = f"Alles klar, Event-Daten sind komplett."
+            if footer:
+                done_msg += f"\n-# {footer}"
+            await ch.send(done_msg)
 
             script_name = session.fields.get("script")
             if script_name and not session.fields.get("is_free_choice"):
