@@ -112,6 +112,7 @@ STRIKTE REGELN:
 - KEIN Marketingtext, KEINE blumigen Adjektive, KEINE Floskeln ("Lasst euch überraschen", "Seid bereit", "Kommt vorbei", "perfekt um Spaß zu haben")
 - Sachlich und neutral. Maximal ein Hauch von Humor/Ironie, aber das soll nicht dominieren.
 - KEINE Absätze — alles in einem Block.
+- KEINE Aussagen über Zielgruppe/Schwierigkeit ("Anfänger sollten sich wohlfühlen", "für erfahrene Spieler"). Das Rating übernimmt diese Einordnung bereits.
 
 ### 3. REASONING (Skript-Einschätzung)
 Der ERSTE Satz ist IMMER eine dieser Varianten (mit Emoji):

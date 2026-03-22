@@ -931,6 +931,40 @@ class HostCommand(commands.Cog):
                 await self._show_summary(session, ch)
                 return
 
+            # Rating-Änderung erkennen ("gelb", "grün", "rot")
+            tl = text.lower()
+            rating_changed = False
+            RATING_KEYWORDS = {
+                "grün": "green", "green": "green", "💚": "green",
+                "gelb": "yellow", "yellow": "yellow", "🟡": "yellow",
+                "rot": "red", "red": "red", "🟥": "red",
+            }
+            for keyword, rating in RATING_KEYWORDS.items():
+                if keyword in tl:
+                    analysis = session.fields.get("complexity_analysis") or {}
+                    analysis["rating"] = rating
+                    session.fields["complexity_analysis"] = analysis
+                    session.label = compute_label(session.fields)
+                    rating_changed = True
+                    break
+
+            if rating_changed:
+                # Proposal mit neuem Rating neu anzeigen
+                prefix = build_title_prefix(session.fields)
+                title_display = f"{prefix} {session.fields['title']}" if prefix else session.fields['title']
+                rating_emoji = LABEL_EMOJI.get(rating, "")
+
+                footer = _cost_footer(session)
+                msg = (
+                    f"Einschätzung auf {rating_emoji} geändert.\n\n"
+                    f"**1 · Titel**\n```{title_display}```\n"
+                    f"**2 · Beschreibung**\n```{session.fields['description']}```\n"
+                    f"Schreibe **ok** wenn alles passt."
+                )
+                if footer: msg += f"\n-# {footer}"
+                await ch.send(msg)
+                return
+
             # Freitext → Haiku versteht was geändert werden soll
             async with ch.typing():
                 result = await update_title_description(session, text)
@@ -946,10 +980,12 @@ class HostCommand(commands.Cog):
                     await self._show_summary(session, ch)
                     return
 
+                prefix = build_title_prefix(session.fields)
+                title_display = f"{prefix} {new_title}" if prefix else new_title
                 msg = (
                     f"Aktualisiert:\n\n"
-                    f"> **Titel:** {new_title}\n"
-                    f"> **Beschreibung:** {new_desc}\n\n"
+                    f"**1 · Titel**\n```{title_display}```\n"
+                    f"**2 · Beschreibung**\n```{new_desc}```\n"
                     f"Passt das so? Schreibe **ok** oder passe weiter an."
                 )
                 if footer: msg += f"\n-# {footer}"
