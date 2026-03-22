@@ -52,7 +52,8 @@ async def _handle_rsvp(interaction: discord.Interaction, category: str):
     if original_embed and original_embed.image and original_embed.image.url:
         embed.set_image(url=original_embed.image.url)
 
-    await interaction.response.edit_message(embed=embed)
+    # Attachments beibehalten damit Discord das Bild nicht als separaten Beitrag auskoppelt
+    await interaction.response.edit_message(embed=embed, attachments=interaction.message.attachments)
 
 
 def _has_manage_permission(interaction: discord.Interaction, event_data: dict) -> bool:

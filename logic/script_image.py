@@ -180,6 +180,20 @@ def _draw_ability(draw, x, y, text, font_r, font_b, max_width=300):
 
 # ── Layout Helper ────────────────────────────────────────────────────────────
 
+def _visible_text_height(draw, text, font):
+    """Gibt die sichtbare Texthöhe zurück (ohne unsichtbaren Ascender-Offset)."""
+    bb = draw.textbbox((0, 0), text, font=font)
+    return bb[3] - bb[1]
+
+
+def _text_y_centered(draw, text, font, y, container_h):
+    """Berechnet die y-Position für vertikal zentrierten Text, korrigiert um Font-Offset."""
+    bb = draw.textbbox((0, 0), text, font=font)
+    text_h = bb[3] - bb[1]
+    offset_y = bb[1]  # Ascender-Offset
+    return y + (container_h - text_h) // 2 - offset_y
+
+
 def _row_height(ability_text, icon_size=ICON_SIZE):
     """Berechnet die Höhe einer Zeile: max(Icon, Text)."""
     text_h = SZ_NAME + 4 + _text_height(ability_text)
@@ -188,7 +202,10 @@ def _row_height(ability_text, icon_size=ICON_SIZE):
 
 def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_width, icon_size=ICON_SIZE):
     """Zeichnet eine Zeile (Icon + Name + Ability) vertikal zentriert. Gibt row_height zurück."""
-    name_h = SZ_NAME + 4
+    # Sichtbare Texthöhe berechnen (mit Font-Offset-Korrektur)
+    name_bb = draw.textbbox((0, 0), name, font=fonts["name"])
+    name_h = name_bb[3] - name_bb[1] + 4
+    name_offset = name_bb[1]
     ability_h = _text_height(ability)
     text_h = name_h + ability_h
     row_h = max(icon_size, text_h)
@@ -197,12 +214,12 @@ def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_widt
     icon_y = y + (row_h - icon_size) // 2
     _paste(img, icon, x, icon_y)
 
-    # Text: vertikal zentriert
-    text_y = y + (row_h - text_h) // 2
+    # Text: vertikal zentriert (korrigiert um Font-Ascender-Offset)
+    text_y = y + (row_h - text_h) // 2 - name_offset
     tx = x + icon_size + TEXT_PADDING
     draw.text((tx, text_y), name, fill=name_color, font=fonts["name"])
     if ability:
-        _draw_ability(draw, tx, text_y + name_h, ability,
+        _draw_ability(draw, tx, text_y + name_offset + name_h, ability,
                       fonts["ability"], fonts["ability_b"], max_width=text_width)
 
     return row_h
@@ -362,10 +379,11 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
             _paste(img, icon, fx, icon_y)
             fx += ICON_SMALL + 5
             color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
-            # Text vertikal zentriert zum Icon
+            # Text vertikal zentriert zum Icon (bbox offset korrigieren)
             text_bb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
             text_h = text_bb[3] - text_bb[1]
-            text_y = y + (fabled_h - text_h) // 2
+            text_offset_y = text_bb[1]  # Font-Ascender-Offset
+            text_y = y + (fabled_h - text_h) // 2 - text_offset_y
             draw.text((fx, text_y), fl["name"], fill=color, font=f_fabled_t)
             nb = draw.textbbox((fx, text_y), fl["name"], font=f_fabled_t)
             fx = nb[2] + 15
