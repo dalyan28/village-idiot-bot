@@ -236,3 +236,25 @@ async def download_script_characters(script_id: str, version: str) -> list[str]:
         Liste von Character-ID-Strings.
     """
     return await asyncio.to_thread(_download_script_sync, script_id, version)
+
+
+def _fetch_script_json_sync(botcscripts_id: str) -> list | None:
+    """Holt die Script-JSON von botcscripts.com per API."""
+    url = f"{BOTCSCRIPTS_BASE}/api/scripts/{botcscripts_id}/?format=json"
+    r = _get(url)
+    if r is None or r.status_code != 200:
+        return None
+    try:
+        data = r.json()
+        return data.get("content") or data.get("characters")
+    except (json.JSONDecodeError, ValueError):
+        return None
+
+
+async def fetch_script_json(botcscripts_id: str) -> list | None:
+    """Async: Holt die Script-JSON von botcscripts.com.
+
+    Returns:
+        Die Script-Content-Liste oder None bei Fehler.
+    """
+    return await asyncio.to_thread(_fetch_script_json_sync, botcscripts_id)

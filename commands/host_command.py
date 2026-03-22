@@ -274,15 +274,26 @@ class SummaryView(discord.ui.View):
         # Script-Daten
         script_characters, script_url = [], None
         script_author, script_version = "", ""
+        botcscripts_id = ""
+        script_source = "base"
+        script_content = None
+        selected_sd = getattr(self.session, "_selected_script_data", None)
         if not is_free and f.get("script"):
-            sd, _ = lookup_script(f["script"])
+            sd, src = lookup_script(f["script"])
+            # Bevorzuge _selected_script_data (frisch von botcscripts.com)
+            sd = selected_sd or sd
             if sd:
                 script_characters = sd.get("characters", [])
                 script_author = sd.get("author", "")
                 script_version = sd.get("version", "")
-                bid = sd.get("botcscripts_id")
+                botcscripts_id = sd.get("botcscripts_id", "")
+                script_source = sd.get("source", src)
+                bid = botcscripts_id or sd.get("botcscripts_id")
                 if bid and script_version:
                     script_url = f"https://www.botcscripts.com/script/{bid}/{script_version}"
+                # Bei Uploads: Content im Event speichern (existiert sonst nirgends)
+                if script_source == "upload":
+                    script_content = sd.get("content")
 
         event_data = {
             "title": title, "description": f.get("description"),
@@ -291,6 +302,8 @@ class SummaryView(discord.ui.View):
             "script": script_display, "script_url": script_url,
             "script_author": script_author, "script_version": script_version,
             "script_characters": script_characters,
+            "botcscripts_id": botcscripts_id,
+            "script_source": script_source,
             "level": f.get("level") or "Alle",
             "camera": f.get("camera"), "max_players": f.get("max_players") or 12,
             "timestamp": start_ts, "end_timestamp": start_ts + duration * 60,
@@ -299,6 +312,8 @@ class SummaryView(discord.ui.View):
             "creator_avatar_url": self.session.user_avatar_url,
             "label": self.session.label,
         }
+        if script_content:
+            event_data["script_content"] = script_content
 
         event_cog = self.cog.bot.cogs.get("EventCommands")
         event_channel = self.cog.bot.get_channel(self.session.event_channel_id)
@@ -349,6 +364,11 @@ class SummaryView(discord.ui.View):
                 event_data["accepted"] = old_event.get("accepted", [])
                 event_data["declined"] = old_event.get("declined", [])
                 event_data["tentative"] = old_event.get("tentative", [])
+
+                # Termin geändert → Reminder zurücksetzen
+                if start_ts != old_event.get("timestamp"):
+                    event_data["reminded_15"] = False
+                    event_data["reminded_5"] = False
                 event_data["_event_channel_id"] = editing_ch_id
 
                 # Embed + Bild updaten
@@ -488,8 +508,10 @@ class HostCommand(commands.Cog):
             "characters": chosen.get("characters", []),
             "content": chosen.get("content", []),
             "script_type": chosen.get("script_type", ""),
-            "url": chosen.get("url", ""), "source": "botcscripts",
+            "url": chosen.get("url", ""),
+            "source": chosen.get("source", "botcscripts"),
         })
+
         session.pending_script_choices = None
         session._script_choice_return_to_summary = False
 
@@ -500,7 +522,8 @@ class HostCommand(commands.Cog):
             session.fields["complexity_analysis"] = analysis
             session.label = compute_label(session.fields)
 
-        await channel.send(f"✅ **{chosen['name']}** ausgewählt!")
+        # Skript-Info für Titel/Beschreibung-Step merken
+        session._selected_script_data = chosen
 
         # Immer Titel/Beschreibung neu generieren — bei Retrigger mit Rückfrage
         if had_title:
@@ -560,36 +583,63 @@ class HostCommand(commands.Cog):
         footer = _cost_footer(session)
         lines = []
 
+        # Skript-Info (Name, Author, Version)
+        sd = getattr(session, "_selected_script_data", None) or {}
+        script_name = session.fields.get("script") or "?"
+        script_author = sd.get("author", "")
+        script_version = sd.get("version", "")
+        script_info = f"```{script_name}```"
+        if script_author:
+            script_info += f" von ```{script_author}```"
+        if script_version:
+            script_info += f" ```v{script_version}```"
+        lines.append(f"*Skript ausgewählt*\n{script_info}")
+
         if reasoning:
-            lines.append(f"{rating_emoji} **Skript-Einschätzung:** {reasoning}")
+            lines.append(f"\n*Skript-Einschätzung*\n```{reasoning}```")
 
         if is_retrigger:
             lines.append(
                 "\nNeues Skript — ich habe Titel und Beschreibung neu generiert. "
                 "Du kannst die neuen übernehmen oder **alt** schreiben, um bei den bisherigen zu bleiben:"
             )
-            # Alte Werte in Session merken für "alt"-Rückfall
             session._old_title = old_title
             session._old_desc = old_desc
-        else:
-            lines.append(
-                "\nJetzt brauchen wir noch einen Titel und eine Beschreibung für das Event. "
-                "Ich hab mir mal was ausgedacht — aber ich bin nur ein Village Idiot "
-                "und hab keine Ahnung, ob ich sober bin. Also schau lieber nochmal drüber:"
-            )
 
-        lines.append(f"\n**1 · Titel**\n```{title_display}```")
-        lines.append(f"**2 · Beschreibung**\n```{session.fields['description']}```")
+        lines.append(f"\n*Titel*\n```{title_display}```")
+        lines.append(f"*Beschreibung*\n```{session.fields['description']}```")
         lines.append(
+            "Ich sende dir noch das Skript als Bild im Anhang zur Prüfung. "
             "Du kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
             "Auch die Einschätzung kannst du korrigieren, falls ich daneben liege.\n"
-            "Schreibe **ok** wenn alles passt."
+            "Sag Bescheid, was du machen willst."
         )
 
         msg = "\n".join(lines)
         if footer:
             msg += f"\n-# {footer}"
-        await channel.send(msg)
+
+        # Script-PNG generieren und anhängen
+        script_file = None
+        if script_name and not session.fields.get("is_free_choice"):
+            sd_lookup, _ = lookup_script(script_name)
+            if sd_lookup:
+                chars = sd_lookup.get("characters", [])
+                if chars:
+                    try:
+                        img = await generate_script_image(
+                            script_name, sd_lookup.get("author", ""),
+                            chars, sd_lookup.get("version", ""),
+                            content=sd_lookup.get("content"),
+                        )
+                        script_file = discord.File(img, filename="script_preview.png")
+                    except Exception as e:
+                        logger.warning("Script-Bild für Proposal: %s", e)
+
+        if script_file:
+            await channel.send(msg, file=script_file)
+        else:
+            await channel.send(msg)
 
     # ── Schritt 4: Summary ───────────────────────────────────────────
 
@@ -956,6 +1006,18 @@ class HostCommand(commands.Cog):
                 await self._show_summary(session, ch)
                 return
 
+            # "anderes Skript" → zurück zur Script-Auswahl
+            tl_script = text.lower()
+            if any(kw in tl_script for kw in ("anderes skript", "skript ändern", "anderes script", "script ändern")):
+                session.pending_title_description = False
+                session.pending_script_edit_mode = True
+                await ch.send(
+                    "Möchtest du:\n"
+                    "**1** — In der Datenbank suchen\n"
+                    "**2** — Selbst einen Namen eingeben"
+                )
+                return
+
             # "alt" → alte Titel/Beschreibung wiederherstellen (bei Skript-Wechsel)
             if text.lower() in ("alt", "alte", "bisherige", "zurück", "vorherige"):
                 old_t = getattr(session, "_old_title", None)
@@ -996,9 +1058,9 @@ class HostCommand(commands.Cog):
                 footer = _cost_footer(session)
                 msg = (
                     f"Einschätzung auf {rating_emoji} geändert.\n\n"
-                    f"**1 · Titel**\n```{title_display}```\n"
-                    f"**2 · Beschreibung**\n```{session.fields['description']}```\n"
-                    f"Schreibe **ok** wenn alles passt."
+                    f"*Titel*\n```{title_display}```\n"
+                    f"*Beschreibung*\n```{session.fields['description']}```\n"
+                    f"Sag Bescheid, was du machen willst."
                 )
                 if footer: msg += f"\n-# {footer}"
                 await ch.send(msg)
@@ -1023,9 +1085,9 @@ class HostCommand(commands.Cog):
                 title_display = f"{prefix} {new_title}" if prefix else new_title
                 msg = (
                     f"Aktualisiert:\n\n"
-                    f"**1 · Titel**\n```{title_display}```\n"
-                    f"**2 · Beschreibung**\n```{new_desc}```\n"
-                    f"Passt das so? Schreibe **ok** oder passe weiter an."
+                    f"*Titel*\n```{title_display}```\n"
+                    f"*Beschreibung*\n```{new_desc}```\n"
+                    f"Passt das so? Sag Bescheid, was du machen willst."
                 )
                 if footer: msg += f"\n-# {footer}"
                 await ch.send(msg)
