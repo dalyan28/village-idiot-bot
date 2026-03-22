@@ -51,6 +51,10 @@ class EventCommands(commands.Cog):
 
         msg = await channel.send(**kwargs)
 
+        # CDN-URL des Bildes speichern (für spätere Edits ohne Attachment-Probleme)
+        if msg.embeds and msg.embeds[0].image and msg.embeds[0].image.url:
+            event_data["image_url"] = msg.embeds[0].image.url
+
         save_event(msg.id, event_data)
         logger.info(
             "Event erstellt: '%s' von %s (msg_id=%s, channel=%s)",
