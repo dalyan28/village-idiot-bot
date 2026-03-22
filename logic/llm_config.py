@@ -182,7 +182,8 @@ Der User sieht eine Liste von 5 Skripten aus der botcscripts.com-Datenbank und a
 2. `search` — Der User will nach etwas anderem suchen. Extrahiere den Suchbegriff.
 3. `upload` — Der User will eine eigene JSON-Datei hochladen.
 4. `skip` — Der User will die Skript-Suche überspringen.
-5. `unclear` — Du kannst nicht erkennen, was der User will. Erkläre freundlich die Möglichkeiten.
+5. `preview` — Der User will ein oder mehrere Skripte genauer anschauen (Charaktere sehen). Gib die Indizes als Liste zurück.
+6. `unclear` — Du kannst nicht erkennen, was der User will. Erkläre freundlich die Möglichkeiten.
 
 ## LIMITATIONEN (erkläre diese, wenn der User etwas Unmögliches will)
 - Du kannst NUR nach Skriptnamen auf botcscripts.com suchen
@@ -191,11 +192,65 @@ Der User sieht eine Liste von 5 Skripten aus der botcscripts.com-Datenbank und a
 - Wenn der User etwas völlig Themenfremdes will → höflich darauf hinweisen, dass wir gerade ein Skript suchen
 
 Antworte als JSON:
-{{"action": "select|search|upload|skip|unclear", "index": null, "search_term": null, "message": "..."}}
+{{"action": "select|search|upload|skip|preview|unclear", "index": null, "search_term": null, "indices": null, "message": "..."}}
 - Bei `select`: setze `index` (1-5)
 - Bei `search`: setze `search_term` (der extrahierte Suchbegriff)
+- Bei `preview`: setze `indices` als Liste (z.B. [1, 3])
 - Bei `unclear`: setze `message` (deine Antwort an den User, deutsch, kurz, freundlich)
 - Bei `upload`/`skip`: nur action setzen"""
+
+# Prompt für Abschluss-Screen Fallback (Batch-Edits, Script-Änderung, etc.)
+FINAL_REVIEW_FALLBACK_PROMPT = """\
+Der User sieht die Event-Zusammenfassung und kann Felder ändern, bevor das Event erstellt wird.
+
+## AKTUELLE EVENT-DATEN
+{fields_summary}
+
+## USER SAGT
+"{user_input}"
+
+## DEINE OPTIONEN
+1. `edit` — Der User will ein oder mehrere Felder ändern. Gib die geänderten Felder als JSON zurück.
+2. `confirm` — Der User ist zufrieden und will das Event erstellen ("ok", "fertig", "erstellen", "ja").
+3. `change_script` — Der User will ein anderes Skript auswählen.
+4. `change_version` — Der User will eine andere Version des Skripts.
+5. `unclear` — Du kannst nicht erkennen, was der User will. Erkläre freundlich die Möglichkeiten.
+
+## REGELN FÜR `edit`
+- Mehrere Felder gleichzeitig ändern ist ERLAUBT und ERWÜNSCHT.
+- Änderbare Felder: title, description, storyteller, co_storyteller, level, is_casual, is_academy, camera, max_players, start_time, duration_minutes, is_recorded
+- NICHT änderbar: script (hat eigenen Workflow → change_script)
+- `camera`: true = Pflicht, false = Aus, null = Keine Pflicht
+- `is_casual`/`is_academy`/`is_recorded`: true/false
+- `max_players`: Integer
+- `start_time`: "YYYY-MM-DD HH:MM" — rechne relative Angaben um. Heute ist {today_date}, {today_weekday}.
+- `level`: "Neuling", "Erfahren", "Profi" oder "Alle"
+
+Antworte als JSON:
+{{"action": "edit|confirm|change_script|change_version|unclear", "fields": {{}}, "message": "..."}}
+- Bei `edit`: setze `fields` mit den geänderten Feldern
+- Bei `unclear`: setze `message` (deutsch, kurz, freundlich)
+- Bei `confirm`/`change_script`/`change_version`: nur action setzen"""
+
+# Prompt für Script-Preview Fallback
+SCRIPT_PREVIEW_FALLBACK_PROMPT = """\
+Der User schaut sich Skript-Details an und kann eines auswählen oder zurück zur Liste gehen.
+
+## ANGEZEIGTE SKRIPTE
+{script_names}
+
+## USER SAGT
+"{user_input}"
+
+## DEINE OPTIONEN
+1. `select` — Der User will eines der angezeigten Skripte auswählen. Gib den Index zurück.
+2. `back` — Der User will zurück zur Suchergebnisliste.
+3. `unclear` — Erkläre freundlich die Möglichkeiten.
+
+Antworte als JSON:
+{{"action": "select|back|unclear", "index": null, "message": "..."}}
+- Bei `select`: setze `index` (1-basiert, bezogen auf die angezeigte Liste)
+- Bei `unclear`: setze `message` (deutsch, kurz, freundlich)"""
 
 DEFAULT_RULES = ""
 

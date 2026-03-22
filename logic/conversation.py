@@ -404,9 +404,72 @@ async def interpret_script_choice(session: EventSession, user_input: str, choice
     try:
         data = json.loads(cleaned)
         action = data.get("action")
-        if action in ("select", "search", "upload", "skip", "unclear"):
+        if action in ("select", "search", "upload", "skip", "preview", "unclear"):
             return data
     except json.JSONDecodeError:
         logger.warning("Script-Choice Fallback JSON ungültig: %s", cleaned[:200])
+
+    return None
+
+
+async def interpret_final_review(session: EventSession, user_input: str, fields_summary: str) -> dict | None:
+    """Haiku interpretiert Eingaben im Abschluss-Screen (Batch-Edits, Bestätigung, etc.).
+
+    Returns: dict mit action, fields, message oder None bei Fehler.
+    """
+    from logic.llm_config import FINAL_REVIEW_FALLBACK_PROMPT
+
+    now = datetime.now(ZoneInfo("Europe/Berlin"))
+    today_date = now.strftime("%Y-%m-%d")
+    weekdays = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    today_weekday = weekdays[now.weekday()]
+
+    prompt = FINAL_REVIEW_FALLBACK_PROMPT.format(
+        fields_summary=fields_summary,
+        user_input=user_input,
+        today_date=today_date,
+        today_weekday=today_weekday,
+    )
+
+    raw = await asyncio.to_thread(_call_llm_simple, session, prompt)
+    if not raw:
+        return None
+
+    cleaned = _strip_markdown_fences(raw)
+    try:
+        data = json.loads(cleaned)
+        action = data.get("action")
+        if action in ("edit", "confirm", "change_script", "change_version", "unclear"):
+            return data
+    except json.JSONDecodeError:
+        logger.warning("Final-Review Fallback JSON ungültig: %s", cleaned[:200])
+
+    return None
+
+
+async def interpret_script_preview(session: EventSession, user_input: str, script_names: str) -> dict | None:
+    """Haiku interpretiert Eingaben in der Script-Vorschau.
+
+    Returns: dict mit action, index, message oder None bei Fehler.
+    """
+    from logic.llm_config import SCRIPT_PREVIEW_FALLBACK_PROMPT
+
+    prompt = SCRIPT_PREVIEW_FALLBACK_PROMPT.format(
+        script_names=script_names,
+        user_input=user_input,
+    )
+
+    raw = await asyncio.to_thread(_call_llm_simple, session, prompt)
+    if not raw:
+        return None
+
+    cleaned = _strip_markdown_fences(raw)
+    try:
+        data = json.loads(cleaned)
+        action = data.get("action")
+        if action in ("select", "back", "unclear"):
+            return data
+    except json.JSONDecodeError:
+        logger.warning("Script-Preview Fallback JSON ungültig: %s", cleaned[:200])
 
     return None

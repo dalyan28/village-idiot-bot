@@ -150,7 +150,7 @@ class EventView(discord.ui.View):
         try:
             dm = await interaction.user.create_dm()
             await dm.send(f"📝 **Event bearbeiten:** {event_data.get('title', 'Event')}")
-            await host_cog._show_summary(session, dm)
+            await host_cog._show_final_review(session, dm, regenerate_title=False)
             await interaction.followup.send("Schau in deine DMs — dort kannst du das Event bearbeiten.", ephemeral=True)
         except discord.Forbidden:
             from logic.conversation import end_session

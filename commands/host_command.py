@@ -26,9 +26,10 @@ from logic.conversation import (
     generate_title_and_description,
     get_session,
     has_active_session,
+    interpret_final_review,
     interpret_script_choice,
+    interpret_script_preview,
     start_session,
-    update_title_description,
     was_recently_expired,
 )
 from logic.label import (
@@ -62,7 +63,6 @@ REQUIRED_FIELDS = ["script", "start_time", "storyteller", "level", "is_casual"]
 SUMMARY_FIELDS = [
     ("title", "Titel"),
     ("description", "Beschreibung"),
-    ("script", "Skript"),
     ("storyteller", "Storyteller:in"),
     ("co_storyteller", "Co-Storyteller:in"),
     ("level", "Level"),
@@ -70,7 +70,6 @@ SUMMARY_FIELDS = [
     ("camera", "Kamera"),
     ("max_players", "Max Spieler"),
     ("start_time", "Termin & Dauer"),
-    ("_image", "Bild"),
 ]
 
 # Keywords für natürliche Sprache → Feld-Erkennung
@@ -128,90 +127,6 @@ def _parse_start_time(s):
 # ── Embeds ───────────────────────────────────────────────────────────────────
 
 
-def _build_summary_embed(session, script_data=None):
-    """Summary-Embed: Titel #1 (not inline), Beschreibung #2 (not inline), Rest inline."""
-    f = session.fields
-    is_free = bool(f.get("is_free_choice"))
-
-    embed = discord.Embed(title="Event-Zusammenfassung", color=BOT_COLOR)
-
-    # Script-Info als Description
-    if script_data and not is_free:
-        sn = script_data.get("name", f.get("script", ""))
-        au = script_data.get("author", "")
-        ve = script_data.get("version", "")
-        ch = script_data.get("characters", [])
-        info = f"**📜 {sn}**"
-        if au: info += f" von {au}"
-        if ve: info += f" · v{ve}"
-        if ch: info += f" · {len(ch)} Charaktere"
-        embed.description = info
-
-    # 1. Titel (not inline) — mit Label-Prefix
-    prefix = build_title_prefix(f)
-    title_display = f"{prefix} {f.get('title') or '-'}" if prefix else (f.get('title') or '-')
-    embed.add_field(name="1 · Titel", value=f"```{title_display}```", inline=False)
-
-    # 2. Beschreibung (not inline)
-    desc = f.get("description") or "*Wird generiert*"
-    if len(desc) > 1010: desc = desc[:1007] + "..."
-    embed.add_field(name="2 · Beschreibung", value=f"```{desc}```", inline=False)
-
-    # 3. Skript (inline)
-    script_display = f.get('script') or '-'
-    if script_data:
-        au = script_data.get("author", "")
-        ve = script_data.get("version", "")
-        if au:
-            script_display += f" von {au}"
-        if ve:
-            script_display += f" · v{ve}"
-    embed.add_field(name="3 · Skript", value=f"```{script_display}```", inline=True)
-
-    # 4-5 inline
-    embed.add_field(name="4 · Storyteller:in", value=f"```{f.get('storyteller') or '-'}```", inline=True)
-    embed.add_field(name="5 · Co-Storyteller:in", value=f"```{_fmt('co_storyteller', f.get('co_storyteller'))}```", inline=True)
-
-    # 6. Level (inline)
-    embed.add_field(name="6 · Level", value=f"```{f.get('level') or '-'}```", inline=True)
-
-    # 7. Labels (Casual/Academy/Homebrew etc.)
-    labels = []
-    if f.get("is_academy"):
-        labels.append("🎓 Academy")
-    if f.get("is_casual"):
-        labels.append("🕊️ Casual")
-    analysis = f.get("complexity_analysis") or {}
-    if analysis.get("is_homebrew"):
-        labels.append("⚒️ Homebrew")
-    label_display = ", ".join(labels) if labels else "Keine"
-    embed.add_field(name="7 · Labels", value=f"```{label_display}```", inline=True)
-
-    # 8-9 inline
-    embed.add_field(name="8 · Kamera", value=f"```{_fmt('camera', f.get('camera'))}```", inline=True)
-    embed.add_field(name="9 · Max Spieler", value=f"```{f.get('max_players') or 12}```", inline=True)
-
-    # 10. Termin & Dauer (zusammengefasst)
-    termin = f.get('start_time') or '-'
-    dauer = _fmt('duration_minutes', f.get('duration_minutes'))
-    embed.add_field(name="10 · Termin & Dauer", value=f"```{termin} · {dauer}```", inline=False)
-
-    # 11 · Bild
-    if session._summary_has_image:
-        embed.add_field(name="11 · Bild", value="```Skript-Bild (automatisch)```", inline=False)
-        embed.set_image(url="attachment://script_preview.png")
-    elif getattr(session, "_custom_image_url", None):
-        embed.add_field(name="11 · Bild", value="```Eigenes Bild```", inline=False)
-        embed.set_image(url=session._custom_image_url)
-    else:
-        embed.add_field(name="11 · Bild", value="```Kein Bild```", inline=False)
-
-    footer = _cost_footer(session)
-    ft = "Antworte mit einer Nummer zum Ändern oder drücke Erstellen"
-    if footer: ft = f"{ft}\n{footer}"
-    embed.set_footer(text=ft)
-
-    return embed
 
 
 def _build_script_choice_embed(script_name, results):
@@ -249,8 +164,16 @@ class SummaryView(discord.ui.View):
 
     @discord.ui.button(label="Erstellen", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.defer()
+        if interaction:
+            await interaction.response.defer()
         self.stop()
+
+        # reply helper: works with interaction or DM channel
+        async def _reply(msg):
+            if interaction:
+                await interaction.followup.send(msg)
+            else:
+                await self.dm_channel.send(msg)
 
         f = self.session.fields
         is_free = bool(f.get("is_free_choice"))
@@ -259,7 +182,7 @@ class SummaryView(discord.ui.View):
 
         start_ts = _parse_start_time(f.get("start_time") or "")
         if not start_ts:
-            await interaction.followup.send("Fehler: Termin konnte nicht verarbeitet werden.")
+            await _reply("Fehler: Termin konnte nicht verarbeitet werden.")
             end_session(self.session.user_id)
             return
 
@@ -318,7 +241,7 @@ class SummaryView(discord.ui.View):
         event_cog = self.cog.bot.cogs.get("EventCommands")
         event_channel = self.cog.bot.get_channel(self.session.event_channel_id)
         if not event_cog or not event_channel:
-            await interaction.followup.send("Fehler: Event-System nicht verfügbar.")
+            await _reply("Fehler: Event-System nicht verfügbar.")
             end_session(self.session.user_id)
             return
 
@@ -382,18 +305,18 @@ class SummaryView(discord.ui.View):
                 from event_storage import save_event
                 save_event(editing_msg_id, event_data)
 
-                await interaction.followup.send(f"Event aktualisiert! ✏️\n{edit_msg.jump_url}")
+                await _reply(f"Event aktualisiert! ✏️\n{edit_msg.jump_url}")
             except Exception as e:
                 logger.error("Edit-Fehler: %s", e)
-                await interaction.followup.send(f"Fehler beim Bearbeiten: {e}")
+                await _reply(f"Fehler beim Bearbeiten: {e}")
         else:
             # Neues Event erstellen
             try:
                 msg = await event_cog.post_event(event_channel, event_data, script_image=script_file)
-                await interaction.followup.send(f"Event erstellt! 🎉\n{msg.jump_url}")
+                await _reply(f"Event erstellt! 🎉\n{msg.jump_url}")
             except Exception as e:
                 logger.error("Fehler: %s", e)
-                await interaction.followup.send(f"Fehler: {e}")
+                await _reply(f"Fehler: {e}")
 
         end_session(self.session.user_id)
 
@@ -528,7 +451,7 @@ class HostCommand(commands.Cog):
         # Immer Titel/Beschreibung neu generieren — bei Retrigger mit Rückfrage
         if had_title:
             session._retrigger_proposal = True
-        await self._show_title_description_proposal(session, channel)
+        await self._show_final_review(session, channel)
 
     # ── Schritt 3: Titel & Beschreibung ──────────────────────────────
 
@@ -555,50 +478,94 @@ class HostCommand(commands.Cog):
             teams[team].append(name)
         return teams
 
-    async def _show_title_description_proposal(self, session, channel):
-        """Analysiert Skript-Komplexität, generiert Titel/Beschreibung-Vorschlag."""
-        session.pending_title_description = True
+    async def _show_script_preview(self, session, channel, scripts: list[dict]):
+        """Zeigt Script-Details als Embeds (Charaktere nach Teams)."""
+        session._preview_scripts = scripts
+        session._pending_script_preview = True
 
-        # Skript-Komplexitätsanalyse
+        for script in scripts:
+            name = script.get("name", "?")
+            author = script.get("author", "?")
+            version = script.get("version", "?")
+            chars = script.get("characters", [])
+            content = script.get("content")
+
+            embed = discord.Embed(title=f"\U0001f4dc {name}", color=0xFDCB58)
+            embed.add_field(name="Info", value=f"von {author} \u00b7 v{version} \u00b7 {len(chars)} Charaktere", inline=False)
+
+            # Characters by team
+            teams = self._build_char_list_by_team(chars, content)
+            for team_name in ("Townsfolk", "Outsider", "Minion", "Demon"):
+                names = teams.get(team_name, [])
+                if names:
+                    embed.add_field(name=team_name, value=f"```{', '.join(names)}```", inline=False)
+
+            await channel.send(embed=embed)
+
+        names_list = " / ".join(s.get("name", "?") for s in scripts)
+        await channel.send(
+            f"W\u00e4hle ein Skript aus oder geh **zur\u00fcck** zur Liste.\n"
+            f"Du kannst auch eine Nummer eingeben."
+        )
+
+    async def _show_final_review(self, session, channel, regenerate_title=True):
+        """Zeigt den kombinierten Abschluss-Screen: Skript-Details + Event-Zusammenfassung."""
+        session.pending_final_review = True
+        # Clear old states
+        session.pending_title_description = False
+        session.pending_summary = False
+
+        # Defaults setzen
+        session.fields.setdefault("max_players", 12)
+        session.fields.setdefault("duration_minutes", 150)
+
+        # Script data
         script_name = session.fields.get("script")
+        is_free = bool(session.fields.get("is_free_choice"))
+        sd = getattr(session, "_selected_script_data", None)
         sd_lookup = None
-        if script_name and not session.fields.get("is_free_choice"):
+
+        if script_name and not is_free:
             sd_lookup, _ = lookup_script(script_name)
-            chars = sd_lookup.get("characters", []) if sd_lookup else []
+            sd = sd or sd_lookup
+            chars = (sd or {}).get("characters", [])
             if chars:
                 analysis = analyze_script_complexity(chars)
                 session.fields["complexity_analysis"] = analysis
                 session.label = compute_label(session.fields)
 
+        # Generate title/description if needed
         is_retrigger = getattr(session, "_retrigger_proposal", False)
         session._retrigger_proposal = False
-
-        # Alte Werte merken bei Retrigger
         old_title = session.fields.get("title") if is_retrigger else None
         old_desc = session.fields.get("description") if is_retrigger else None
 
-        async with channel.typing():
-            result = await generate_title_and_description(session)
+        if regenerate_title and (not session.fields.get("title") or is_retrigger):
+            async with channel.typing():
+                result = await generate_title_and_description(session)
+            if result:
+                title, desc, reasoning = result
+                session.fields["title"] = title
+                session.fields["description"] = desc
+                session._last_reasoning = reasoning
+            else:
+                script = session.fields.get("script") or "Event"
+                st = session.fields.get("storyteller") or session.user_display_name
+                co = session.fields.get("co_storyteller")
+                session.fields["title"] = f"{script} mit {st}" + (f" und {co}" if co else "")
+                session.fields["description"] = f"Wir spielen eine Runde {script}!"
+                session._last_reasoning = ""
 
-        reasoning = ""
-        if result:
-            title, desc, reasoning = result
-            session.fields["title"] = title
-            session.fields["description"] = desc
-        else:
-            script = session.fields.get("script") or "Event"
-            st = session.fields.get("storyteller") or session.user_display_name
-            co = session.fields.get("co_storyteller")
-            title = f"{script} mit {st}" + (f" und {co}" if co else "")
-            desc = f"Wir spielen eine Runde {script}!"
-            session.fields["title"] = title
-            session.fields["description"] = desc
+        if is_retrigger:
+            session._old_title = old_title
+            session._old_desc = old_desc
 
-        # Titel-Prefix bauen
+        reasoning = getattr(session, "_last_reasoning", "")
+
+        # Prefix + display
         prefix = build_title_prefix(session.fields)
         title_display = f"{prefix} {session.fields['title']}" if prefix else session.fields['title']
 
-        # Rating + Farbe
         analysis = session.fields.get("complexity_analysis") or {}
         rating = analysis.get("rating")
         rating_emoji = LABEL_EMOJI.get(rating, "") if rating else ""
@@ -609,67 +576,56 @@ class HostCommand(commands.Cog):
         }
         embed_color = EMBED_COLORS.get(rating, 0xFDCB58)
 
-        # Skript-Info
-        sd = getattr(session, "_selected_script_data", None) or sd_lookup or {}
-        script_author = sd.get("author", "")
-        script_version = sd.get("version", "")
-        char_ids = sd.get("characters", [])
-        char_count = len(char_ids)
+        # -- Intro text --
+        script_author = (sd or {}).get("author", "")
+        script_version = (sd or {}).get("version", "")
+        rating_word = {"green": "gr\u00fcn", "yellow": "gelb", "red": "rot", "hammer": "homebrew"}.get(rating, "")
 
-        # Intro-Text (vor dem Embed)
-        rating_word = {"green": "grün", "yellow": "gelb", "red": "rot", "hammer": "homebrew"}.get(rating, "")
-        intro_parts = [f"Ich hab das Skript für dich ausgewählt: **{script_name}**"]
+        intro_parts = [f"Ich hab das Skript f\u00fcr dich ausgew\u00e4hlt: **{script_name}**"]
         if script_author:
             intro_parts[0] += f" von **{script_author}**"
         if script_version:
             intro_parts[0] += f" **v{script_version}**"
         intro_parts[0] += "."
         if rating_word:
-            intro_parts.append(f"Ich schätze das Skript {rating_emoji} **{rating_word}** ein.")
+            intro_parts.append(f"Ich sch\u00e4tze das Skript {rating_emoji} **{rating_word}** ein.")
         intro_parts.append(
-            "Ebenfalls habe ich einen Titel und eine Beschreibung für deine Veranstaltung erstellt. "
+            "Ebenfalls habe ich einen Titel und eine Beschreibung f\u00fcr deine Veranstaltung erstellt. "
             "Aber ich bin nur ein Village Idiot und hab keine Ahnung, ob ich sober bin. "
-            "Also schau lieber nochmal drüber:"
+            "Also schau lieber nochmal dr\u00fcber:"
         )
 
         if is_retrigger:
             intro_parts = [
                 f"Neues Skript: **{script_name}**.",
                 "Ich habe Titel und Beschreibung neu generiert. "
-                "Du kannst die neuen übernehmen oder **alt** schreiben, um bei den bisherigen zu bleiben:",
+                "Du kannst die neuen \u00fcbernehmen oder **alt** schreiben, um bei den bisherigen zu bleiben:",
             ]
-            session._old_title = old_title
-            session._old_desc = old_desc
 
         intro_text = " ".join(intro_parts)
 
-        # Embed bauen
-        embed = discord.Embed(
-            title="Skript- und Eventinformationen",
-            color=embed_color,
-        )
+        # -- Embed 1: Script Details --
+        char_ids = (sd or {}).get("characters", [])
+        script_embed = discord.Embed(title="\U0001f4dc Skriptinformationen", color=embed_color)
 
-        # Field: Skript
-        script_info = f"{script_name}"
+        script_info = script_name or "?"
         if script_author:
             script_info += f" von {script_author}"
         if script_version:
-            script_info += f" · v{script_version}"
-        if char_count:
-            script_info += f" · {char_count} Charaktere"
-        embed.add_field(name="Skript", value=f"```{script_info}```", inline=True)
+            script_info += f" \u00b7 v{script_version}"
+        if char_ids:
+            script_info += f" \u00b7 {len(char_ids)} Charaktere"
+        script_embed.add_field(name="Skript", value=f"```{script_info}```", inline=True)
 
-        # Field: Einschätzung
         if reasoning:
-            embed.add_field(
-                name=f"{rating_emoji} Einschätzung des Skripts",
+            script_embed.add_field(
+                name=f"{rating_emoji} Einsch\u00e4tzung",
                 value=f"```{reasoning}```",
                 inline=True,
             )
 
-        # Charakterliste nach Teams
-        if char_ids and not session.fields.get("is_free_choice"):
-            content_data = sd.get("content")
+        if char_ids and not is_free:
+            content_data = (sd or {}).get("content")
             teams = self._build_char_list_by_team(char_ids, content_data)
             team_lines = []
             for team_name in ("Townsfolk", "Outsider", "Minion", "Demon"):
@@ -677,21 +633,11 @@ class HostCommand(commands.Cog):
                 if names:
                     team_lines.append(f"**{team_name}**\n```{', '.join(names)}```")
             if team_lines:
-                embed.add_field(name="\u200b", value="\n".join(team_lines), inline=False)
+                script_embed.add_field(name="\u200b", value="\n".join(team_lines), inline=False)
 
-        # Field: Titel
-        embed.add_field(name="Titel", value=f"```{title_display}```", inline=False)
-
-        # Field: Beschreibung
-        embed.add_field(name="Beschreibung", value=f"```{session.fields['description']}```", inline=False)
-
-        footer = _cost_footer(session)
-        if footer:
-            embed.set_footer(text=footer)
-
-        # Script-PNG generieren und anhängen
+        # Script PNG
         script_file = None
-        if script_name and not session.fields.get("is_free_choice") and sd_lookup:
+        if script_name and not is_free and sd_lookup:
             chars = sd_lookup.get("characters", [])
             if chars:
                 try:
@@ -702,21 +648,72 @@ class HostCommand(commands.Cog):
                     )
                     script_file = discord.File(img, filename="script_preview.png")
                 except Exception as e:
-                    logger.warning("Script-Bild für Proposal: %s", e)
+                    logger.warning("Script-Bild: %s", e)
 
-        # Nach dem Embed: Hinweistext
-        outro = (
-            "Du kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
-            "Auch die Einschätzung kannst du korrigieren, falls ich daneben liege. "
-            "Wir können ebenfalls das Skript oder die Version ändern, wenn du möchtest.\n"
-            "Schreibe **ok** wenn alles passt."
-        )
-
-        # Senden: Intro + Embed + Outro + optionales Bild
-        kwargs = {"content": intro_text, "embed": embed}
+        # Send intro + script embed + PNG
+        kwargs = {"content": intro_text, "embed": script_embed}
         if script_file:
             kwargs["file"] = script_file
         await channel.send(**kwargs)
+
+        # -- Embed 2: Event Summary --
+        summary_embed = discord.Embed(title="\U0001f4cb Event-Zusammenfassung", color=embed_color)
+
+        summary_embed.add_field(name="1 \u00b7 Titel", value=f"```{title_display}```", inline=False)
+        summary_embed.add_field(name="2 \u00b7 Beschreibung", value=f"```{session.fields.get('description', '-')}```", inline=False)
+
+        st = session.fields.get("storyteller") or "-"
+        summary_embed.add_field(name="3 \u00b7 Storyteller:in", value=st, inline=True)
+
+        co_st = session.fields.get("co_storyteller") or "\u2014"
+        summary_embed.add_field(name="4 \u00b7 Co-Storyteller:in", value=co_st, inline=True)
+
+        level = session.fields.get("level") or "Alle"
+        summary_embed.add_field(name="5 \u00b7 Level", value=level, inline=True)
+
+        # Labels
+        label_parts = []
+        if session.fields.get("is_casual"):
+            label_parts.append("\U0001f54a\ufe0f Casual")
+        if session.fields.get("is_academy"):
+            label_parts.append("\U0001f393 Academy")
+        if session.fields.get("is_recorded"):
+            label_parts.append("\U0001f3a6 Aufzeichnung")
+        summary_embed.add_field(name="6 \u00b7 Labels", value=", ".join(label_parts) if label_parts else "\u2014", inline=True)
+
+        # Camera
+        cam = session.fields.get("camera")
+        if cam is True:
+            cam_str = "Pflicht"
+        elif cam is False:
+            cam_str = "Aus"
+        else:
+            cam_str = "Keine Pflicht"
+        summary_embed.add_field(name="7 \u00b7 Kamera", value=cam_str, inline=True)
+
+        max_p = session.fields.get("max_players") or 12
+        summary_embed.add_field(name="8 \u00b7 Max Spieler", value=str(max_p), inline=True)
+
+        # Termin
+        start_time = session.fields.get("start_time") or "-"
+        duration = session.fields.get("duration_minutes") or 150
+        termin_val = f"{start_time}\nDauer: {duration} Min"
+        summary_embed.add_field(name="9 \u00b7 Termin & Dauer", value=termin_val, inline=False)
+
+        footer = _cost_footer(session)
+        if footer:
+            summary_embed.set_footer(text=footer)
+
+        # Buttons
+        view = SummaryView(self, session, channel)
+
+        outro = (
+            "Du kannst Felder per **Nummer** oder **Freitext** \u00e4ndern (auch mehrere gleichzeitig).\n"
+            "Skript \u00e4ndern \u2192 **anderes Skript** / Version \u2192 **andere Version**\n"
+            "Schreibe **ok** oder dr\u00fccke **Erstellen** wenn alles passt."
+        )
+
+        await channel.send(embed=summary_embed, view=view)
         await channel.send(outro)
 
     async def _show_version_choices(self, session, channel):
@@ -744,6 +741,7 @@ class HostCommand(commands.Cog):
 
         session._pending_version_choices = versions
         session.pending_title_description = False
+        session.pending_final_review = False
 
         lines = [f"**Verfügbare Versionen von {script_name}:**\n"]
         for i, v in enumerate(versions, 1):
@@ -752,48 +750,6 @@ class HostCommand(commands.Cog):
 
         lines.append("\nWähle eine Version (Nummer):")
         await channel.send("\n".join(lines))
-
-    # ── Schritt 4: Summary ───────────────────────────────────────────
-
-    async def _show_summary(self, session, channel):
-        """Zeigt das Summary-Embed mit Buttons und Script-Bild."""
-        session.pending_summary = True
-        session.pending_title_description = False
-
-        # Defaults setzen
-        session.fields.setdefault("max_players", 12)
-        session.fields.setdefault("duration_minutes", 150)
-
-        script_data = None
-        is_free = bool(session.fields.get("is_free_choice"))
-        sn = session.fields.get("script")
-        if sn and not is_free:
-            script_data, _ = lookup_script(sn)
-
-        # Script-Bild generieren
-        script_file = None
-        session._summary_has_image = False
-        if script_data and not is_free:
-            chars = script_data.get("characters", [])
-            if chars:
-                try:
-                    img = await generate_script_image(
-                        sn, script_data.get("author", ""),
-                        chars, script_data.get("version", ""),
-                        content=script_data.get("content"),
-                    )
-                    script_file = discord.File(img, filename="script_preview.png")
-                    session._summary_has_image = True
-                except Exception as e:
-                    logger.warning("Script-Bild für Summary: %s", e)
-
-        embed = _build_summary_embed(session, script_data)
-        view = SummaryView(self, session, channel)
-
-        kwargs = {"embed": embed, "view": view}
-        if script_file:
-            kwargs["file"] = script_file
-        await channel.send(**kwargs)
 
     # ── DM Listener ──────────────────────────────────────────────────
 
@@ -881,7 +837,7 @@ class HostCommand(commands.Cog):
                     await ch.send("Sende ein **Bild als Datei** oder schreibe `auto`.")
                     session.pending_field_edit = "_image"
                     return
-                await self._show_summary(session, ch)
+                await self._show_final_review(session, ch, regenerate_title=False)
                 return
 
             if key == "_labels":
@@ -894,7 +850,7 @@ class HostCommand(commands.Cog):
                     await ch.send("Nicht erkannt. Schreibe z.B. `casual ja` oder `academy nein`.")
                     session.pending_field_edit = "_labels"
                     return
-                await self._show_summary(session, ch)
+                await self._show_final_review(session, ch, regenerate_title=False)
                 return
 
             if key == "start_time":
@@ -919,7 +875,7 @@ class HostCommand(commands.Cog):
                     except ValueError:
                         # Vielleicht ein Termin ohne erkanntes Format
                         session.fields["start_time"] = text
-                await self._show_summary(session, ch)
+                await self._show_final_review(session, ch, regenerate_title=False)
                 return
 
             old_script = session.fields.get("script")
@@ -942,10 +898,10 @@ class HostCommand(commands.Cog):
                     session.fields["complexity_analysis"] = analysis
                     session.label = compute_label(session.fields)
                 session._retrigger_proposal = True
-                await self._show_title_description_proposal(session, ch)
+                await self._show_final_review(session, ch)
                 return
 
-            await self._show_summary(session, ch)
+            await self._show_final_review(session, ch, regenerate_title=False)
             return
 
         # ── Script-Upload ────────────────────────────────────────────
@@ -953,7 +909,7 @@ class HostCommand(commands.Cog):
             session.touch()
             if text.lower() in ("skip", "überspringen", "s"):
                 session.pending_script_upload = False
-                await self._show_title_description_proposal(session, ch)
+                await self._show_final_review(session, ch)
                 return
             if not message.attachments:
                 await ch.send("Sende die Script-JSON als Datei (.json) oder 'skip'.")
@@ -982,7 +938,7 @@ class HostCommand(commands.Cog):
             await ch.send(f"✅ **{name}** hochgeladen!")
             if had_title:
                 session._retrigger_proposal = True
-            await self._show_title_description_proposal(session, ch)
+            await self._show_final_review(session, ch)
             return
 
         # ── Script-Auswahl (Nummer ODER natürliche Sprache) ────────────
@@ -992,7 +948,7 @@ class HostCommand(commands.Cog):
 
             if tl in ("skip", "überspringen", "s"):
                 session.pending_script_choices = None
-                await self._show_title_description_proposal(session, ch)
+                await self._show_final_review(session, ch)
                 return
 
             if tl in ("custom", "homebrew", "eigenes", "keines", "keins davon", "nichts davon"):
@@ -1100,8 +1056,20 @@ class HostCommand(commands.Cog):
 
             if action == "skip":
                 session.pending_script_choices = None
-                await self._show_title_description_proposal(session, ch)
+                await self._show_final_review(session, ch)
                 return
+
+            if action == "preview":
+                indices = result.get("indices", [])
+                if indices:
+                    preview_list = []
+                    for idx in indices:
+                        i = idx - 1
+                        if 0 <= i < len(choices):
+                            preview_list.append(choices[i])
+                    if preview_list:
+                        await self._show_script_preview(session, ch, preview_list)
+                        return
 
             # unclear → Haiku erklärt die Möglichkeiten
             msg = result.get("message", "")
@@ -1130,16 +1098,77 @@ class HostCommand(commands.Cog):
                 await ch.send(f"Bitte gib eine Nummer von 1 bis {len(version_choices)} ein.")
                 return
 
-        # ── Titel/Beschreibung Bestätigung (Schritt 3) ───────────────
-        if getattr(session, "pending_title_description", False):
-            if text.lower() in CONFIRM_KEYWORDS:
-                await self._show_summary(session, ch)
+        # ── Script-Preview ───────────────────────────────────────────
+        preview_scripts = getattr(session, "_preview_scripts", None)
+        if getattr(session, "_pending_script_preview", False) and preview_scripts:
+            tl = text.lower()
+
+            # "zurück" → back to choices list
+            if tl in ("zurück", "back", "liste"):
+                session._pending_script_preview = False
+                session._preview_scripts = None
+                choices = getattr(session, "pending_script_choices", None)
+                if choices:
+                    embed = _build_script_choice_embed(session.fields.get("script", ""), choices)
+                    await ch.send(embed=embed)
+                    await ch.send(SCRIPT_CHOICE_HELP)
                 return
 
-            # "anderes Skript" → zurück zur Script-Auswahl
-            tl_script = text.lower()
-            if any(kw in tl_script for kw in ("anderes skript", "skript ändern", "anderes script", "script ändern")):
-                session.pending_title_description = False
+            # Number → select from preview list
+            try:
+                idx = int(text) - 1
+                if 0 <= idx < len(preview_scripts):
+                    session._pending_script_preview = False
+                    session._preview_scripts = None
+                    await self._select_script(session, ch, preview_scripts[idx])
+                    return
+            except ValueError:
+                pass
+
+            # Haiku fallback
+            script_names = "\n".join(f"{i+1}. {s.get('name', '?')}" for i, s in enumerate(preview_scripts))
+            result = await interpret_script_preview(session, text, script_names)
+            if result:
+                action = result.get("action")
+                if action == "select":
+                    idx = (result.get("index") or 1) - 1
+                    if 0 <= idx < len(preview_scripts):
+                        session._pending_script_preview = False
+                        session._preview_scripts = None
+                        await self._select_script(session, ch, preview_scripts[idx])
+                        return
+                elif action == "back":
+                    session._pending_script_preview = False
+                    session._preview_scripts = None
+                    choices = getattr(session, "pending_script_choices", None)
+                    if choices:
+                        embed = _build_script_choice_embed(session.fields.get("script", ""), choices)
+                        await ch.send(embed=embed)
+                        await ch.send(SCRIPT_CHOICE_HELP)
+                    return
+                elif action == "unclear" and result.get("message"):
+                    await ch.send(result["message"])
+                    return
+
+            await ch.send("Wähle eine Nummer oder geh **zurück** zur Liste.")
+            return
+
+        # ── Final Review (Schritt 3+4 kombiniert) ─────────────────────
+        if getattr(session, "pending_final_review", False):
+            tl = text.lower().strip()
+
+            # 1. Confirm → Event erstellen
+            if tl in CONFIRM_KEYWORDS:
+                # Trigger SummaryView confirm logic
+                session.pending_final_review = False
+                view = SummaryView(self, session, ch)
+                # Simulate button press
+                await view.confirm(None, None)
+                return
+
+            # 2. "anderes skript" → script edit mode
+            if any(kw in tl for kw in ("anderes skript", "skript ändern", "anderes script", "script ändern")):
+                session.pending_final_review = False
                 session.pending_script_edit_mode = True
                 await ch.send(
                     "Möchtest du:\n"
@@ -1148,181 +1177,127 @@ class HostCommand(commands.Cog):
                 )
                 return
 
-            # "andere Version" → Versions-Auswahl
-            if any(kw in tl_script for kw in ("andere version", "version ändern", "version wechseln")):
+            # 3. "andere version" → version choices
+            if any(kw in tl for kw in ("andere version", "version ändern", "version wechseln")):
                 await self._show_version_choices(session, ch)
                 return
 
-            # "alt" → alte Titel/Beschreibung wiederherstellen (bei Skript-Wechsel)
-            if text.lower() in ("alt", "alte", "bisherige", "zurück", "vorherige"):
+            # 4. "alt" → restore old title/desc
+            if tl in ("alt", "alte", "bisherige", "vorherige"):
                 old_t = getattr(session, "_old_title", None)
                 old_d = getattr(session, "_old_desc", None)
                 if old_t and old_d:
                     session.fields["title"] = old_t
                     session.fields["description"] = old_d
                     await ch.send("Bisherige Titel und Beschreibung wiederhergestellt.")
-                    await self._show_summary(session, ch)
+                    await self._show_final_review(session, ch, regenerate_title=False)
                     return
                 else:
                     await ch.send("Keine bisherigen Werte vorhanden.")
                     return
 
-            # Rating-Änderung erkennen ("gelb", "grün", "rot")
-            tl = text.lower()
-            rating_changed = False
-            RATING_KEYWORDS = {
-                "grün": "green", "green": "green", "💚": "green",
-                "gelb": "yellow", "yellow": "yellow", "🟡": "yellow",
-                "rot": "red", "red": "red", "🟥": "red",
-            }
-            for keyword, rating in RATING_KEYWORDS.items():
-                if keyword in tl:
-                    analysis = session.fields.get("complexity_analysis") or {}
-                    analysis["rating"] = rating
-                    session.fields["complexity_analysis"] = analysis
-                    session.label = compute_label(session.fields)
-                    rating_changed = True
-                    break
-
-            if rating_changed:
-                # Proposal komplett neu anzeigen mit neuem Rating
-                await self._show_title_description_proposal(session, ch)
-                return
-
-            # Freitext → Haiku versteht was geändert werden soll
-            async with ch.typing():
-                result = await update_title_description(session, text)
-
-            footer = _cost_footer(session)
-
-            if result:
-                new_title, new_desc, accepted = result
-                session.fields["title"] = new_title
-                session.fields["description"] = new_desc
-
-                if accepted:
-                    await self._show_summary(session, ch)
-                    return
-
-                # Proposal komplett neu anzeigen mit aktualisierten Werten
-                await self._show_title_description_proposal(session, ch)
-            else:
-                await ch.send("Konnte die Änderung nicht verarbeiten. Versuche es nochmal.")
-            return
-
-        # ── Summary Review (Schritt 4) ───────────────────────────────
-        if getattr(session, "pending_summary", False):
-            # 1. Nummer → Feld-Edit
+            # 5. Number input (1-9) → field edit
             try:
                 num = int(text)
-                for i, (key, label) in enumerate(SUMMARY_FIELDS, 1):
-                    if i == num:
-                        if key == "script":
-                            session.pending_script_edit_mode = True
-                            await ch.send(
-                                "Möchtest du:\n"
-                                "**1** — In der Datenbank suchen\n"
-                                "**2** — Selbst einen Namen eingeben"
-                            )
-                        elif key == "_labels":
-                            await ch.send(
-                                "Welches Label möchtest du ändern?\n"
-                                "• `casual ja/nein`\n"
-                                "• `academy ja/nein`"
-                            )
-                            session.pending_field_edit = "_labels"
-                        elif key == "start_time":
-                            await ch.send(
-                                "Was möchtest du ändern?\n"
-                                "• Nur Termin: z.B. `2026-03-25 20:00`\n"
-                                "• Nur Dauer: z.B. `180`\n"
-                                "• Beides: z.B. `2026-03-25 20:00 180min`"
-                            )
-                            session.pending_field_edit = "start_time"
-                        elif key == "_image":
-                            await ch.send(
-                                "Sende ein **eigenes Bild** als Datei oder schreibe `auto` "
-                                "für das automatische Skript-Bild."
-                            )
-                            session.pending_field_edit = "_image"
-                        else:
-                            session.pending_field_edit = key
-                            await ch.send(f"Was soll der neue Wert für **{label}** sein?")
-                        return
-                await ch.send(f"Bitte wähle 1-{len(SUMMARY_FIELDS)}.")
-                return
+                if 1 <= num <= len(SUMMARY_FIELDS):
+                    key, label = SUMMARY_FIELDS[num - 1]
+                    if key == "_labels":
+                        await ch.send(
+                            "Welches Label möchtest du ändern?\n"
+                            "• `casual ja/nein`\n"
+                            "• `academy ja/nein`"
+                        )
+                        session.pending_field_edit = "_labels"
+                    elif key == "start_time":
+                        await ch.send(
+                            "Was möchtest du ändern?\n"
+                            "• Nur Termin: z.B. `2026-03-25 20:00`\n"
+                            "• Nur Dauer: z.B. `180`\n"
+                            "• Beides: z.B. `2026-03-25 20:00 180min`"
+                        )
+                        session.pending_field_edit = "start_time"
+                    else:
+                        session.pending_field_edit = key
+                        await ch.send(f"Was soll der neue Wert für **{label}** sein?")
+                    return
+                else:
+                    await ch.send(f"Bitte wähle 1-{len(SUMMARY_FIELDS)}.")
+                    return
             except ValueError:
                 pass
 
-            # 2. NL-Keyword-Erkennung
-            tl = text.lower()
-            matched_key = None
-            matched_value = None
-            for keyword, field_key in FIELD_KEYWORDS.items():
-                if keyword in tl:
-                    matched_key = field_key
-                    # Versuche einen Wert zu extrahieren (nach "in", "zu", "auf", ":")
-                    import re
-                    for pattern in [
-                        rf'{keyword}\s+(?:in|zu|auf|:)\s+(.+)',
-                        rf'(?:in|zu|auf|:)\s+(.+?)\s+{keyword}',
-                        rf'{keyword}\s+ändern\s+(?:in|zu|auf|:)\s+(.+)',
-                    ]:
-                        m = re.search(pattern, tl)
-                        if m:
-                            matched_value = text[m.start(1):m.end(1)].strip()
-                            break
-                    break
-
-            if matched_key:
-                label = FIELD_LABELS.get(matched_key, matched_key)
-                if matched_key == "script":
-                    if matched_value:
-                        # "Skript in XYZ ändern" → direkt setzen
-                        session.fields["script"] = matched_value
-                        sd, _ = lookup_script(matched_value)
-                        chars = sd.get("characters", []) if sd else []
-                        if chars:
-                            analysis = analyze_script_complexity(chars)
-                            session.fields["complexity_analysis"] = analysis
-                            session.label = compute_label(session.fields)
-                        await self._show_summary(session, ch)
-                    else:
-                        session.pending_script_edit_mode = True
-                        await ch.send(
-                            "Möchtest du:\n"
-                            "**1** — In der Datenbank suchen\n"
-                            "**2** — Selbst einen Namen eingeben"
-                        )
-                    return
-                elif matched_value:
-                    # Wert direkt setzen
-                    val = matched_value
-                    if matched_key == "is_casual":
-                        val = val.lower() in ("ja", "yes", "true")
-                    elif matched_key == "camera":
-                        val = None if val.lower() in ("keine pflicht", "optional", "egal") else val.lower() in ("an", "ja", "pflicht")
-                    elif matched_key in ("duration_minutes", "max_players"):
-                        try: val = int(val)
-                        except ValueError: pass
-                    session.fields[matched_key] = val
-                    await self._show_summary(session, ch)
-                    return
-                else:
-                    # Nur Keyword erkannt, kein Wert → nachfragen
-                    session.pending_field_edit = matched_key
-                    await ch.send(f"Was soll der neue Wert für **{label}** sein?")
-                    return
-
-            # 3. Fallback: An Haiku senden
+            # 6. Haiku fallback via interpret_final_review
+            fields_summary = (
+                f"1. Titel: {session.fields.get('title', '-')}\n"
+                f"2. Beschreibung: {session.fields.get('description', '-')}\n"
+                f"3. Storyteller: {session.fields.get('storyteller', '-')}\n"
+                f"4. Co-Storyteller: {session.fields.get('co_storyteller', '-')}\n"
+                f"5. Level: {session.fields.get('level', '-')}\n"
+                f"6. Labels: casual={session.fields.get('is_casual')}, academy={session.fields.get('is_academy')}, recorded={session.fields.get('is_recorded')}\n"
+                f"7. Kamera: {session.fields.get('camera')}\n"
+                f"8. Max Spieler: {session.fields.get('max_players', 12)}\n"
+                f"9. Termin: {session.fields.get('start_time', '-')}, Dauer: {session.fields.get('duration_minutes', 150)} Min\n"
+                f"Skript: {session.fields.get('script', '-')}"
+            )
             async with ch.typing():
-                response = await call_haiku(session, f"Der User möchte ändern: {text}\nPasse Felder an, action='done'.")
-            if response and response.get("action") == "done":
-                session.pending_summary = False
-                await self._show_summary(session, ch)
-            elif response:
-                m = response.get("message", "")
-                if m: await ch.send(m)
+                result = await interpret_final_review(session, text, fields_summary)
+
+            if result:
+                action = result.get("action")
+
+                if action == "edit":
+                    # Apply field changes
+                    edits = result.get("fields", {})
+                    for field_key, field_val in edits.items():
+                        if field_key in ("is_casual", "is_academy", "is_recorded"):
+                            session.fields[field_key] = bool(field_val)
+                        elif field_key == "camera":
+                            if field_val is None or (isinstance(field_val, str) and field_val.lower() in ("keine pflicht", "optional", "egal")):
+                                session.fields["camera"] = None
+                            elif isinstance(field_val, bool):
+                                session.fields["camera"] = field_val
+                            elif isinstance(field_val, str):
+                                session.fields["camera"] = field_val.lower() in ("an", "ja", "pflicht", "true")
+                        elif field_key in ("max_players", "duration_minutes"):
+                            try:
+                                session.fields[field_key] = int(field_val)
+                            except (ValueError, TypeError):
+                                pass
+                        else:
+                            session.fields[field_key] = field_val
+                    # Recompute label after edits
+                    session.label = compute_label(session.fields)
+                    await self._show_final_review(session, ch, regenerate_title=False)
+                    return
+
+                if action == "confirm":
+                    session.pending_final_review = False
+                    view = SummaryView(self, session, ch)
+                    await view.confirm(None, None)
+                    return
+
+                if action == "change_script":
+                    session.pending_final_review = False
+                    session.pending_script_edit_mode = True
+                    await ch.send(
+                        "Möchtest du:\n"
+                        "**1** — In der Datenbank suchen\n"
+                        "**2** — Selbst einen Namen eingeben"
+                    )
+                    return
+
+                if action == "change_version":
+                    await self._show_version_choices(session, ch)
+                    return
+
+                if action == "unclear" and result.get("message"):
+                    await ch.send(result["message"])
+                    return
+
+            await ch.send(
+                "Das konnte ich nicht zuordnen. "
+                "Nutze eine **Nummer** (1-9) zum Ändern oder schreibe **ok**."
+            )
             return
 
         # ── Schritt 1: Haiku-Chat ────────────────────────────────────
@@ -1375,8 +1350,8 @@ class HostCommand(commands.Cog):
                         )
                         return
 
-            # Script OK → Schritt 3 (Titel/Beschreibung)
-            await self._show_title_description_proposal(session, ch)
+            # Script OK → Final Review
+            await self._show_final_review(session, ch)
 
         elif action == "refuse":
             embed = discord.Embed(description=haiku_msg, color=0xED4245)
