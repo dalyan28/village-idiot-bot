@@ -484,19 +484,31 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     import shutil
     import tempfile
 
-    # Chromium-Pfad finden (Linux: chromium-browser oder chromium)
+    # Chromium-Pfad finden
     chrome_path = None
+    # 1. Standard-Pfade per which
     for name in ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable"]:
         found = shutil.which(name)
         if found:
             chrome_path = found
             break
+    # 2. Nixpacks: Chromium liegt unter /nix/store/
+    if not chrome_path:
+        import glob
+        nix_matches = glob.glob("/nix/store/*/bin/chromium")
+        if nix_matches:
+            chrome_path = nix_matches[0]
+
+    logger.info("Chrome/Chromium path: %s", chrome_path or "NOT FOUND (using html2image default)")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         kwargs = {
             "size": (IMG_WIDTH, 8000),
             "output_path": tmpdir,
-            "custom_flags": ["--no-sandbox", "--disable-gpu", "--hide-scrollbars"],
+            "custom_flags": [
+                "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
+                "--disable-dev-shm-usage", "--disable-software-rasterizer",
+            ],
         }
         if chrome_path:
             kwargs["browser_executable"] = chrome_path

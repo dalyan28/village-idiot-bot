@@ -1,2 +1,5 @@
 [phases.setup]
-aptPkgs = ["chromium-browser", "fonts-liberation", "libgbm1", "libnss3", "libatk-bridge2.0-0", "libgtk-3-0", "libasound2"]
+nixPkgs = ["chromium"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
