@@ -289,9 +289,6 @@ def build_title_prefix(fields: dict) -> str:
 
     Reihenfolge: [recorded] [academy|casual] [homebrew] [complexity]
     """
-    if fields.get("is_free_choice"):
-        return FREE_CHOICE_EMOJI
-
     parts = []
     analysis = fields.get("complexity_analysis") or {}
 
@@ -304,6 +301,11 @@ def build_title_prefix(fields: dict) -> str:
         parts.append(LABEL_EMOJI["academy"])
     elif fields.get("is_casual"):
         parts.append(LABEL_EMOJI["dove"])
+
+    # 3. Freie Skriptwahl → Complexity als 💚/🟡/🟥, dann fertig
+    if fields.get("is_free_choice"):
+        parts.append(FREE_CHOICE_EMOJI)
+        return " ".join(parts)
 
     # 3. Homebrew
     if analysis.get("is_homebrew") or analysis.get("is_amnesiac"):

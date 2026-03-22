@@ -95,14 +95,16 @@ Beispiele: "Boozling mit Dalyan", "BMR mit Dalyan und Rosanna"
 KEIN Emoji im Titel — das wird separat hinzugefügt.
 
 ### 2. BESCHREIBUNG (max 3 Sätze, deutsch, für Mitspieler)
-Schreibe aus Event-Perspektive, NICHT "Du leitest..." — die Spieler lesen das.
+Die Beschreibung ist aus Sicht des Storytellers geschrieben ("Wir spielen...").
 MAXIMAL 3 kurze, sachliche Sätze:
 1. "Wir spielen [Skriptname]" + kurze Einordnung (nah an Trouble Brewing / Base3-Mix / experimentell).
 2. Optional: Nenne 2-3 der anspruchsvolleren Charaktere aus den Analyse-Fakten, wenn relevant.
 3. Kurzer Schlusssatz.
-WICHTIG:
+STRIKTE REGELN:
 - "Wir spielen [Skriptname]" — NICHT "Wir spielen eine Runde Trouble Brewing" wenn das Skript anders heißt!
-- KEIN Marketingtext, KEINE blumigen Adjektive, KEINE Floskeln wie "Lasst euch überraschen", "Seid bereit", "Kommt vorbei"
+- Den Storyteller NIEMALS namentlich erwähnen — die Beschreibung ist aus seiner Sicht geschrieben
+- NICHTS hinzudichten oder annehmen, was nicht in den Fakten steht. NUR das beschreiben, was du sicher weißt.
+- KEIN Marketingtext, KEINE blumigen Adjektive, KEINE Floskeln ("Lasst euch überraschen", "Seid bereit", "Kommt vorbei", "perfekt um Spaß zu haben")
 - Sachlich und neutral. Maximal ein Hauch von Humor/Ironie, aber das soll nicht dominieren.
 - KEINE Absätze — alles in einem Block.
 

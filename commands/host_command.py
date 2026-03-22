@@ -127,8 +127,6 @@ def _build_summary_embed(session, script_data=None):
 
     # 1. Titel (not inline) — mit Label-Prefix
     prefix = build_title_prefix(f)
-    if is_free:
-        prefix = get_label_emoji(None, is_free_choice=True)
     title_display = f"{prefix} {f.get('title') or '-'}" if prefix else (f.get('title') or '-')
     embed.add_field(name="1 · Titel", value=f"```{title_display}```", inline=False)
 
@@ -217,8 +215,6 @@ class SummaryView(discord.ui.View):
         duration = f.get("duration_minutes") or 150
         title = f.get("title") or "BotC Event"
         prefix = build_title_prefix(f)
-        if is_free:
-            prefix = get_label_emoji(self.session.label, is_free_choice=True)
         if prefix:
             title = f"{prefix} {title}"
 
