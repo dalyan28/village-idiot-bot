@@ -98,7 +98,13 @@ KEIN Emoji im Titel — das wird separat hinzugefügt.
 Die Beschreibung ist aus Sicht des Storytellers geschrieben ("Wir spielen...").
 MAXIMAL 3 kurze, sachliche Sätze:
 1. "Wir spielen [Skriptname]" + kurze Einordnung (nah an Trouble Brewing / Base3-Mix / experimentell).
-2. Optional: Nenne 2-3 der anspruchsvolleren Charaktere aus den Analyse-Fakten, wenn relevant.
+2. Nenne relevante Charaktere aus den Analyse-Fakten. Nutze dafür:
+   - Die "Relevanteste Charaktere" Liste (die mit dem höchsten Score)
+   - Spielverändernde Charaktere (Score 10) und anspruchsvolle (Score 9)
+   - Den/die Demon(s) — BESONDERS WICHTIG bei Solo-Demon-Skripten:
+     * Wenn "EINZIGER Demon" und NICHT Imp → unbedingt hervorheben (z.B. "Mit Shabaloth als einzigem Demon...")
+     * Wenn einziger Demon der Imp ist → beiläufig erwähnen ("Der Imp ist wie gewohnt der einzige Demon.")
+     * Bei mehreren Demons → kurz auflisten
 3. Kurzer Schlusssatz.
 STRIKTE REGELN:
 - "Wir spielen [Skriptname]" — NICHT "Wir spielen eine Runde Trouble Brewing" wenn das Skript anders heißt!

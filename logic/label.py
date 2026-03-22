@@ -167,6 +167,25 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
 
     game_changer_count = len(score10_chars) + len(score9_chars) // 2
 
+    # Demon-Info
+    demon_ids = [cid for cid in core_set if char_db.get(cid, {}).get("team") == "demon"]
+    demon_names = [char_db[cid]["name"] for cid in demon_ids]
+    is_solo_demon = len(demon_ids) == 1
+    solo_demon_is_imp = is_solo_demon and demon_ids[0] == "imp"
+
+    # Top-Rated Chars (Score >= 7, sortiert absteigend, max 5)
+    top_rated = []
+    for cid in core_set | set(loric_ids):
+        info = char_db.get(cid)
+        if not info:
+            continue
+        name_lower = info["name"].lower()
+        rating_entry = ratings.get(name_lower)
+        if rating_entry and rating_entry["score"] >= 7:
+            top_rated.append((rating_entry["name"], rating_entry["score"]))
+    top_rated.sort(key=lambda x: -x[1])
+    top_rated = top_rated[:5]
+
     # Rating bestimmen
     tb_high = tb_overlap >= 0.6
     base3_high = base3_overlap >= 0.6
@@ -196,6 +215,10 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
         score10_chars=score10_chars,
         score9_chars=score9_chars,
         unknown_names=unknown_names,
+        demon_names=demon_names,
+        is_solo_demon=is_solo_demon,
+        solo_demon_is_imp=solo_demon_is_imp,
+        top_rated=top_rated,
     )
 
     return {
@@ -212,6 +235,10 @@ def analyze_script_complexity(char_ids: list[str]) -> dict:
         "non_tb_chars": non_tb_names,
         "non_base3_chars": non_base3_names,
         "loric_chars": loric_names,
+        "demon_names": demon_names,
+        "is_solo_demon": is_solo_demon,
+        "solo_demon_is_imp": solo_demon_is_imp,
+        "top_rated": top_rated,
         "analysis_facts": facts,
     }
 
@@ -220,6 +247,7 @@ def _build_analysis_facts(
     *, rating, is_homebrew, is_amnesiac,
     tb_overlap, base3_overlap, non_tb_names, non_base3_names,
     loric_names, score10_chars, score9_chars, unknown_names,
+    demon_names, is_solo_demon, solo_demon_is_imp, top_rated,
 ) -> str:
     """Baut eine kompakte Fakten-Zusammenfassung für den LLM-Prompt."""
     lines = [f"RATING: {rating}"]
@@ -232,16 +260,31 @@ def _build_analysis_facts(
     lines.append(f"TB-Überlappung: {tb_overlap:.0%}")
     lines.append(f"Base3-Überlappung (TB+BMR+S&V): {base3_overlap:.0%}")
 
+    # Demon-Info
+    if demon_names:
+        demon_str = ", ".join(demon_names)
+        if solo_demon_is_imp:
+            lines.append(f"Demon: {demon_str} (einziger Demon, wie bei Trouble Brewing)")
+        elif is_solo_demon:
+            lines.append(f"Demon: {demon_str} (EINZIGER Demon im Skript — hervorheben!)")
+        else:
+            lines.append(f"Demons: {demon_str} ({len(demon_names)} Demons)")
+
     if non_tb_names:
         lines.append(f"Nicht in TB: {', '.join(non_tb_names)}")
     if non_base3_names:
         lines.append(f"Nicht in Base3: {', '.join(non_base3_names)}")
     if score10_chars:
-        lines.append(f"Game Changer (Score 10): {', '.join(score10_chars)}")
+        lines.append(f"Spielverändernde Charaktere (Score 10): {', '.join(score10_chars)}")
     if score9_chars:
-        lines.append(f"Anspruchsvoll (Score 9): {', '.join(score9_chars)}")
+        lines.append(f"Anspruchsvolle Charaktere (Score 9): {', '.join(score9_chars)}")
     if loric_names:
         lines.append(f"Lorics: {', '.join(loric_names)}")
+
+    # Top-Rated Chars
+    if top_rated:
+        top_str = ", ".join(f"{name} ({score})" for name, score in top_rated)
+        lines.append(f"Relevanteste Charaktere (Score ≥7): {top_str}")
 
     return "\n".join(lines)
 

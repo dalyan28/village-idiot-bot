@@ -65,6 +65,9 @@ class EventSession:
     user_display_name: str = ""
     user_avatar_url: str = ""
     rules_summary: str = DEFAULT_RULES
+    # Edit-Modus (wenn bestehendes Event bearbeitet wird)
+    editing_message_id: int | None = None
+    editing_channel_id: int | None = None
     # Kosten-Tracking
     total_input_tokens: int = 0
     total_output_tokens: int = 0

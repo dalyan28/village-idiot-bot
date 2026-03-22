@@ -207,12 +207,12 @@ def build_event_embed(event_data: dict) -> discord.Embed:
     else:
         embed.add_field(name="Skript", value=script_val, inline=True)
 
-    # ── NPCs (Fabled/Loric) — nur wenn vorhanden ────────────────────
+    # ── NPCs (Fabled/Loric) — deaktiviert, ggf. später wieder nutzen ──
     char_ids = event_data.get("script_characters", [])
-    if char_ids:
-        npcs = _get_npcs(char_ids)
-        if npcs:
-            embed.add_field(name="NPCs", value=npcs, inline=False)
+    # if char_ids:
+    #     npcs = _get_npcs(char_ids)
+    #     if npcs:
+    #         embed.add_field(name="NPCs", value=npcs, inline=False)
 
     # ── Relevante Charaktere — deaktiviert, ggf. später wieder nutzen ──
     # if char_ids:

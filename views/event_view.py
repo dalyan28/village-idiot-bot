@@ -130,10 +130,32 @@ class EventView(discord.ui.View):
             )
             return
 
-        await interaction.response.send_message(
-            "Diese Funktion wird in einer zukünftigen Version verfügbar.",
-            ephemeral=True,
-        )
+        host_cog = interaction.client.cogs.get("HostCommand")
+        if not host_cog:
+            await interaction.response.send_message("Event-System nicht verfügbar.", ephemeral=True)
+            return
+
+        from logic.conversation import has_active_session
+        if has_active_session(interaction.user.id):
+            await interaction.response.send_message(
+                "Du hast bereits eine aktive Session. Beende sie zuerst.",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+
+        session = host_cog.create_edit_session(interaction, event_data, interaction.message.id)
+
+        try:
+            dm = await interaction.user.create_dm()
+            await dm.send(f"📝 **Event bearbeiten:** {event_data.get('title', 'Event')}")
+            await host_cog._show_summary(session, dm)
+            await interaction.followup.send("Schau in deine DMs — dort kannst du das Event bearbeiten.", ephemeral=True)
+        except discord.Forbidden:
+            from logic.conversation import end_session
+            end_session(interaction.user.id)
+            await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
 
     @discord.ui.button(label="Löschen", style=discord.ButtonStyle.danger, custom_id="event_delete")
     async def delete(self, interaction: discord.Interaction, button: discord.ui.Button):

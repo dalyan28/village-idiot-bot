@@ -8,6 +8,7 @@
 5) Event erstellen
 """
 
+import io
 import json
 import logging
 import os
@@ -59,16 +60,34 @@ CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes", "pass
 SUMMARY_FIELDS = [
     ("title", "Titel"),
     ("description", "Beschreibung"),
-    ("storyteller", "Storyteller:in"),
     ("script", "Skript"),
+    ("storyteller", "Storyteller:in"),
+    ("co_storyteller", "Co-Storyteller:in"),
     ("level", "Level"),
-    ("start_time", "Termin"),
-    ("duration_minutes", "Dauer"),
-    ("max_players", "Max Spieler"),
+    ("_labels", "Labels"),
     ("camera", "Kamera"),
-    ("co_storyteller", "Co-ST"),
-    ("is_casual", "Casual 🕊️"),
+    ("max_players", "Max Spieler"),
+    ("start_time", "Termin & Dauer"),
+    ("_image", "Bild"),
 ]
+
+# Keywords für natürliche Sprache → Feld-Erkennung
+FIELD_KEYWORDS = {
+    "titel": "title", "title": "title",
+    "beschreibung": "description", "desc": "description",
+    "storyteller": "storyteller",
+    "skript": "script", "script": "script",
+    "level": "level",
+    "termin": "start_time", "zeit": "start_time", "uhrzeit": "start_time", "datum": "start_time",
+    "dauer": "duration_minutes",
+    "spieler": "max_players", "max": "max_players",
+    "kamera": "camera", "cam": "camera",
+    "co-st": "co_storyteller", "cost": "co_storyteller", "co st": "co_storyteller",
+    "casual": "is_casual",
+}
+
+# Reverse: field key → label
+FIELD_LABELS = {key: label for key, label in SUMMARY_FIELDS}
 
 
 def _cost_footer(session) -> str:
@@ -135,8 +154,7 @@ def _build_summary_embed(session, script_data=None):
     if len(desc) > 1010: desc = desc[:1007] + "..."
     embed.add_field(name="2 · Beschreibung", value=f"```{desc}```", inline=False)
 
-    # 3-5 inline
-    embed.add_field(name="3 · Storyteller:in", value=f"```{f.get('storyteller') or '-'}```", inline=True)
+    # 3. Skript (inline)
     script_display = f.get('script') or '-'
     if script_data:
         au = script_data.get("author", "")
@@ -145,22 +163,45 @@ def _build_summary_embed(session, script_data=None):
             script_display += f" von {au}"
         if ve:
             script_display += f" · v{ve}"
-    embed.add_field(name="4 · Skript", value=f"```{script_display}```", inline=True)
-    embed.add_field(name="5 · Level", value=f"```{f.get('level') or '-'}```", inline=True)
+    embed.add_field(name="3 · Skript", value=f"```{script_display}```", inline=True)
 
-    # 6-8 inline
-    embed.add_field(name="6 · Termin", value=f"```{f.get('start_time') or '-'}```", inline=True)
-    embed.add_field(name="7 · Dauer", value=f"```{_fmt('duration_minutes', f.get('duration_minutes'))}```", inline=True)
-    embed.add_field(name="8 · Max Spieler", value=f"```{f.get('max_players') or 12}```", inline=True)
+    # 4-5 inline
+    embed.add_field(name="4 · Storyteller:in", value=f"```{f.get('storyteller') or '-'}```", inline=True)
+    embed.add_field(name="5 · Co-Storyteller:in", value=f"```{_fmt('co_storyteller', f.get('co_storyteller'))}```", inline=True)
 
-    # 9-11 inline
-    embed.add_field(name="9 · Kamera", value=f"```{_fmt('camera', f.get('camera'))}```", inline=True)
-    embed.add_field(name="10 · Co-ST", value=f"```{_fmt('co_storyteller', f.get('co_storyteller'))}```", inline=True)
-    embed.add_field(name="11 · Casual 🕊️", value=f"```{_fmt('is_casual', f.get('is_casual'))}```", inline=True)
+    # 6. Level (inline)
+    embed.add_field(name="6 · Level", value=f"```{f.get('level') or '-'}```", inline=True)
 
-    # 12 · Bild (Script-Bild als Attachment)
+    # 7. Labels (Casual/Academy/Homebrew etc.)
+    labels = []
+    if f.get("is_academy"):
+        labels.append("🎓 Academy")
+    if f.get("is_casual"):
+        labels.append("🕊️ Casual")
+    analysis = f.get("complexity_analysis") or {}
+    if analysis.get("is_homebrew"):
+        labels.append("⚒️ Homebrew")
+    label_display = ", ".join(labels) if labels else "Keine"
+    embed.add_field(name="7 · Labels", value=f"```{label_display}```", inline=True)
+
+    # 8-9 inline
+    embed.add_field(name="8 · Kamera", value=f"```{_fmt('camera', f.get('camera'))}```", inline=True)
+    embed.add_field(name="9 · Max Spieler", value=f"```{f.get('max_players') or 12}```", inline=True)
+
+    # 10. Termin & Dauer (zusammengefasst)
+    termin = f.get('start_time') or '-'
+    dauer = _fmt('duration_minutes', f.get('duration_minutes'))
+    embed.add_field(name="10 · Termin & Dauer", value=f"```{termin} · {dauer}```", inline=False)
+
+    # 11 · Bild
     if session._summary_has_image:
+        embed.add_field(name="11 · Bild", value="```Skript-Bild (automatisch)```", inline=False)
         embed.set_image(url="attachment://script_preview.png")
+    elif getattr(session, "_custom_image_url", None):
+        embed.add_field(name="11 · Bild", value="```Eigenes Bild```", inline=False)
+        embed.set_image(url=session._custom_image_url)
+    else:
+        embed.add_field(name="11 · Bild", value="```Kein Bild```", inline=False)
 
     footer = _cost_footer(session)
     ft = "Antworte mit einer Nummer zum Ändern oder drücke Erstellen"
@@ -256,9 +297,20 @@ class SummaryView(discord.ui.View):
             end_session(self.session.user_id)
             return
 
-        # Script-Bild
+        # Bild: Custom oder Auto-Skript-Bild
         script_file = None
-        if script_characters and not is_free:
+        custom_image_url = getattr(self.session, "_custom_image_url", None)
+        if custom_image_url:
+            import aiohttp
+            try:
+                async with aiohttp.ClientSession() as http:
+                    async with http.get(custom_image_url) as resp:
+                        if resp.status == 200:
+                            data = await resp.read()
+                            script_file = discord.File(io.BytesIO(data), filename="event_image.png")
+            except Exception as e:
+                logger.warning("Custom-Bild Fehler: %s", e)
+        elif script_characters and not is_free:
             try:
                 sd, _ = lookup_script(f["script"])
                 img = await generate_script_image(
@@ -269,12 +321,48 @@ class SummaryView(discord.ui.View):
             except Exception as e:
                 logger.warning("Script-Bild Fehler: %s", e)
 
-        try:
-            msg = await event_cog.post_event(event_channel, event_data, script_image=script_file)
-            await interaction.followup.send(f"Event erstellt! 🎉\n{msg.jump_url}")
-        except Exception as e:
-            logger.error("Fehler: %s", e)
-            await interaction.followup.send(f"Fehler: {e}")
+        # Edit-Modus: bestehendes Event updaten
+        editing_msg_id = getattr(self.session, "editing_message_id", None)
+        editing_ch_id = getattr(self.session, "editing_channel_id", None)
+
+        if editing_msg_id and editing_ch_id:
+            try:
+                edit_channel = self.cog.bot.get_channel(editing_ch_id)
+                if not edit_channel:
+                    edit_channel = await self.cog.bot.fetch_channel(editing_ch_id)
+                edit_msg = await edit_channel.fetch_message(editing_msg_id)
+
+                # RSVP-Daten beibehalten
+                from event_storage import get_event
+                old_event = get_event(editing_msg_id) or {}
+                event_data["accepted"] = old_event.get("accepted", [])
+                event_data["declined"] = old_event.get("declined", [])
+                event_data["tentative"] = old_event.get("tentative", [])
+                event_data["_event_channel_id"] = editing_ch_id
+
+                # Embed + Bild updaten
+                new_embed = build_event_embed(event_data)
+                kwargs = {"embed": new_embed}
+                if script_file:
+                    kwargs["attachments"] = [script_file]
+                await edit_msg.edit(**kwargs)
+
+                # Storage updaten
+                from event_storage import save_event
+                save_event(editing_msg_id, event_data)
+
+                await interaction.followup.send(f"Event aktualisiert! ✏️\n{edit_msg.jump_url}")
+            except Exception as e:
+                logger.error("Edit-Fehler: %s", e)
+                await interaction.followup.send(f"Fehler beim Bearbeiten: {e}")
+        else:
+            # Neues Event erstellen
+            try:
+                msg = await event_cog.post_event(event_channel, event_data, script_image=script_file)
+                await interaction.followup.send(f"Event erstellt! 🎉\n{msg.jump_url}")
+            except Exception as e:
+                logger.error("Fehler: %s", e)
+                await interaction.followup.send(f"Fehler: {e}")
 
         end_session(self.session.user_id)
 
@@ -298,6 +386,47 @@ class SummaryView(discord.ui.View):
 class HostCommand(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    def create_edit_session(self, interaction, event_data, message_id):
+        """Erstellt eine Edit-Session aus bestehenden Event-Daten."""
+        guild = interaction.guild
+        session = start_session(
+            interaction.user.id, guild.id, guild.name,
+            event_data.get("_event_channel_id") or interaction.channel_id,
+            interaction.user.display_name,
+            getattr(interaction.user.display_avatar, "url", ""),
+        )
+        # Event-Daten in Session-Felder übertragen
+        session.fields["title"] = event_data.get("title", "")
+        session.fields["description"] = event_data.get("description", "")
+        session.fields["storyteller"] = event_data.get("storyteller", "")
+        session.fields["co_storyteller"] = event_data.get("co_storyteller")
+        session.fields["script"] = event_data.get("script", "")
+        session.fields["level"] = event_data.get("level", "")
+        session.fields["camera"] = event_data.get("camera")
+        session.fields["max_players"] = event_data.get("max_players", 12)
+        session.fields["is_casual"] = event_data.get("is_casual")
+        session.fields["is_recorded"] = event_data.get("is_recorded")
+        session.fields["is_academy"] = event_data.get("is_academy")
+        session.fields["is_free_choice"] = event_data.get("is_free_choice")
+
+        # Timestamp zurück in String konvertieren
+        ts = event_data.get("timestamp")
+        if ts:
+            from datetime import datetime
+            dt = datetime.fromtimestamp(ts, tz=BERLIN_TZ)
+            session.fields["start_time"] = dt.strftime("%Y-%m-%d %H:%M")
+
+        # Duration aus Timestamps berechnen
+        end_ts = event_data.get("end_timestamp")
+        if ts and end_ts:
+            session.fields["duration_minutes"] = (end_ts - ts) // 60
+
+        # Edit-Modus
+        session.editing_message_id = message_id
+        session.editing_channel_id = interaction.channel_id
+        session.label = event_data.get("label")
+        return session
 
     @app_commands.command(name="botc", description="Starte die Event-Erstellung per DM")
     async def host(self, interaction: discord.Interaction):
@@ -348,8 +477,22 @@ class HostCommand(commands.Cog):
             "url": chosen.get("url", ""), "source": "botcscripts",
         })
         session.pending_script_choices = None
+        return_to_summary = getattr(session, "_script_choice_return_to_summary", False)
+        session._script_choice_return_to_summary = False
+
+        # Komplexitäts-Analyse
+        chars = chosen.get("characters", [])
+        if chars:
+            analysis = analyze_script_complexity(chars)
+            session.fields["complexity_analysis"] = analysis
+            session.label = compute_label(session.fields)
+
         await channel.send(f"✅ **{chosen['name']}** ausgewählt!")
-        await self._show_title_description_proposal(session, channel)
+
+        if return_to_summary:
+            await self._show_summary(session, channel)
+        else:
+            await self._show_title_description_proposal(session, channel)
 
     # ── Schritt 3: Titel & Beschreibung ──────────────────────────────
 
@@ -486,19 +629,124 @@ class HostCommand(commands.Cog):
         ch = message.channel
         text = message.content.strip()
 
+        # ── Skript-Edit: DB-Suche oder manuell ────────────────────────
+        if getattr(session, "pending_script_edit_mode", False):
+            session.pending_script_edit_mode = False
+            tl = text.lower().strip()
+            if tl in ("1", "suchen", "datenbank", "db"):
+                session.pending_script_search = True
+                await ch.send("Gib den **Skriptnamen** ein, nach dem ich suchen soll:")
+                return
+            elif tl in ("2", "eingeben", "manuell", "selbst"):
+                session.pending_field_edit = "script"
+                await ch.send("Gib den **neuen Skriptnamen** ein:")
+                return
+            else:
+                await ch.send("Bitte wähle **1** (Datenbank suchen) oder **2** (selbst eingeben).")
+                session.pending_script_edit_mode = True
+                return
+
+        # ── Skript-Edit: DB-Suche läuft ──────────────────────────────
+        if getattr(session, "pending_script_search", False):
+            session.pending_script_search = False
+            await ch.send(f"Ich suche **{text}** in der Datenbank...")
+            async with ch.typing():
+                results = await search_scripts(text, limit=5)
+            session.touch()
+            if results:
+                session.pending_script_choices = results
+                session._script_choice_return_to_summary = True
+                embed = _build_script_choice_embed(text, results)
+                await ch.send(embed=embed)
+            else:
+                await ch.send(f"**{text}** nicht gefunden. Gib einen anderen Namen ein oder 'abbrechen'.")
+                session.pending_script_search = True
+            return
+
         # ── Feld-Edit (aus Summary) ──────────────────────────────────
         if getattr(session, "pending_field_edit", None):
             key = session.pending_field_edit
             session.pending_field_edit = None
+            tl = text.lower().strip()
+
+            if key == "_image":
+                if tl in ("auto", "automatisch", "standard", "reset"):
+                    session._custom_image_url = None
+                    await ch.send("Bild auf automatisches Skript-Bild zurückgesetzt.")
+                elif message.attachments:
+                    att = message.attachments[0]
+                    if att.content_type and att.content_type.startswith("image/"):
+                        session._custom_image_url = att.url
+                        session._summary_has_image = False  # Custom ersetzt Auto
+                        await ch.send(f"Eigenes Bild gesetzt.")
+                    else:
+                        await ch.send("Das ist kein Bild. Sende eine Bilddatei oder schreibe `auto`.")
+                        session.pending_field_edit = "_image"
+                        return
+                else:
+                    await ch.send("Sende ein **Bild als Datei** oder schreibe `auto`.")
+                    session.pending_field_edit = "_image"
+                    return
+                await self._show_summary(session, ch)
+                return
+
+            if key == "_labels":
+                # Labels: "casual ja", "academy nein", etc.
+                if "casual" in tl:
+                    session.fields["is_casual"] = any(w in tl for w in ("ja", "yes", "true", "an"))
+                elif "academy" in tl:
+                    session.fields["is_academy"] = any(w in tl for w in ("ja", "yes", "true", "an"))
+                else:
+                    await ch.send("Nicht erkannt. Schreibe z.B. `casual ja` oder `academy nein`.")
+                    session.pending_field_edit = "_labels"
+                    return
+                await self._show_summary(session, ch)
+                return
+
+            if key == "start_time":
+                # Termin & Dauer zusammen: "2026-03-25 20:00 180min" oder nur eins
+                import re
+                # Dauer extrahieren (z.B. "180min", "180", "2h")
+                dur_match = re.search(r'(\d+)\s*(?:min|m\b)', tl)
+                hour_match = re.search(r'(\d+)\s*(?:h|std)', tl)
+                # Termin extrahieren (YYYY-MM-DD HH:MM)
+                time_match = re.search(r'(\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2})', text)
+
+                if time_match:
+                    session.fields["start_time"] = time_match.group(1)
+                if dur_match:
+                    session.fields["duration_minutes"] = int(dur_match.group(1))
+                elif hour_match:
+                    session.fields["duration_minutes"] = int(hour_match.group(1)) * 60
+                elif not time_match:
+                    # Nur eine Zahl → Dauer in Minuten
+                    try:
+                        session.fields["duration_minutes"] = int(text)
+                    except ValueError:
+                        # Vielleicht ein Termin ohne erkanntes Format
+                        session.fields["start_time"] = text
+                await self._show_summary(session, ch)
+                return
+
             val = text
             if key == "camera":
-                val = None if val.lower() in ("keine pflicht", "optional", "egal") else val.lower() in ("an", "ja", "pflicht")
+                val = None if tl in ("keine pflicht", "optional", "egal", "nein", "no") else tl in ("an", "ja", "pflicht")
             elif key == "is_casual":
-                val = val.lower() in ("ja", "yes", "true")
-            elif key in ("duration_minutes", "max_players"):
+                val = tl in ("ja", "yes", "true")
+            elif key == "max_players":
                 try: val = int(val)
                 except ValueError: pass
             session.fields[key] = val
+
+            # Bei Skript-Änderung: Komplexitäts-Analyse neu laufen
+            if key == "script":
+                sd, _ = lookup_script(val)
+                chars = sd.get("characters", []) if sd else []
+                if chars:
+                    analysis = analyze_script_complexity(chars)
+                    session.fields["complexity_analysis"] = analysis
+                    session.label = compute_label(session.fields)
+
             await self._show_summary(session, ch)
             return
 
@@ -643,19 +891,109 @@ class HostCommand(commands.Cog):
 
         # ── Summary Review (Schritt 4) ───────────────────────────────
         if getattr(session, "pending_summary", False):
+            # 1. Nummer → Feld-Edit
             try:
                 num = int(text)
                 for i, (key, label) in enumerate(SUMMARY_FIELDS, 1):
                     if i == num:
-                        session.pending_field_edit = key
-                        await ch.send(f"Was soll der neue Wert für **{label}** sein?")
+                        if key == "script":
+                            session.pending_script_edit_mode = True
+                            await ch.send(
+                                "Möchtest du:\n"
+                                "**1** — In der Datenbank suchen\n"
+                                "**2** — Selbst einen Namen eingeben"
+                            )
+                        elif key == "_labels":
+                            await ch.send(
+                                "Welches Label möchtest du ändern?\n"
+                                "• `casual ja/nein`\n"
+                                "• `academy ja/nein`"
+                            )
+                            session.pending_field_edit = "_labels"
+                        elif key == "start_time":
+                            await ch.send(
+                                "Was möchtest du ändern?\n"
+                                "• Nur Termin: z.B. `2026-03-25 20:00`\n"
+                                "• Nur Dauer: z.B. `180`\n"
+                                "• Beides: z.B. `2026-03-25 20:00 180min`"
+                            )
+                            session.pending_field_edit = "start_time"
+                        elif key == "_image":
+                            await ch.send(
+                                "Sende ein **eigenes Bild** als Datei oder schreibe `auto` "
+                                "für das automatische Skript-Bild."
+                            )
+                            session.pending_field_edit = "_image"
+                        else:
+                            session.pending_field_edit = key
+                            await ch.send(f"Was soll der neue Wert für **{label}** sein?")
                         return
                 await ch.send(f"Bitte wähle 1-{len(SUMMARY_FIELDS)}.")
                 return
             except ValueError:
                 pass
 
-            # Freitext → an Haiku
+            # 2. NL-Keyword-Erkennung
+            tl = text.lower()
+            matched_key = None
+            matched_value = None
+            for keyword, field_key in FIELD_KEYWORDS.items():
+                if keyword in tl:
+                    matched_key = field_key
+                    # Versuche einen Wert zu extrahieren (nach "in", "zu", "auf", ":")
+                    import re
+                    for pattern in [
+                        rf'{keyword}\s+(?:in|zu|auf|:)\s+(.+)',
+                        rf'(?:in|zu|auf|:)\s+(.+?)\s+{keyword}',
+                        rf'{keyword}\s+ändern\s+(?:in|zu|auf|:)\s+(.+)',
+                    ]:
+                        m = re.search(pattern, tl)
+                        if m:
+                            matched_value = text[m.start(1):m.end(1)].strip()
+                            break
+                    break
+
+            if matched_key:
+                label = FIELD_LABELS.get(matched_key, matched_key)
+                if matched_key == "script":
+                    if matched_value:
+                        # "Skript in XYZ ändern" → direkt setzen
+                        session.fields["script"] = matched_value
+                        sd, _ = lookup_script(matched_value)
+                        chars = sd.get("characters", []) if sd else []
+                        if chars:
+                            analysis = analyze_script_complexity(chars)
+                            session.fields["complexity_analysis"] = analysis
+                            session.label = compute_label(session.fields)
+                        await self._show_summary(session, ch)
+                    else:
+                        session.pending_script_edit_mode = True
+                        await ch.send(
+                            "Möchtest du:\n"
+                            "**1** — In der Datenbank suchen\n"
+                            "**2** — Selbst einen Namen eingeben"
+                        )
+                    return
+                elif matched_value:
+                    # Wert direkt setzen
+                    val = matched_value
+                    if matched_key == "is_casual":
+                        val = val.lower() in ("ja", "yes", "true")
+                    elif matched_key == "camera":
+                        val = None if val.lower() in ("keine pflicht", "optional", "egal") else val.lower() in ("an", "ja", "pflicht")
+                    elif matched_key in ("duration_minutes", "max_players"):
+                        try: val = int(val)
+                        except ValueError: pass
+                    session.fields[matched_key] = val
+                    await self._show_summary(session, ch)
+                    return
+                else:
+                    # Nur Keyword erkannt, kein Wert → nachfragen
+                    session.pending_field_edit = matched_key
+                    await ch.send(f"Was soll der neue Wert für **{label}** sein?")
+                    return
+
+            # 3. Fallback: An Haiku senden
             async with ch.typing():
                 response = await call_haiku(session, f"Der User möchte ändern: {text}\nPasse Felder an, action='done'.")
             if response and response.get("action") == "done":
