@@ -26,7 +26,7 @@ HTML_SEARCH = "https://www.botcscripts.com/?search={query}"
 DOWNLOAD_URL = "https://www.botcscripts.com/script/{id}/{version}/download"
 
 REQUEST_TIMEOUT = 15
-REQUEST_DELAY = 1.5
+REQUEST_DELAY = 0.5
 HEADERS = {"User-Agent": "BotC-EventBot/1.0"}
 
 

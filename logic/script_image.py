@@ -1,19 +1,18 @@
-"""Script-Bild-Generierung mit HTML/CSS → PNG via html2image.
+"""Script-Bild-Generierung mit Pillow.
 
 Erzeugt ein PNG im Stil der botcscripts.com PDFs.
-Layout wird per HTML/CSS (Flexbox) definiert — kein manuelles Pixel-Positionieren.
+Layout-Zentrierung über _draw_row() Helper — kein manuelles Pixel-Shifting.
 """
 
 import asyncio
-import base64
 import io
 import logging
 import os
 import re
+import textwrap
 
 import requests
-from html2image import Html2Image
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from logic.script_cache import (
     get_character_icon_path,
@@ -24,44 +23,84 @@ from logic.script_cache import (
 
 logger = logging.getLogger(__name__)
 
+# ── Layout ───────────────────────────────────────────────────────────────────
+
+COLS = 2
+ICON_SIZE = 80
+ICON_SMALL = 36
+ICON_JINX = 48
+CHAR_WIDTH = 400
+PADDING = 25
+SECTION_GAP = 8
+HEADER_HEIGHT = 28
+ABILITY_LINE_HEIGHT = 13
+JINX_LINE_HEIGHT = 14
+FOOTER_HEIGHT = 22
+TEXT_PADDING = 6
+DIVIDER_THICKNESS = 1
 DJINN_ID = "djinn"
-TEAM_ORDER = ["Townsfolk", "Outsider", "Minion", "Demon"]
-TEAM_ORDER_ALL = ["Townsfolk", "Outsider", "Minion", "Demon", "Traveller", "Fabled", "Loric"]
+
+# ── Farben ───────────────────────────────────────────────────────────────────
+
+BG_COLOR = (255, 255, 255)
+TITLE_COLOR = (4, 4, 4)
+SUBTITLE_COLOR = (100, 100, 100)
+HEADER_COLOR = (4, 4, 4)
+ABILITY_COLOR = (4, 4, 4)
+LINE_COLOR = (4, 4, 4)
+FOOTER_COLOR = (150, 150, 150)
+
+NAME_COLORS = {
+    "Townsfolk": (0, 100, 172),
+    "Outsider":  (0, 100, 172),
+    "Minion":    (180, 40, 40),
+    "Demon":     (180, 40, 40),
+    "Traveller": (150, 120, 200),
+    "Fabled":    (107, 99, 60),
+    "Loric":     (117, 138, 84),
+}
+
+# ── Fonts ────────────────────────────────────────────────────────────────────
 
 FONT_DIR = os.path.join(STATIC_DIR, "fonts")
 _F_TITLE = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_AUTHOR = os.path.join(FONT_DIR, "Inter.ttf")
+_F_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")
 _F_ABILITY = os.path.join(FONT_DIR, "TradeGothic-Regular.otf")
 
-NAME_COLORS = {
-    "Townsfolk": "#0064ac",
-    "Outsider": "#0064ac",
-    "Minion": "#b42828",
-    "Demon": "#b42828",
-    "Traveller": "#9678c8",
-    "Fabled": "#6b633c",
-    "Loric": "#758a54",
-}
+SZ_TITLE = 36
+SZ_AUTHOR = 14
+SZ_FABLED_TITLE = 13
+SZ_HEADER = 14
+SZ_NAME = 15
+SZ_ABILITY = 13
+SZ_JINX = 12
+SZ_FOOTER = 9
 
-IMG_WIDTH = 850
+TEAM_ORDER = ["Townsfolk", "Outsider", "Minion", "Demon"]
+TEAM_ORDER_ALL = ["Townsfolk", "Outsider", "Minion", "Demon", "Traveller", "Fabled", "Loric"]
 
 
-# ── Icon Loading ──────────────────────────────────────────────────────────────
+def _font(path, size):
+    try:
+        return ImageFont.truetype(path, size)
+    except (OSError, IOError):
+        return ImageFont.load_default()
 
-def _load_icon_b64(char_id, evil=False, icon_urls=None) -> str:
-    """Lädt ein Icon und gibt es als Base64 Data-URL zurück."""
-    # Lokales Icon versuchen
+
+# ── Icon Loading ─────────────────────────────────────────────────────────────
+
+def _load_icon(char_id, evil=False, size=ICON_SIZE, icon_urls=None):
+    """Lädt ein Icon: lokal zuerst, dann URL-Fallback für Homebrew."""
     icon_path = get_character_icon_path(char_id, evil=evil)
     if icon_path:
         try:
-            with open(icon_path, "rb") as f:
-                data = f.read()
-            return f"data:image/png;base64,{base64.b64encode(data).decode()}"
+            img = Image.open(icon_path).convert("RGBA")
+            return img.resize((size, size), Image.Resampling.LANCZOS)
         except Exception:
             pass
 
-    # URL-Fallback für Homebrew-Icons
     if icon_urls:
         url = None
         if isinstance(icon_urls, list) and len(icon_urls) >= 2:
@@ -70,31 +109,103 @@ def _load_icon_b64(char_id, evil=False, icon_urls=None) -> str:
             url = icon_urls[0]
         elif isinstance(icon_urls, str):
             url = icon_urls
-
         if url:
             try:
                 r = requests.get(url, timeout=10)
                 if r.status_code == 200:
-                    return f"data:image/png;base64,{base64.b64encode(r.content).decode()}"
+                    img = Image.open(io.BytesIO(r.content)).convert("RGBA")
+                    return img.resize((size, size), Image.Resampling.LANCZOS)
             except Exception as e:
                 logger.debug("Homebrew-Icon download failed for %s: %s", char_id, e)
 
-    return ""
+    return None
 
 
-def _placeholder_b64(size=80) -> str:
-    """Erzeugt ein Placeholder-Icon als Base64."""
-    from PIL import ImageDraw, ImageFont
+def _placeholder(size=ICON_SIZE):
     img = Image.new("RGBA", (size, size), (220, 220, 230, 200))
     draw = ImageDraw.Draw(img)
-    try:
-        f = ImageFont.truetype(_F_NAME, size // 3)
-    except Exception:
-        f = ImageFont.load_default()
+    f = _font(_F_NAME, size // 3)
     draw.text((size // 2, size // 2), "?", fill=(100, 100, 100), font=f, anchor="mm")
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
+    return img
+
+
+def _paste(canvas, icon, x, y):
+    if icon.mode == "RGBA":
+        bg = Image.new("RGB", icon.size, BG_COLOR)
+        bg.paste(icon, (0, 0), icon)
+        canvas.paste(bg, (x, y))
+    else:
+        canvas.paste(icon, (x, y))
+
+
+# ── Text Helpers ─────────────────────────────────────────────────────────────
+
+def _wrap(text, max_chars=42):
+    return textwrap.wrap(text, width=max_chars) if text else []
+
+
+def _text_height(text, max_chars=42):
+    lines = len(_wrap(text, max_chars)) if text else 1
+    return lines * ABILITY_LINE_HEIGHT
+
+
+def _draw_ability(draw, x, y, text, font_r, font_b, max_width=300):
+    """Zeichnet Ability mit [bracket]-Fettdruck."""
+    segments = re.split(r'(\[[^\]]*\])', text)
+    words = []
+    for seg in segments:
+        if not seg:
+            continue
+        if seg.startswith('[') and seg.endswith(']'):
+            words.append((seg, True))
+        else:
+            for w in seg.split():
+                words.append((w, False))
+
+    curr_x = x
+    for word, bold in words:
+        f = font_b if bold else font_r
+        space = " " if curr_x > x else ""
+        bbox = draw.textbbox((0, 0), space + word, font=f)
+        w = bbox[2] - bbox[0]
+        if curr_x + w > x + max_width and curr_x > x:
+            y += ABILITY_LINE_HEIGHT
+            curr_x = x
+            space = ""
+        t = space + word if curr_x > x else word
+        draw.text((curr_x, y), t, fill=ABILITY_COLOR, font=f)
+        bbox = draw.textbbox((curr_x, y), t, font=f)
+        curr_x = bbox[2]
+
+
+# ── Layout Helper ────────────────────────────────────────────────────────────
+
+def _row_height(ability_text, icon_size=ICON_SIZE):
+    """Berechnet die Höhe einer Zeile: max(Icon, Text)."""
+    text_h = SZ_NAME + 4 + _text_height(ability_text)
+    return max(icon_size, text_h)
+
+
+def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_width, icon_size=ICON_SIZE):
+    """Zeichnet eine Zeile (Icon + Name + Ability) vertikal zentriert. Gibt row_height zurück."""
+    name_h = SZ_NAME + 4
+    ability_h = _text_height(ability)
+    text_h = name_h + ability_h
+    row_h = max(icon_size, text_h)
+
+    # Icon: vertikal zentriert
+    icon_y = y + (row_h - icon_size) // 2
+    _paste(img, icon, x, icon_y)
+
+    # Text: vertikal zentriert
+    text_y = y + (row_h - text_h) // 2
+    tx = x + icon_size + TEXT_PADDING
+    draw.text((tx, text_y), name, fill=name_color, font=fonts["name"])
+    if ability:
+        _draw_ability(draw, tx, text_y + name_h, ability,
+                      fonts["ability"], fonts["ability_b"], max_width=text_width)
+
+    return row_h
 
 
 # ── Character Categorization ─────────────────────────────────────────────────
@@ -130,317 +241,6 @@ def _categorize(char_ids, chars_db, content_data=None):
     return cats
 
 
-# ── Ability Formatting ────────────────────────────────────────────────────────
-
-def _ability_html(text):
-    """Konvertiert [bracket]-Text zu <b>-Tags und escaped HTML."""
-    if not text:
-        return ""
-    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    # [text] → <b>text</b>
-    text = re.sub(r'\[([^\]]*)\]', r'<b>[\1]</b>', text)
-    return text
-
-
-# ── HTML Builder ──────────────────────────────────────────────────────────────
-
-def _build_html(script_name, author, version, cats, fabled_loric, jinxes,
-                bootlegger_rules, chars_db, content_data, placeholder):
-    """Baut das komplette HTML für das Script-Bild."""
-
-    # Font-Pfade für @font-face (absolute file:// URLs)
-    font_title = _F_TITLE.replace("\\", "/")
-    font_author = _F_AUTHOR.replace("\\", "/")
-    font_name = _F_NAME.replace("\\", "/")
-    font_ability = _F_ABILITY.replace("\\", "/")
-
-    css = f"""
-    @font-face {{ font-family: 'Dumbledor'; src: url('file:///{font_title}'); }}
-    @font-face {{ font-family: 'Inter'; src: url('file:///{font_author}'); }}
-    @font-face {{ font-family: 'TradeGothic'; src: url('file:///{font_ability}'); }}
-    @font-face {{ font-family: 'TradeGothicBold'; src: url('file:///{font_name}'); }}
-
-    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-    body {{
-        width: {IMG_WIDTH}px;
-        background: white;
-        font-family: 'TradeGothic', Arial, sans-serif;
-        color: #040404;
-        padding: 25px;
-    }}
-
-    .title {{
-        font-family: 'Dumbledor', serif;
-        font-size: 36px;
-        color: #040404;
-        display: flex;
-        align-items: baseline;
-        gap: 12px;
-    }}
-    .version {{
-        font-family: 'Inter', sans-serif;
-        font-size: 14px;
-        color: #646464;
-    }}
-    .author {{
-        font-family: 'Inter', sans-serif;
-        font-size: 14px;
-        color: #646464;
-        margin: 2px 0 4px 0;
-    }}
-
-    .fabled-row {{
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        margin: 4px 0 8px 0;
-        flex-wrap: wrap;
-    }}
-    .fabled-chip {{
-        display: flex;
-        align-items: center;
-        gap: 5px;
-        margin-right: 10px;
-    }}
-    .fabled-chip img {{ width: 36px; height: 36px; }}
-    .fabled-chip span {{ font-family: 'Inter', sans-serif; font-size: 13px; }}
-
-    .section-header {{
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin: 8px 0 4px 0;
-    }}
-    .section-header span {{
-        font-family: 'Dumbledor', serif;
-        font-size: 14px;
-        white-space: nowrap;
-    }}
-    .section-header .line {{
-        flex: 1;
-        height: 1px;
-        background: #040404;
-    }}
-
-    .char-grid {{
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-    }}
-
-    .char-block {{
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 2px 0;
-        min-height: 72px;
-    }}
-    .char-block img {{
-        width: 80px;
-        height: 80px;
-        flex-shrink: 0;
-    }}
-    .char-text {{
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }}
-    .char-name {{
-        font-family: 'TradeGothicBold', Arial, sans-serif;
-        font-size: 15px;
-        line-height: 1.2;
-    }}
-    .char-ability {{
-        font-size: 13px;
-        line-height: 1.3;
-        color: #040404;
-    }}
-
-    .fl-section {{ margin-top: 4px; }}
-    .fl-block {{
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 2px 0;
-        min-height: 72px;
-    }}
-    .fl-block img {{
-        width: 80px;
-        height: 80px;
-        flex-shrink: 0;
-    }}
-
-    .jinx-block {{
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 2px 0 2px 86px;
-        min-height: 48px;
-    }}
-    .jinx-icons {{
-        display: flex;
-        flex-shrink: 0;
-    }}
-    .jinx-icons img {{
-        width: 48px;
-        height: 48px;
-    }}
-    .jinx-icons img:last-child {{
-        margin-left: -8px;
-    }}
-    .jinx-text {{
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-    }}
-    .jinx-header {{
-        font-family: 'TradeGothicBold', Arial, sans-serif;
-        font-size: 15px;
-    }}
-    .jinx-reason {{
-        font-size: 12px;
-        line-height: 1.3;
-    }}
-
-    .bootlegger-rule {{
-        padding: 2px 0 2px 100px;
-        font-size: 12px;
-        line-height: 1.3;
-    }}
-
-    .footer {{
-        display: flex;
-        justify-content: space-between;
-        margin-top: 12px;
-        font-family: 'Inter', sans-serif;
-        font-size: 9px;
-        color: #969696;
-    }}
-    """
-
-    parts = [f"<style>{css}</style>"]
-
-    # Titel + Version
-    parts.append(f'<div class="title">{_esc(script_name)}')
-    if version:
-        parts.append(f'<span class="version">v{_esc(version)}</span>')
-    parts.append('</div>')
-
-    # Autor
-    if author:
-        parts.append(f'<div class="author">by {_esc(author)}</div>')
-
-    # Fabled/Loric Icons unter Autor
-    if fabled_loric:
-        parts.append('<div class="fabled-row">')
-        for fl in fabled_loric:
-            icon = _load_icon_b64(fl["id"], icon_urls=fl.get("icon_urls")) or placeholder
-            color = NAME_COLORS.get(fl["team"], "#040404")
-            parts.append(
-                f'<div class="fabled-chip">'
-                f'<img src="{icon}">'
-                f'<span style="color:{color}">{_esc(fl["name"])}</span>'
-                f'</div>'
-            )
-        parts.append('</div>')
-
-    # Character Sektionen
-    for team in TEAM_ORDER:
-        chars = cats.get(team, [])
-        if not chars:
-            continue
-
-        color = NAME_COLORS.get(team, "#0064ac")
-        is_evil = team in ("Minion", "Demon")
-
-        parts.append(f'<div class="section-header"><span>{team.upper()}</span><div class="line"></div></div>')
-        parts.append('<div class="char-grid">')
-
-        for char in chars:
-            icon = _load_icon_b64(char["id"], evil=is_evil, icon_urls=char.get("icon_urls")) or placeholder
-            parts.append(
-                f'<div class="char-block">'
-                f'<img src="{icon}">'
-                f'<div class="char-text">'
-                f'<div class="char-name" style="color:{color}">{_esc(char["name"])}</div>'
-                f'<div class="char-ability">{_ability_html(char["ability"])}</div>'
-                f'</div></div>'
-            )
-
-        parts.append('</div>')
-
-    # Fabled & Loric Sektion
-    if fabled_loric or jinxes or bootlegger_rules:
-        parts.append('<div class="section-header"><span>FABLED &amp; LORIC</span><div class="line"></div></div>')
-        parts.append('<div class="fl-section">')
-
-        for fl in fabled_loric:
-            color = NAME_COLORS.get(fl["team"], "#040404")
-            icon = _load_icon_b64(fl["id"], icon_urls=fl.get("icon_urls")) or placeholder
-            parts.append(
-                f'<div class="fl-block">'
-                f'<img src="{icon}">'
-                f'<div class="char-text">'
-                f'<div class="char-name" style="color:{color}">{_esc(fl["name"])}</div>'
-                f'<div class="char-ability">{_ability_html(fl["ability"])}</div>'
-                f'</div></div>'
-            )
-
-            # Jinxes unter Djinn
-            if fl["id"] == DJINN_ID and jinxes:
-                for jnx in jinxes:
-                    a_info = chars_db.get(jnx["char_a"], {})
-                    b_info = chars_db.get(jnx["char_b"], {})
-                    hw_a = content_data.get(jnx["char_a"], {})
-                    hw_b = content_data.get(jnx["char_b"], {})
-                    name_a = a_info.get("character_name") or hw_a.get("name") or jnx["char_a"]
-                    name_b = b_info.get("character_name") or hw_b.get("name") or jnx["char_b"]
-                    team_a = a_info.get("character_type") or _team_from_content(hw_a.get("team")) or "Townsfolk"
-                    team_b = b_info.get("character_type") or _team_from_content(hw_b.get("team")) or "Townsfolk"
-                    color_a = NAME_COLORS.get(team_a, "#040404")
-                    color_b = NAME_COLORS.get(team_b, "#040404")
-                    is_evil_a = team_a in ("Minion", "Demon")
-                    is_evil_b = team_b in ("Minion", "Demon")
-                    icon_a = _load_icon_b64(jnx["char_a"], evil=is_evil_a,
-                                            icon_urls=hw_a.get("image")) or placeholder
-                    icon_b = _load_icon_b64(jnx["char_b"], evil=is_evil_b,
-                                            icon_urls=hw_b.get("image")) or placeholder
-
-                    parts.append(
-                        f'<div class="jinx-block">'
-                        f'<div class="jinx-icons"><img src="{icon_a}"><img src="{icon_b}"></div>'
-                        f'<div class="jinx-text">'
-                        f'<div class="jinx-header">'
-                        f'{_esc(name_a)} &amp; {_esc(name_b)}'
-                        f'</div>'
-                        f'<div class="jinx-reason">{_esc(jnx["reason"])}</div>'
-                        f'</div></div>'
-                    )
-
-            # Bootlegger-Regeln
-            if fl["id"] == "bootlegger" and bootlegger_rules:
-                for rule in bootlegger_rules:
-                    parts.append(f'<div class="bootlegger-rule">• {_esc(rule)}</div>')
-
-        parts.append('</div>')
-
-    # Footer
-    parts.append(
-        '<div class="footer">'
-        '<span>© Steven Medway  bloodontheclocktower.com</span>'
-        '<span>*not the first night</span>'
-        '</div>'
-    )
-
-    return "\n".join(parts)
-
-
-def _esc(text):
-    """HTML-Escape."""
-    if not text:
-        return ""
-    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-
 # ── Main Generation ──────────────────────────────────────────────────────────
 
 def _generate_sync(script_name, author, char_ids, version="", meta=None, content=None):
@@ -460,7 +260,9 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     cats = _categorize(char_ids, chars_db, content_data)
     jinxes = get_jinxes_for_script(char_ids)
     bootlegger_rules = (meta or {}).get("bootlegger", [])
-    placeholder = _placeholder_b64()
+    ph = _placeholder()
+    ph_sm = _placeholder(ICON_SMALL)
+    ph_jinx = _placeholder(ICON_JINX)
 
     fabled_loric = cats.get("Fabled", []) + cats.get("Loric", [])
 
@@ -475,70 +277,219 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         })
     fabled_loric.sort(key=lambda x: (0 if x["id"] == DJINN_ID else 1))
 
-    html = _build_html(
-        script_name, author, version, cats, fabled_loric,
-        jinxes, bootlegger_rules, chars_db, content_data, placeholder,
-    )
+    # Fonts dict für _draw_row
+    f_name = _font(_F_NAME, SZ_NAME)
+    f_ability = _font(_F_ABILITY, SZ_ABILITY)
+    f_ability_b = _font(_F_NAME, SZ_ABILITY)
+    fonts = {"name": f_name, "ability": f_ability, "ability_b": f_ability_b, "name_size": SZ_NAME}
 
-    # Render HTML → PNG
-    import shutil
-    import tempfile
+    f_title = _font(_F_TITLE, SZ_TITLE)
+    f_author = _font(_F_AUTHOR, SZ_AUTHOR)
+    f_fabled_t = _font(_F_AUTHOR, SZ_FABLED_TITLE)
+    f_header = _font(_F_HEADER, SZ_HEADER)
+    f_jinx = _font(_F_ABILITY, SZ_JINX)
+    f_footer = _font(_F_AUTHOR, SZ_FOOTER)
 
-    # Chromium-Pfad finden
-    chrome_path = None
-    # 1. Standard-Pfade per which
-    for name in ["chromium-browser", "chromium", "google-chrome", "google-chrome-stable"]:
-        found = shutil.which(name)
-        if found:
-            chrome_path = found
-            break
-    # 2. Nixpacks: Chromium liegt unter /nix/store/
-    if not chrome_path:
-        import glob
-        nix_matches = glob.glob("/nix/store/*/bin/chromium")
-        if nix_matches:
-            chrome_path = nix_matches[0]
+    img_width = PADDING * 2 + COLS * CHAR_WIDTH
+    text_area_width = CHAR_WIDTH - ICON_SIZE - TEXT_PADDING - 5
+    fl_text_width = img_width - PADDING * 2 - ICON_SIZE - TEXT_PADDING - 10
 
-    logger.info("Chrome/Chromium path: %s", chrome_path or "NOT FOUND (using html2image default)")
+    # Jinx/Bootlegger text area
+    jinx_x = PADDING + ICON_SIZE + TEXT_PADDING
+    jinx_text_w = img_width - jinx_x - PADDING - 5
+    jinx_icon_text_w = jinx_text_w - ICON_JINX * 2 + 4 - 6
+    jinx_wrap_chars = max(40, jinx_icon_text_w // 7)
+    boot_wrap_chars = max(40, (jinx_text_w - 12) // 7)
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        kwargs = {
-            "size": (IMG_WIDTH, 8000),
-            "output_path": tmpdir,
-            "custom_flags": [
-                "--no-sandbox", "--disable-gpu", "--hide-scrollbars",
-                "--disable-dev-shm-usage", "--disable-software-rasterizer",
-            ],
-        }
-        if chrome_path:
-            kwargs["browser_executable"] = chrome_path
-        hti = Html2Image(**kwargs)
-        hti.screenshot(html_str=html, save_as="script.png")
+    # ── Höhe berechnen ────────────────────────────────────────────────
+    height = PADDING + 42 + 18  # title + author
+    if fabled_loric:
+        height += 40  # fabled row
+    height += SECTION_GAP
 
-        png_path = os.path.join(tmpdir, "script.png")
-        with Image.open(png_path) as img:
-            # Auto-crop: Von unten nach oben scannen, erste nicht-weiße Zeile finden
-            img = img.convert("RGB")
-            pixels = img.load()
-            w, h = img.size
-            bottom = h
-            for row in range(h - 1, 0, -1):
-                is_white = all(
-                    pixels[x, row][0] > 250 and pixels[x, row][1] > 250 and pixels[x, row][2] > 250
-                    for x in range(0, w, 10)  # Jeden 10. Pixel prüfen (schneller)
-                )
-                if not is_white:
-                    bottom = row + 15  # Etwas Padding
-                    break
+    for team in TEAM_ORDER:
+        chars = cats.get(team, [])
+        if not chars:
+            continue
+        height += HEADER_HEIGHT
+        for i in range(0, len(chars), COLS):
+            row = chars[i:i + COLS]
+            height += max(_row_height(c["ability"]) for c in row)
+        height += SECTION_GAP
 
-            cropped = img.crop((0, 0, w, min(bottom, h)))
+    if fabled_loric or jinxes or bootlegger_rules:
+        height += HEADER_HEIGHT + SECTION_GAP
+        for fl in fabled_loric:
+            height += _row_height(fl["ability"])
+            if fl["id"] == DJINN_ID and jinxes:
+                for jnx in jinxes:
+                    jh = SZ_NAME + 4 + len(_wrap(jnx["reason"], jinx_wrap_chars)) * JINX_LINE_HEIGHT + 5
+                    height += max(ICON_JINX + 3, jh)
+            if fl["id"] == "bootlegger" and bootlegger_rules:
+                for rule in bootlegger_rules:
+                    height += len(_wrap(rule, boot_wrap_chars)) * JINX_LINE_HEIGHT + 10
+        height += SECTION_GAP
 
-            buf = io.BytesIO()
-            cropped.save(buf, format="PNG", optimize=True)
-            buf.seek(0)
+    height += FOOTER_HEIGHT + PADDING
 
-    logger.info("Script-Bild: '%s' (%d chars, %d jinxes)",
-                script_name, len(char_ids), len(jinxes))
+    # ── Zeichnen ──────────────────────────────────────────────────────
+    img = Image.new("RGB", (img_width, height), BG_COLOR)
+    draw = ImageDraw.Draw(img)
+    y = PADDING
+
+    # Titel + Version
+    draw.text((PADDING, y), script_name, fill=TITLE_COLOR, font=f_title)
+    if version:
+        tb = draw.textbbox((PADDING, y), script_name, font=f_title)
+        mid = (tb[1] + tb[3]) // 2
+        vb = draw.textbbox((0, 0), f"v{version}", font=f_author)
+        draw.text((tb[2] + 12, mid - (vb[3] - vb[1]) // 2),
+                  f"v{version}", fill=SUBTITLE_COLOR, font=f_author)
+    y += 42
+
+    # Autor
+    if author:
+        draw.text((PADDING, y), f"by {author}", fill=SUBTITLE_COLOR, font=f_author)
+    y += 18
+
+    # Fabled/Loric Icons unter Autor
+    if fabled_loric:
+        fx = PADDING
+        fabled_h = 40
+        for fl in fabled_loric:
+            icon = _load_icon(fl["id"], size=ICON_SMALL, icon_urls=fl.get("icon_urls")) or ph_sm
+            icon_y = y + (fabled_h - ICON_SMALL) // 2
+            _paste(img, icon, fx, icon_y)
+            fx += ICON_SMALL + 5
+            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
+            # Text vertikal zentriert zum Icon
+            text_bb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
+            text_h = text_bb[3] - text_bb[1]
+            text_y = y + (fabled_h - text_h) // 2
+            draw.text((fx, text_y), fl["name"], fill=color, font=f_fabled_t)
+            nb = draw.textbbox((fx, text_y), fl["name"], font=f_fabled_t)
+            fx = nb[2] + 15
+        y += fabled_h
+
+    y += SECTION_GAP
+
+    # ── Character Sektionen ───────────────────────────────────────────
+    for team in TEAM_ORDER:
+        chars = cats.get(team, [])
+        if not chars:
+            continue
+
+        # Header
+        header_text = team.upper()
+        draw.text((PADDING, y + 4), header_text, fill=HEADER_COLOR, font=f_header)
+        hb = draw.textbbox((PADDING, y + 4), header_text, font=f_header)
+        text_mid_y = (hb[1] + hb[3]) // 2
+        draw.line([(hb[2] + 10, text_mid_y), (img_width - PADDING, text_mid_y)],
+                  fill=LINE_COLOR, width=DIVIDER_THICKNESS)
+        y += HEADER_HEIGHT
+
+        name_color = NAME_COLORS.get(team, (0, 100, 172))
+        is_evil = team in ("Minion", "Demon")
+
+        for i in range(0, len(chars), COLS):
+            row = chars[i:i + COLS]
+            row_h = max(_row_height(c["ability"]) for c in row)
+
+            for col, char in enumerate(row):
+                x = PADDING + col * CHAR_WIDTH
+                icon = _load_icon(char["id"], evil=is_evil, icon_urls=char.get("icon_urls")) or ph
+
+                # _draw_row zentriert automatisch
+                _draw_row(draw, img, x, y, icon, char["name"], char["ability"],
+                          name_color, fonts, text_area_width)
+            y += row_h
+        y += SECTION_GAP
+
+    # ── Fabled & Loric Sektion ────────────────────────────────────────
+    if fabled_loric or jinxes or bootlegger_rules:
+        header_text = "FABLED & LORIC"
+        draw.text((PADDING, y + 4), header_text, fill=HEADER_COLOR, font=f_header)
+        hb = draw.textbbox((PADDING, y + 4), header_text, font=f_header)
+        text_mid_y = (hb[1] + hb[3]) // 2
+        draw.line([(hb[2] + 10, text_mid_y), (img_width - PADDING, text_mid_y)],
+                  fill=LINE_COLOR, width=DIVIDER_THICKNESS)
+        y += HEADER_HEIGHT
+
+        for fl in fabled_loric:
+            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
+            icon = _load_icon(fl["id"], icon_urls=fl.get("icon_urls")) or ph
+
+            row_h = _draw_row(draw, img, PADDING, y, icon, fl["name"], fl["ability"],
+                              color, fonts, fl_text_width)
+            y += row_h
+
+            # Jinxes unter Djinn
+            if fl["id"] == DJINN_ID and jinxes:
+                for jnx in jinxes:
+                    a_info = chars_db.get(jnx["char_a"], {})
+                    b_info = chars_db.get(jnx["char_b"], {})
+                    hw_a = content_data.get(jnx["char_a"], {})
+                    hw_b = content_data.get(jnx["char_b"], {})
+                    name_a = a_info.get("character_name") or hw_a.get("name") or jnx["char_a"]
+                    name_b = b_info.get("character_name") or hw_b.get("name") or jnx["char_b"]
+                    team_a = a_info.get("character_type") or _team_from_content(hw_a.get("team")) or "Townsfolk"
+                    team_b = b_info.get("character_type") or _team_from_content(hw_b.get("team")) or "Townsfolk"
+                    is_evil_a = team_a in ("Minion", "Demon")
+                    is_evil_b = team_b in ("Minion", "Demon")
+                    icon_a = _load_icon(jnx["char_a"], evil=is_evil_a, size=ICON_JINX,
+                                        icon_urls=hw_a.get("image")) or ph_jinx
+                    icon_b = _load_icon(jnx["char_b"], evil=is_evil_b, size=ICON_JINX,
+                                        icon_urls=hw_b.get("image")) or ph_jinx
+
+                    reason_lines = _wrap(jnx["reason"], jinx_wrap_chars)
+                    header_h = SZ_NAME + 4
+                    text_h = len(reason_lines) * JINX_LINE_HEIGHT
+                    content_h = header_h + text_h
+                    jh = max(ICON_JINX + 3, content_h + 5)
+
+                    # Icons + Text zentriert
+                    icon_y = y + (jh - ICON_JINX) // 2
+                    _paste(img, icon_a, jinx_x, icon_y)
+                    _paste(img, icon_b, jinx_x + ICON_JINX - 8, icon_y)
+                    text_x = jinx_x + ICON_JINX * 2 - 4
+
+                    content_y = y + (jh - content_h) // 2
+                    draw.text((text_x, content_y), f"{name_a} & {name_b}",
+                              fill=ABILITY_COLOR, font=f_name)
+
+                    jt_y = content_y + header_h
+                    for li, line in enumerate(reason_lines):
+                        draw.text((text_x, jt_y + li * JINX_LINE_HEIGHT),
+                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                    y += jh
+
+            # Bootlegger-Regeln
+            if fl["id"] == "bootlegger" and bootlegger_rules:
+                for rule in bootlegger_rules:
+                    lines = _wrap(rule, boot_wrap_chars)
+                    draw.text((jinx_x, y), "•", fill=ABILITY_COLOR, font=f_jinx)
+                    for li, line in enumerate(lines):
+                        draw.text((jinx_x + 12, y + li * JINX_LINE_HEIGHT),
+                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                    y += len(lines) * JINX_LINE_HEIGHT + 8
+
+        y += SECTION_GAP
+
+    # ── Footer ────────────────────────────────────────────────────────
+    y = height - FOOTER_HEIGHT
+    draw.text((PADDING, y + 4), "© Steven Medway  bloodontheclocktower.com",
+              fill=FOOTER_COLOR, font=f_footer)
+    nfn = "*not the first night"
+    nb = draw.textbbox((0, 0), nfn, font=f_footer)
+    draw.text((img_width - PADDING - (nb[2] - nb[0]), y + 4), nfn,
+              fill=FOOTER_COLOR, font=f_footer)
+
+    # ── Export ────────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    logger.info("Script-Bild: '%s' (%dx%d, %d chars, %d jinxes)",
+                script_name, img_width, height, len(char_ids), len(jinxes))
     return buf
 
 
