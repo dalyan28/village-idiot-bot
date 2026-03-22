@@ -299,7 +299,7 @@ class HostCommand(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="host", description="Starte die Event-Erstellung per DM")
+    @app_commands.command(name="botc", description="Starte die Event-Erstellung per DM")
     async def host(self, interaction: discord.Interaction):
         guild = interaction.guild
         if not guild:
