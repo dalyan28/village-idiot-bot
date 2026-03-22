@@ -26,10 +26,10 @@ logger = logging.getLogger(__name__)
 # ── Layout ───────────────────────────────────────────────────────────────────
 
 COLS = 2
-ICON_SIZE = 80
-ICON_SMALL = 36
-ICON_JINX = 48
-CHAR_WIDTH = 400
+ICON_SIZE = 120
+ICON_SMALL = 54
+ICON_JINX = 72
+CHAR_WIDTH = 420
 PADDING = 25
 SECTION_GAP = 8
 HEADER_HEIGHT = 28
@@ -194,10 +194,13 @@ def _text_y_centered(draw, text, font, y, container_h):
     return y + (container_h - text_h) // 2 - offset_y
 
 
+ICON_OVERLAP_ALLOW = 20  # Icons dürfen so viele Pixel über die Textzeile hinausragen
+
 def _row_height(ability_text, icon_size=ICON_SIZE):
-    """Berechnet die Höhe einer Zeile: max(Icon, Text)."""
+    """Berechnet die Höhe einer Zeile. Icons dürfen überlappen."""
     text_h = SZ_NAME + 4 + _text_height(ability_text)
-    return max(icon_size, text_h)
+    # Icon darf über die Zeile hinausragen (Overlap erlaubt)
+    return max(icon_size - ICON_OVERLAP_ALLOW, text_h)
 
 
 def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_width, icon_size=ICON_SIZE):

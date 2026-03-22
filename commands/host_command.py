@@ -115,6 +115,7 @@ def _fmt(key, value):
     return str(value)
 
 
+
 def _parse_start_time(s):
     for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M"]:
         try:
@@ -478,6 +479,7 @@ class HostCommand(commands.Cog):
 
     async def _select_script(self, session, channel, chosen):
         """Wählt ein Script aus den Suchergebnissen, cached es, und geht zu Schritt 3."""
+        had_title = bool(session.fields.get("title"))
         session.fields["script"] = chosen["name"]
         cache_script(chosen["name"], {
             "name": chosen["name"], "author": chosen.get("author", ""),
@@ -489,7 +491,6 @@ class HostCommand(commands.Cog):
             "url": chosen.get("url", ""), "source": "botcscripts",
         })
         session.pending_script_choices = None
-        return_to_summary = getattr(session, "_script_choice_return_to_summary", False)
         session._script_choice_return_to_summary = False
 
         # Komplexitäts-Analyse
@@ -501,10 +502,10 @@ class HostCommand(commands.Cog):
 
         await channel.send(f"✅ **{chosen['name']}** ausgewählt!")
 
-        if return_to_summary:
-            await self._show_summary(session, channel)
-        else:
-            await self._show_title_description_proposal(session, channel)
+        # Immer Titel/Beschreibung neu generieren — bei Retrigger mit Rückfrage
+        if had_title:
+            session._retrigger_proposal = True
+        await self._show_title_description_proposal(session, channel)
 
     # ── Schritt 3: Titel & Beschreibung ──────────────────────────────
 
@@ -521,6 +522,13 @@ class HostCommand(commands.Cog):
                 analysis = analyze_script_complexity(chars)
                 session.fields["complexity_analysis"] = analysis
                 session.label = compute_label(session.fields)
+
+        is_retrigger = getattr(session, "_retrigger_proposal", False)
+        session._retrigger_proposal = False
+
+        # Alte Werte merken bei Retrigger
+        old_title = session.fields.get("title") if is_retrigger else None
+        old_desc = session.fields.get("description") if is_retrigger else None
 
         async with channel.typing():
             result = await generate_title_and_description(session)
@@ -555,11 +563,21 @@ class HostCommand(commands.Cog):
         if reasoning:
             lines.append(f"{rating_emoji} **Skript-Einschätzung:** {reasoning}")
 
-        lines.append(
-            "\nJetzt brauchen wir noch einen Titel und eine Beschreibung für das Event. "
-            "Ich hab mir mal was ausgedacht — aber ich bin nur ein Village Idiot "
-            "und hab keine Ahnung, ob ich sober bin. Also schau lieber nochmal drüber:"
-        )
+        if is_retrigger:
+            lines.append(
+                "\nNeues Skript — ich habe Titel und Beschreibung neu generiert. "
+                "Du kannst die neuen übernehmen oder **alt** schreiben, um bei den bisherigen zu bleiben:"
+            )
+            # Alte Werte in Session merken für "alt"-Rückfall
+            session._old_title = old_title
+            session._old_desc = old_desc
+        else:
+            lines.append(
+                "\nJetzt brauchen wir noch einen Titel und eine Beschreibung für das Event. "
+                "Ich hab mir mal was ausgedacht — aber ich bin nur ein Village Idiot "
+                "und hab keine Ahnung, ob ich sober bin. Also schau lieber nochmal drüber:"
+            )
+
         lines.append(f"\n**1 · Titel**\n```{title_display}```")
         lines.append(f"**2 · Beschreibung**\n```{session.fields['description']}```")
         lines.append(
@@ -742,6 +760,7 @@ class HostCommand(commands.Cog):
                 await self._show_summary(session, ch)
                 return
 
+            old_script = session.fields.get("script")
             val = text
             if key == "camera":
                 val = None if tl in ("keine pflicht", "optional", "egal", "nein", "no") else tl in ("an", "ja", "pflicht")
@@ -752,14 +771,17 @@ class HostCommand(commands.Cog):
                 except ValueError: pass
             session.fields[key] = val
 
-            # Bei Skript-Änderung: Komplexitäts-Analyse neu laufen
-            if key == "script":
+            # Bei Skript-Änderung: Titel/Beschreibung neu generieren
+            if key == "script" and val != old_script:
                 sd, _ = lookup_script(val)
                 chars = sd.get("characters", []) if sd else []
                 if chars:
                     analysis = analyze_script_complexity(chars)
                     session.fields["complexity_analysis"] = analysis
                     session.label = compute_label(session.fields)
+                session._retrigger_proposal = True
+                await self._show_title_description_proposal(session, ch)
+                return
 
             await self._show_summary(session, ch)
             return
@@ -791,10 +813,13 @@ class HostCommand(commands.Cog):
             if name == "Custom Script" and session.fields.get("script"):
                 name = session.fields["script"]
                 parsed["name"] = name
+            had_title = bool(session.fields.get("title"))
             session.fields["script"] = name
             cache_script(name, parsed)
             session.pending_script_upload = False
             await ch.send(f"✅ **{name}** hochgeladen!")
+            if had_title:
+                session._retrigger_proposal = True
             await self._show_title_description_proposal(session, ch)
             return
 
@@ -930,6 +955,20 @@ class HostCommand(commands.Cog):
             if text.lower() in CONFIRM_KEYWORDS:
                 await self._show_summary(session, ch)
                 return
+
+            # "alt" → alte Titel/Beschreibung wiederherstellen (bei Skript-Wechsel)
+            if text.lower() in ("alt", "alte", "bisherige", "zurück", "vorherige"):
+                old_t = getattr(session, "_old_title", None)
+                old_d = getattr(session, "_old_desc", None)
+                if old_t and old_d:
+                    session.fields["title"] = old_t
+                    session.fields["description"] = old_d
+                    await ch.send("Bisherige Titel und Beschreibung wiederhergestellt.")
+                    await self._show_summary(session, ch)
+                    return
+                else:
+                    await ch.send("Keine bisherigen Werte vorhanden.")
+                    return
 
             # Rating-Änderung erkennen ("gelb", "grün", "rot")
             tl = text.lower()

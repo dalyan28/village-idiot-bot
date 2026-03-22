@@ -47,13 +47,13 @@ async def _handle_rsvp(interaction: discord.Interaction, category: str):
 
     embed = build_event_embed(event_data)
 
-    # Bild-URL aus dem originalen Embed beibehalten (Attachment geht sonst verloren)
+    # Bild-URL aus dem originalen Embed beibehalten
     original_embed = interaction.message.embeds[0] if interaction.message.embeds else None
     if original_embed and original_embed.image and original_embed.image.url:
         embed.set_image(url=original_embed.image.url)
 
-    # Attachments beibehalten damit Discord das Bild nicht als separaten Beitrag auskoppelt
-    await interaction.response.edit_message(embed=embed, attachments=interaction.message.attachments)
+    # NUR Embed updaten — Attachments nicht anfassen (sonst löscht Discord das Bild)
+    await interaction.response.edit_message(embed=embed)
 
 
 def _has_manage_permission(interaction: discord.Interaction, event_data: dict) -> bool:
