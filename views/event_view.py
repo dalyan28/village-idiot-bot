@@ -47,14 +47,12 @@ async def _handle_rsvp(interaction: discord.Interaction, category: str):
 
     embed = build_event_embed(event_data)
 
-    # Gespeicherte CDN-URL verwenden
-    image_url = event_data.get("image_url")
-    if image_url:
-        embed.set_image(url=image_url)
+    # Bild-Referenz beibehalten: attachment:// statt CDN-URL,
+    # damit Discord das Attachment nicht als verwaist behandelt.
+    if event_data.get("image_url"):
+        embed.set_image(url="attachment://script.png")
 
-    # attachments=[] entfernt das verwaiste File-Attachment (script.png),
-    # das Bild bleibt über die CDN-URL im Embed erhalten.
-    await interaction.response.edit_message(embed=embed, attachments=[])
+    await interaction.response.edit_message(embed=embed)
 
 
 def _has_manage_permission(interaction: discord.Interaction, event_data: dict) -> bool:
