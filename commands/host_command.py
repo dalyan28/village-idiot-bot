@@ -399,24 +399,20 @@ class HostCommand(commands.Cog):
         rating_emoji = LABEL_EMOJI.get(rating, "") if rating else ""
 
         footer = _cost_footer(session)
-        lines = [
-            "Jetzt brauchen wir noch einen Titel und eine Beschreibung für das Event. "
-            "Ich hab mir mal was ausgedacht — aber ich bin nur ein Village Idiot, "
-            "also schau lieber nochmal drüber:",
-        ]
+        lines = []
 
         if reasoning:
-            lines.append(f"\n{rating_emoji} **Skript-Einschätzung:** {reasoning}")
+            lines.append(f"{rating_emoji} **Skript-Einschätzung:** {reasoning}")
 
-        # Beschreibung: jede Zeile mit > prefixen für Discord-Zitat
-        desc_text = session.fields['description']
-        desc_quoted = "\n> ".join(desc_text.split("\n"))
         lines.append(
-            f"\n> **Titel:** {title_display}\n"
-            f"> **Beschreibung:** {desc_quoted}"
+            "\nJetzt brauchen wir noch einen Titel und eine Beschreibung für das Event. "
+            "Ich hab mir mal was ausgedacht — aber ich bin nur ein Village Idiot "
+            "und hab keine Ahnung, ob ich sober bin. Also schau lieber nochmal drüber:"
         )
+        lines.append(f"\n**1 · Titel**\n```{title_display}```")
+        lines.append(f"**2 · Beschreibung**\n```{session.fields['description']}```")
         lines.append(
-            "\nDu kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
+            "Du kannst alles übernehmen, anpassen, oder eigenen Text schreiben. "
             "Auch die Einschätzung kannst du korrigieren, falls ich daneben liege.\n"
             "Schreibe **ok** wenn alles passt."
         )

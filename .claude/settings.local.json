@@ -10,7 +10,8 @@
       "Bash(pip install:*)",
       "Bash(python -c \"import anthropic; print\\(''OK''\\)\")",
       "Bash(python -c \"from dotenv import load_dotenv; load_dotenv\\(\\); import os; key = os.getenv\\(''ANTHROPIC_API_KEY''\\); print\\(f''Key: {key[:10]}...'' if key else ''NO KEY''\\)\")",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\(''commands/host_command.py'', doraise=True\\); py_compile.compile\\(''logic/llm_config.py'', doraise=True\\); print\\(''OK''\\)\")"
     ]
   }
 }

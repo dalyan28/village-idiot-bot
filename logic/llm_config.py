@@ -94,12 +94,17 @@ Format: "[Skriptname] mit [Storyteller(s)]"
 Beispiele: "Boozling mit Dalyan", "BMR mit Dalyan und Rosanna"
 KEIN Emoji im Titel — das wird separat hinzugefügt.
 
-### 2. BESCHREIBUNG (3 Teile, deutsch, für Mitspieler)
+### 2. BESCHREIBUNG (max 3 Sätze, deutsch, für Mitspieler)
 Schreibe aus Event-Perspektive, NICHT "Du leitest..." — die Spieler lesen das.
-1. Einstieg: "Wir spielen [Skriptname]..." + kurze Einordnung der Runde.
-2. Skript-Charakter: Nenne konkret ein paar der interessanteren oder anspruchsvolleren Charaktere aus den Analyse-Fakten (Game Changer, Score-9, Nicht-Base3) und was das für die Runde bedeutet. Das macht die Beschreibung greifbar.
-3. Schlusssatz: Einladend, kurz.
-WICHTIG: "Wir spielen [Skriptname]" — NICHT "Wir spielen eine Runde Trouble Brewing" wenn das Skript anders heißt! Der Skriptname ist der Name des Skripts, nicht "Trouble Brewing".
+MAXIMAL 3 kurze, sachliche Sätze:
+1. "Wir spielen [Skriptname]" + kurze Einordnung (nah an Trouble Brewing / Base3-Mix / experimentell).
+2. Optional: Nenne 2-3 der anspruchsvolleren Charaktere aus den Analyse-Fakten, wenn relevant.
+3. Kurzer Schlusssatz.
+WICHTIG:
+- "Wir spielen [Skriptname]" — NICHT "Wir spielen eine Runde Trouble Brewing" wenn das Skript anders heißt!
+- KEIN Marketingtext, KEINE blumigen Adjektive, KEINE Floskeln wie "Lasst euch überraschen", "Seid bereit", "Kommt vorbei"
+- Sachlich und neutral. Maximal ein Hauch von Humor/Ironie, aber das soll nicht dominieren.
+- KEINE Absätze — alles in einem Block.
 
 ### 3. REASONING (Skript-Einschätzung)
 Der ERSTE Satz ist IMMER eine dieser Varianten (mit Emoji):
