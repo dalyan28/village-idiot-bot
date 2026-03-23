@@ -1,4 +1,4 @@
-"""Slash-Command /host — Event-Erstellung via DM.
+"""Slash-Command /botc — Event-Erstellung via DM.
 
 5-Schritte-Flow:
 1) Eingabe: Haiku sammelt 5 Pflichtfelder (script, time, ST, level, casual)
@@ -77,6 +77,17 @@ def _format_termin_german(start_time_str: str, duration_minutes: int) -> str:
 
 CANCEL_KEYWORDS = {"abbrechen", "cancel", "stop"}
 CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes", "passt", "gut"}
+
+SCRIPT_CHANGE_PROMPT = (
+    "Du willst ein anderes Skript spielen. Sag mir gerne, nach welchem Suchbegriff "
+    "ich in der Datenbank suchen soll. Alternativ:\n"
+    "**1** \u2014 In der Datenbank suchen\n"
+    "**2** \u2014 Selbst einen Namen eingeben\n"
+    "**3** \u2014 Script-JSON hochladen\n"
+    "**4** \u2014 Freie Skriptwahl"
+)
+
+MAX_CALLS = 20
 REQUIRED_FIELDS = ["script", "start_time", "storyteller", "level", "is_casual"]
 
 SUMMARY_FIELDS = [
@@ -347,11 +358,13 @@ class SummaryView(discord.ui.View):
         await interaction.response.send_message("Event-Erstellung abgebrochen.")
 
     async def on_timeout(self):
-        end_session(self.session.user_id)
-        try:
-            await self.dm_channel.send("⏰ Abgelaufen. Starte mit `/host` neu.")
-        except Exception:
-            pass
+        # Nur senden wenn Session noch aktiv ist (sonst wurde sie schon anderswo beendet)
+        if get_session(self.session.user_id) is not None:
+            end_session(self.session.user_id)
+            try:
+                await self.dm_channel.send("\u23f0 Abgelaufen. Starte mit `/botc` neu.")
+            except Exception:
+                pass
 
 
 # ── Cog ──────────────────────────────────────────────────────────────────────
@@ -654,8 +667,8 @@ class HostCommand(commands.Cog):
                 inline=True,
             )
 
-        # 3 · Beschreibung (inline)
-        embed.add_field(name="3 \u00b7 Beschreibung", value=f"```{session.fields.get('description', '-')}```", inline=True)
+        # 3 · Beschreibung (NOT inline — zu lang für Inline)
+        embed.add_field(name="3 \u00b7 Beschreibung", value=f"```{session.fields.get('description', '-')}```", inline=False)
 
         # 4 · Storyteller:in (inline)
         st = session.fields.get("storyteller") or "-"
@@ -780,10 +793,19 @@ class HostCommand(commands.Cog):
         session = get_session(message.author.id)
         if session is None:
             if was_recently_expired(message.author.id):
-                await message.channel.send("⏰ Session abgelaufen. Starte mit `/host` neu.")
+                await message.channel.send("⏰ Session abgelaufen. Starte mit `/botc` neu.")
             return
 
         session.touch()
+
+        # Max-Call-Limit
+        if session.call_count >= MAX_CALLS:
+            end_session(session.user_id)
+            await message.channel.send(
+                f"\u23f0 Session nach {MAX_CALLS} Nachrichten automatisch beendet. "
+                "Starte mit `/botc` neu."
+            )
+            return
 
         if message.content.strip().lower() in CANCEL_KEYWORDS:
             end_session(session.user_id)
@@ -795,22 +817,69 @@ class HostCommand(commands.Cog):
 
     # ── State handlers (extracted from _process) ───────────────────
 
+    async def _process_manual_rating(self, session, ch, text):
+        """Handles _pending_manual_rating: User gibt Einschätzung für manuelles Script."""
+        session._pending_manual_rating = False
+        tl = text.lower().strip()
+        rating_map = {
+            "grün": "green", "gruen": "green", "green": "green", "💚": "green",
+            "gelb": "yellow", "yellow": "yellow", "🟡": "yellow",
+            "rot": "red", "red": "red", "🟥": "red",
+        }
+        rating = None
+        for keyword, val in rating_map.items():
+            if keyword in tl:
+                rating = val
+                break
+        if not rating:
+            session._pending_manual_rating = True
+            await ch.send(
+                "Bitte w\u00e4hle eine Farbe: **gr\u00fcn**, **gelb** oder **rot**."
+            )
+            return
+        session.fields["complexity_analysis"] = {"rating": rating}
+        session.label = compute_label(session.fields)
+        session._retrigger_proposal = True
+        await self._show_final_review(session, ch)
+
     async def _process_script_edit_mode(self, session, ch, text):
-        """Handles pending_script_edit_mode: DB search or manual entry."""
+        """Handles pending_script_edit_mode: DB search, manual entry, upload, free choice."""
         session.pending_script_edit_mode = False
         tl = text.lower().strip()
         if tl in ("1", "suchen", "datenbank", "db"):
             session.pending_script_search = True
             await ch.send("Gib den **Skriptnamen** ein, nach dem ich suchen soll:")
             return
-        elif tl in ("2", "eingeben", "manuell", "selbst"):
+        if tl in ("2", "eingeben", "manuell", "selbst"):
             session.pending_field_edit = "script"
             await ch.send("Gib den **neuen Skriptnamen** ein:")
             return
-        else:
-            await ch.send("Bitte wähle **1** (Datenbank suchen) oder **2** (selbst eingeben).")
-            session.pending_script_edit_mode = True
+        if tl in ("3", "hochladen", "upload", "json"):
+            session.pending_script_upload = True
+            await ch.send("Sende die **Script-JSON als Datei** (.json) oder 'skip'.")
             return
+        if tl in ("4", "frei", "freie wahl", "free choice", "offen"):
+            session.fields["script"] = "Freie Skriptwahl"
+            session.fields["is_free_choice"] = True
+            session.fields["complexity_analysis"] = None
+            session.label = compute_label(session.fields)
+            await self._show_final_review(session, ch, regenerate_title=True)
+            return
+        # Haiku-Fallback: Natürliche Sprache → als Suchbegriff interpretieren
+        if len(tl) > 2 and not tl.isdigit():
+            session.pending_script_search = True
+            await self._process_script_search(session, ch, text)
+            return
+        await ch.send(
+            "Du willst ein anderes Skript spielen. Sag mir gerne, nach welchem Suchbegriff "
+            "ich in der Datenbank suchen soll. Alternativ:\n"
+            "**1** \u2014 In der Datenbank suchen\n"
+            "**2** \u2014 Selbst einen Namen eingeben\n"
+            "**3** \u2014 Script-JSON hochladen\n"
+            "**4** \u2014 Freie Skriptwahl"
+        )
+        session.pending_script_edit_mode = True
+        return
 
     async def _process_script_search(self, session, ch, text):
         """Handles pending_script_search: running DB search."""
@@ -908,14 +977,28 @@ class HostCommand(commands.Cog):
 
         # Bei Skript-Änderung: Titel/Beschreibung neu generieren
         if key == "script" and val != old_script:
-            sd, _ = lookup_script(val)
-            chars = sd.get("characters", []) if sd else []
-            if chars:
-                analysis = analyze_script_complexity(chars)
+            sd, source = lookup_script(val)
+            if sd and sd.get("characters"):
+                # Bekanntes Script mit Daten → Analyse
+                analysis = analyze_script_complexity(sd["characters"])
                 session.fields["complexity_analysis"] = analysis
                 session.label = compute_label(session.fields)
-            session._retrigger_proposal = True
-            await self._show_final_review(session, ch)
+                session._retrigger_proposal = True
+                await self._show_final_review(session, ch)
+            else:
+                # Unbekanntes Script (manuell eingegeben) → alte Metadaten löschen
+                session._selected_script_data = None
+                session.fields["complexity_analysis"] = None
+                session.fields["script_version"] = None
+                session.label = compute_label(session.fields)
+                # User nach Einschätzung fragen
+                session._pending_manual_rating = True
+                await ch.send(
+                    f"Skript auf **{val}** gesetzt. Wie sch\u00e4tzt du die Komplexit\u00e4t ein?\n"
+                    "\U0001f49a **gr\u00fcn** \u2014 Einsteiger-freundlich\n"
+                    "\U0001f7e1 **gelb** \u2014 Mittel\n"
+                    "\U0001f7e5 **rot** \u2014 F\u00fcr Erfahrene"
+                )
             return
 
         await self._show_final_review(session, ch, regenerate_title=False)
@@ -1189,11 +1272,7 @@ class HostCommand(commands.Cog):
         if any(kw in tl for kw in ("anderes skript", "skript ändern", "anderes script", "script ändern")):
             session.pending_final_review = False
             session.pending_script_edit_mode = True
-            await ch.send(
-                "Möchtest du:\n"
-                "**1** — In der Datenbank suchen\n"
-                "**2** — Selbst einen Namen eingeben"
-            )
+            await ch.send(SCRIPT_CHANGE_PROMPT)
             return
 
         # 3. "andere version" → version choices
@@ -1221,14 +1300,9 @@ class HostCommand(commands.Cog):
             if 1 <= num <= len(SUMMARY_FIELDS):
                 key, label = SUMMARY_FIELDS[num - 1]
                 if key == "script":
-                    # Skript hat eigenen Workflow
                     session.pending_final_review = False
                     session.pending_script_edit_mode = True
-                    await ch.send(
-                        "M\u00f6chtest du:\n"
-                        "**1** \u2014 In der Datenbank suchen\n"
-                        "**2** \u2014 Selbst einen Namen eingeben"
-                    )
+                    await ch.send(SCRIPT_CHANGE_PROMPT)
                 elif key == "_labels":
                     await ch.send(
                         "Welches Label m\u00f6chtest du \u00e4ndern?\n"
@@ -1307,11 +1381,7 @@ class HostCommand(commands.Cog):
             if action == "change_script":
                 session.pending_final_review = False
                 session.pending_script_edit_mode = True
-                await ch.send(
-                    "Möchtest du:\n"
-                    "**1** — In der Datenbank suchen\n"
-                    "**2** — Selbst einen Namen eingeben"
-                )
+                await ch.send(SCRIPT_CHANGE_PROMPT)
                 return
 
             if action == "change_version":
@@ -1334,7 +1404,7 @@ class HostCommand(commands.Cog):
             response = await call_haiku(session, text)
 
         if not response:
-            await ch.send("Fehler. Versuche es nochmal oder `/host` neu.")
+            await ch.send("Fehler. Versuche es nochmal oder `/botc` neu.")
             return
 
         action = response.get("action", "ask")
@@ -1396,6 +1466,10 @@ class HostCommand(commands.Cog):
     async def _process(self, session, message):
         ch = message.channel
         text = message.content.strip()
+
+        # ── Manuelle Rating-Eingabe ────────────────────────────────────
+        if getattr(session, "_pending_manual_rating", False):
+            return await self._process_manual_rating(session, ch, text)
 
         # ── Skript-Edit: DB-Suche oder manuell ────────────────────────
         if getattr(session, "pending_script_edit_mode", False):
