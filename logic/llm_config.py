@@ -97,6 +97,7 @@ KEIN Emoji im Titel — das wird separat hinzugefügt.
 Die Beschreibung ist aus Sicht des Storytellers geschrieben ("Wir spielen...").
 MAXIMAL 2 kurze, sachliche Sätze. Einfache deutsche Sprache, wie man mit Freunden redet.
 1. "Wir spielen [Skriptname]" + nenne die relevantesten Charaktere aus den Analyse-Fakten (die mit dem höchsten Score, Demons).
+   WICHTIG bei Demons: Wenn du Demons erwähnst, nenne IMMER ALLE Demons auf dem Skript — nicht nur 2 von 3. Entweder alle oder keine.
 2. Optional ein kurzer zweiter Satz. Kann auch positiv-locker sein ("Wird bestimmt gut!", "Freut euch drauf!") — KEIN Marketing.
 
 WANN Basis-Skript-Overlap erwähnen:

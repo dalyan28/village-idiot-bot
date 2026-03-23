@@ -1,18 +1,21 @@
-"""Script-Bild-Generierung mit Pillow.
+"""Script-Bild-Generierung v2 mit Pillow + Wand.
 
-Erzeugt ein PNG im Stil der botcscripts.com PDFs.
-Layout-Zentrierung über _draw_row() Helper — kein manuelles Pixel-Shifting.
+Experimentelle Version mit dekorativen SVG-Elementen am unteren Rand.
+Kein Fabled/Loric-Output.
 """
 
 import asyncio
+import glob
 import io
 import logging
 import os
+import random
 import re
 import textwrap
 
 import requests
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
+from wand.image import Image as WandImage
 
 from logic.script_cache import (
     get_character_icon_path,
@@ -133,12 +136,7 @@ def _placeholder(size=ICON_SIZE):
 
 def _paste(canvas, icon, x, y):
     if icon.mode == "RGBA":
-        if canvas.mode == "RGBA":
-            canvas.paste(icon, (x, y), icon)
-        else:
-            bg = Image.new("RGB", icon.size, BG_COLOR)
-            bg.paste(icon, (0, 0), icon)
-            canvas.paste(bg, (x, y))
+        canvas.paste(icon, (x, y), icon)
     else:
         canvas.paste(icon, (x, y))
 
@@ -234,6 +232,64 @@ def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_widt
     return row_h
 
 
+# ── SVG Decoration ──────────────────────────────────────────────────────────
+
+IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "images")
+BOTTOM_SVG_DIR = os.path.join(IMAGES_DIR, "bottom")
+CLIPPING_MASK_PATH = os.path.join(IMAGES_DIR, "clipping masks", "AWhimAdv-DeckThePalms-PhotoMasks1.png")
+DECO_WIDTH = 700  # Breite der Dekoration in Pixeln (vor SCALE)
+
+
+def _render_svg_colored(svg_path, color, width):
+    """Rendert eine SVG in einer bestimmten Farbe als RGBA PIL Image.
+
+    Wand rendert SVGs ohne Transparenz (weißer BG, schwarzes Design).
+    Deshalb: Luminanz invertieren → Design-Maske → Farbe anwenden.
+    """
+    with WandImage(filename=svg_path, background=None) as wimg:
+        orig_w, orig_h = wimg.width, wimg.height
+        target_h = int(orig_h * width / orig_w)
+        wimg.resize(width, target_h)
+        wimg.format = "png"
+        png_data = wimg.make_blob()
+    img = Image.open(io.BytesIO(png_data)).convert("RGBA")
+    # Luminanz → invertieren: schwarz (Design) wird deckend, weiß (BG) wird transparent
+    grayscale = img.convert("L")
+    svg_mask = ImageOps.invert(grayscale)
+    colored = Image.new("RGBA", img.size, color + (255,))
+    colored.putalpha(svg_mask)
+    return colored, svg_mask
+
+
+def _apply_clipping_mask(img, svg_mask):
+    """Wendet die Clipping Mask auf ein eingefärbtes SVG-Bild an.
+
+    Multipliziert SVG-Maske mit Clipping-Mask-Alpha:
+    SVG-Design bleibt sichtbar, Ränder laufen schemenhaft aus.
+    """
+    if not os.path.exists(CLIPPING_MASK_PATH):
+        return img
+    mask = Image.open(CLIPPING_MASK_PATH).convert("RGBA")
+    mask = mask.resize(img.size, Image.Resampling.LANCZOS)
+    _, _, _, mask_a = mask.split()
+    final_a = ImageChops.multiply(svg_mask, mask_a)
+    img.putalpha(final_a)
+    return img
+
+
+def _make_bottom_decoration(width):
+    """Erstellt eine zufällige, eingefärbte SVG-Dekoration mit Clipping Mask."""
+    svgs = glob.glob(os.path.join(BOTTOM_SVG_DIR, "*.svg"))
+    if not svgs:
+        return None
+    svg_path = random.choice(svgs)
+    color = (random.randint(60, 200), random.randint(60, 200), random.randint(60, 200))
+    deco, svg_mask = _render_svg_colored(svg_path, color, width)
+    deco = _apply_clipping_mask(deco, svg_mask)
+    logger.info("Bottom-Deko: %s, Farbe=%s, Größe=%s", os.path.basename(svg_path), color, deco.size)
+    return deco
+
+
 # ── Character Categorization ─────────────────────────────────────────────────
 
 def _team_from_content(team_str):
@@ -284,24 +340,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
                 }
 
     cats = _categorize(char_ids, chars_db, content_data)
-    jinxes = get_jinxes_for_script(char_ids)
-    bootlegger_rules = (meta or {}).get("bootlegger", [])
     ph = _placeholder()
-    ph_sm = _placeholder(ICON_SMALL)
-    ph_jinx = _placeholder(ICON_JINX)
-
-    fabled_loric = cats.get("Fabled", []) + cats.get("Loric", [])
-
-    # Auto-insert Djinn
-    if jinxes and not any(fl["id"] == DJINN_ID for fl in fabled_loric):
-        djinn_info = chars_db.get(DJINN_ID, {})
-        fabled_loric.insert(0, {
-            "id": DJINN_ID,
-            "name": djinn_info.get("character_name", "Djinn"),
-            "ability": djinn_info.get("ability", "Use the Djinn's special rule. All players know what it is."),
-            "team": "Fabled",
-        })
-    fabled_loric.sort(key=lambda x: (0 if x["id"] == DJINN_ID else 1))
 
     # Fonts dict für _draw_row
     f_name = _font(_F_NAME, SZ_NAME)
@@ -311,26 +350,17 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
 
     f_title = _font(_F_TITLE, SZ_TITLE)
     f_author = _font(_F_AUTHOR, SZ_AUTHOR)
-    f_fabled_t = _font(_F_AUTHOR, SZ_FABLED_TITLE)
     f_header = _font(_F_HEADER, SZ_HEADER)
-    f_jinx = _font(_F_ABILITY, SZ_JINX)
     f_footer = _font(_F_AUTHOR, SZ_FOOTER)
 
     img_width = PADDING * 2 + COLS * CHAR_WIDTH
     text_area_width = CHAR_WIDTH - ICON_SIZE - TEXT_PADDING - 5 * SCALE
-    fl_text_width = img_width - PADDING * 2 - ICON_SIZE - TEXT_PADDING - 10 * SCALE
 
-    # Jinx/Bootlegger text area
-    jinx_x = PADDING + ICON_SIZE + TEXT_PADDING
-    jinx_text_w = img_width - jinx_x - PADDING - 5 * SCALE
-    jinx_icon_text_w = jinx_text_w - ICON_JINX * 2 + 4 * SCALE - 6 * SCALE
-    jinx_wrap_chars = max(40, jinx_icon_text_w // (7 * SCALE))
-    boot_wrap_chars = max(40, (jinx_text_w - 12 * SCALE) // (7 * SCALE))
+    # ── Bottom Decoration vorbereiten ──────────────────────────────────
+    deco = _make_bottom_decoration(DECO_WIDTH)
 
     # ── Höhe berechnen ────────────────────────────────────────────────
     height = PADDING + 42 * SCALE + 18 * SCALE  # title + author
-    if fabled_loric:
-        height += 40 * SCALE  # fabled row
     height += SECTION_GAP
 
     for team in TEAM_ORDER:
@@ -343,19 +373,6 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
             height += max(_row_height(c["ability"]) for c in row)
         height += SECTION_GAP
 
-    if fabled_loric or jinxes or bootlegger_rules:
-        height += HEADER_HEIGHT + SECTION_GAP
-        for fl in fabled_loric:
-            height += _row_height(fl["ability"])
-            if fl["id"] == DJINN_ID and jinxes:
-                for jnx in jinxes:
-                    jh = SZ_NAME + 4 * SCALE + len(_wrap(jnx["reason"], jinx_wrap_chars)) * JINX_LINE_HEIGHT + 5 * SCALE
-                    height += max(ICON_JINX + 3 * SCALE, jh)
-            if fl["id"] == "bootlegger" and bootlegger_rules:
-                for rule in bootlegger_rules:
-                    height += len(_wrap(rule, boot_wrap_chars)) * JINX_LINE_HEIGHT + 10 * SCALE
-        height += SECTION_GAP
-
     height += FOOTER_HEIGHT + PADDING
 
     # ── Zeichnen ──────────────────────────────────────────────────────
@@ -363,6 +380,18 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         img = Image.new("RGBA", (img_width, height), (0, 0, 0, 0))
     else:
         img = Image.new("RGB", (img_width, height), BG_COLOR)
+
+    # Deko als Hintergrund: am unteren Rand zentriert, UNTER allem Content
+    if deco:
+        deco_x = (img_width - deco.size[0]) // 2
+        deco_y = height - deco.size[1]  # Unterkante = Bildunterkante
+        if img.mode == "RGBA":
+            img.paste(deco, (deco_x, deco_y), deco)
+        else:
+            bg = Image.new("RGB", deco.size, BG_COLOR)
+            bg.paste(deco, (0, 0), deco)
+            img.paste(bg, (deco_x, deco_y))
+
     draw = ImageDraw.Draw(img)
     y = PADDING
 
@@ -381,29 +410,9 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         draw.text((PADDING, y), f"by {author}", fill=SUBTITLE_COLOR, font=f_author)
     y += 18 * SCALE
 
-    # Fabled/Loric Icons unter Autor
-    if fabled_loric:
-        fx = PADDING
-        fabled_h = 40 * SCALE
-        for fl in fabled_loric:
-            icon = _load_icon(fl["id"], size=ICON_SMALL, icon_urls=fl.get("icon_urls")) or ph_sm
-            icon_y = y + (fabled_h - ICON_SMALL) // 2
-            _paste(img, icon, fx, icon_y)
-            fx += ICON_SMALL + 5 * SCALE
-            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
-            # Text vertikal zentriert zum Icon (bbox offset korrigieren)
-            text_bb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
-            text_h = text_bb[3] - text_bb[1]
-            text_offset_y = text_bb[1]  # Font-Ascender-Offset
-            text_y = y + (fabled_h - text_h) // 2 - text_offset_y
-            draw.text((fx, text_y), fl["name"], fill=color, font=f_fabled_t)
-            nb = draw.textbbox((fx, text_y), fl["name"], font=f_fabled_t)
-            fx = nb[2] + 15 * SCALE
-        y += fabled_h
-
     y += SECTION_GAP
 
-    # ── Character Sektionen ───────────────────────────────────────────
+    # ── Character Sektionen (nur Townsfolk/Outsider/Minion/Demon) ────
     for team in TEAM_ORDER:
         chars = cats.get(team, [])
         if not chars:
@@ -429,80 +438,9 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
                 x = PADDING + col * CHAR_WIDTH
                 icon = _load_icon(char["id"], evil=is_evil, icon_urls=char.get("icon_urls")) or ph
 
-                # _draw_row zentriert automatisch
                 _draw_row(draw, img, x, y, icon, char["name"], char["ability"],
                           name_color, fonts, text_area_width)
             y += row_h
-        y += SECTION_GAP
-
-    # ── Fabled & Loric Sektion ────────────────────────────────────────
-    if fabled_loric or jinxes or bootlegger_rules:
-        header_text = "FABLED & LORIC"
-        draw.text((PADDING, y + 4 * SCALE), header_text, fill=HEADER_COLOR, font=f_header)
-        hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
-        text_mid_y = (hb[1] + hb[3]) // 2
-        draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
-                  fill=LINE_COLOR, width=DIVIDER_THICKNESS)
-        y += HEADER_HEIGHT
-
-        for fl in fabled_loric:
-            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
-            icon = _load_icon(fl["id"], icon_urls=fl.get("icon_urls")) or ph
-
-            row_h = _draw_row(draw, img, PADDING, y, icon, fl["name"], fl["ability"],
-                              color, fonts, fl_text_width)
-            y += row_h
-
-            # Jinxes unter Djinn
-            if fl["id"] == DJINN_ID and jinxes:
-                for jnx in jinxes:
-                    a_info = chars_db.get(jnx["char_a"], {})
-                    b_info = chars_db.get(jnx["char_b"], {})
-                    hw_a = content_data.get(jnx["char_a"], {})
-                    hw_b = content_data.get(jnx["char_b"], {})
-                    name_a = a_info.get("character_name") or hw_a.get("name") or jnx["char_a"]
-                    name_b = b_info.get("character_name") or hw_b.get("name") or jnx["char_b"]
-                    team_a = a_info.get("character_type") or _team_from_content(hw_a.get("team")) or "Townsfolk"
-                    team_b = b_info.get("character_type") or _team_from_content(hw_b.get("team")) or "Townsfolk"
-                    is_evil_a = team_a in ("Minion", "Demon")
-                    is_evil_b = team_b in ("Minion", "Demon")
-                    icon_a = _load_icon(jnx["char_a"], evil=is_evil_a, size=ICON_JINX,
-                                        icon_urls=hw_a.get("image")) or ph_jinx
-                    icon_b = _load_icon(jnx["char_b"], evil=is_evil_b, size=ICON_JINX,
-                                        icon_urls=hw_b.get("image")) or ph_jinx
-
-                    reason_lines = _wrap(jnx["reason"], jinx_wrap_chars)
-                    header_h = SZ_NAME + 4 * SCALE
-                    text_h = len(reason_lines) * JINX_LINE_HEIGHT
-                    content_h = header_h + text_h
-                    jh = max(ICON_JINX + 3 * SCALE, content_h + 5 * SCALE)
-
-                    # Icons + Text zentriert
-                    icon_y = y + (jh - ICON_JINX) // 2
-                    _paste(img, icon_a, jinx_x, icon_y)
-                    _paste(img, icon_b, jinx_x + ICON_JINX - 8 * SCALE, icon_y)
-                    text_x = jinx_x + ICON_JINX * 2 - 4 * SCALE
-
-                    content_y = y + (jh - content_h) // 2
-                    draw.text((text_x, content_y), f"{name_a} & {name_b}",
-                              fill=ABILITY_COLOR, font=f_name)
-
-                    jt_y = content_y + header_h
-                    for li, line in enumerate(reason_lines):
-                        draw.text((text_x, jt_y + li * JINX_LINE_HEIGHT),
-                                  line, fill=ABILITY_COLOR, font=f_jinx)
-                    y += jh
-
-            # Bootlegger-Regeln
-            if fl["id"] == "bootlegger" and bootlegger_rules:
-                for rule in bootlegger_rules:
-                    lines = _wrap(rule, boot_wrap_chars)
-                    draw.text((jinx_x, y), "•", fill=ABILITY_COLOR, font=f_jinx)
-                    for li, line in enumerate(lines):
-                        draw.text((jinx_x + 12 * SCALE, y + li * JINX_LINE_HEIGHT),
-                                  line, fill=ABILITY_COLOR, font=f_jinx)
-                    y += len(lines) * JINX_LINE_HEIGHT + 8 * SCALE
-
         y += SECTION_GAP
 
     # ── Footer ────────────────────────────────────────────────────────
@@ -518,12 +456,12 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     buf.seek(0)
-    logger.info("Script-Bild: '%s' (%dx%d, %d chars, %d jinxes)",
-                script_name, img_width, height, len(char_ids), len(jinxes))
+    logger.info("Script-Bild v2: '%s' (%dx%d, %d chars)",
+                script_name, img_width, height, len(char_ids))
     return buf
 
 
 async def generate_script_image(script_name, author, char_ids,
                                  version="", meta=None, content=None, transparent=False):
-    """Generiert ein Script-Bild als PNG."""
+    """Generiert ein Script-Bild als PNG (v2 — ohne Fabled/Loric, mit Deko)."""
     return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, version, meta, content, transparent)
