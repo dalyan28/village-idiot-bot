@@ -80,6 +80,16 @@ async def restore_auto_tasks():
 
         print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
 
+    # Event-Cleanup Loop starten wenn mindestens eine Guild es aktiviert hat
+    any_cleanup = any(
+        isinstance(gc, dict) and gc.get("auto_cleanup")
+        for gc in cfg.values()
+    )
+    if any_cleanup and not overview_cog.event_cleanup_loop.is_running():
+        overview_cog.event_cleanup_loop.start()
+        overview_cog._cleanup_task_started = True
+        print("Event-Cleanup Loop gestartet (täglich 01:00 Uhr)")
+
 
 async def main():
     async with bot:

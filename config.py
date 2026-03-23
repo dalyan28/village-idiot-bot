@@ -32,6 +32,7 @@ VALID_GUILD_KEYS = {
     "auto_active",
     "smart_dynamic",
     "smart_schedule",
+    "auto_cleanup",
 }
 
 

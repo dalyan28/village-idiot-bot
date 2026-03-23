@@ -392,11 +392,29 @@ def lookup_cached_script(query: str) -> tuple[dict | None, bool]:
 
 
 def cache_script(name: str, data: dict):
-    """Speichert ein Script im Cache."""
+    """Speichert ein Script im Cache. Räumt alte Einträge auf (>90 Tage)."""
     cache = _load_cache()
     key = normalize_name(name)
     data["last_checked"] = datetime.now(timezone.utc).isoformat()
     cache[key] = data
+    # Cleanup: Einträge älter als 90 Tage entfernen (Uploads ausgenommen)
+    to_remove = []
+    for k, entry in cache.items():
+        if k == key:
+            continue
+        if entry.get("source") == "upload":
+            continue  # Uploads nie automatisch löschen
+        last = entry.get("last_checked")
+        if last:
+            try:
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).days
+                if age > 90:
+                    to_remove.append(k)
+            except (ValueError, TypeError):
+                pass
+    for k in to_remove:
+        del cache[k]
+        logger.debug("Cache-Eintrag entfernt (>90d): '%s'", k)
     _save_cache(cache)
     logger.info("Script gecacht: '%s' (id=%s, v%s)", name, data.get("botcscripts_id"), data.get("version"))
 
@@ -461,10 +479,14 @@ def validate_script_json(data) -> tuple[dict | None, str | None]:
     if not characters:
         return None, "Keine Charaktere in der JSON gefunden."
 
+    # Content bewahren (Name, Ability, Icon-URLs pro Charakter)
+    content = [item for item in data if isinstance(item, dict)]
+
     parsed = {
         "name": meta.get("name", "Custom Script"),
         "author": meta.get("author", ""),
         "characters": characters,
+        "content": content,
         "source": "upload",
     }
 

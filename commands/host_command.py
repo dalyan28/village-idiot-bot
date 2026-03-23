@@ -509,16 +509,19 @@ class HostCommand(commands.Cog):
         """Wählt ein Script aus den Suchergebnissen, cached es, und geht zu Schritt 3."""
         had_title = bool(session.fields.get("title"))
         session.fields["script"] = chosen["name"]
-        cache_script(chosen["name"], {
+        cache_data = {
             "name": chosen["name"], "author": chosen.get("author", ""),
             "version": chosen.get("version", ""),
             "botcscripts_id": chosen.get("botcscripts_id", ""),
             "characters": chosen.get("characters", []),
-            "content": chosen.get("content", []),
             "script_type": chosen.get("script_type", ""),
             "url": chosen.get("url", ""),
             "source": chosen.get("source", "botcscripts"),
-        })
+        }
+        # Content nur bei Uploads/Homebrews im Cache (botcscripts → per API neu holbar)
+        if chosen.get("source") == "upload":
+            cache_data["content"] = chosen.get("content", [])
+        cache_script(chosen["name"], cache_data)
 
         session.pending_script_choices = None
         session._script_choice_return_to_summary = False

@@ -27,6 +27,62 @@ class Overview(commands.Cog):
         self.smart_dynamic_times: dict[int, set[tuple[int, int]]] = {}
         self.last_smart_run: dict[int, datetime] = {}
         self._fetch_locks: dict[int, asyncio.Lock] = {}
+        self._cleanup_task_started = False
+
+    def cog_unload(self):
+        if self._cleanup_task_started:
+            self.event_cleanup_loop.cancel()
+
+    # ── Event Cleanup Loop ────────────────────────────────────────────────
+
+    async def _cleanup_past_events(self, channel: discord.TextChannel) -> int:
+        """Löscht vergangene Bot-Events in einem Channel. Gibt Anzahl gelöschter zurück."""
+        now_ts = time_module.time()
+        deleted = 0
+        async for msg in channel.history(limit=200):
+            if msg.author.id != self.bot.user.id:
+                continue
+            if not msg.embeds:
+                continue
+            embed = msg.embeds[0]
+            if not embed.fields:
+                continue
+            time_field = next(
+                (f for f in embed.fields if f.name in ("Time", "Termin")), None
+            )
+            if not time_field:
+                continue
+            timestamps = re.findall(r"<t:(\d+):[FtTdDfR]>", time_field.value)
+            if not timestamps:
+                continue
+            if int(timestamps[0]) < now_ts:
+                await msg.delete()
+                deleted += 1
+                await asyncio.sleep(1)
+        return deleted
+
+    @tasks.loop(time=datetime(2000, 1, 1, 1, 0, tzinfo=BERLIN_TZ).timetz())
+    async def event_cleanup_loop(self):
+        """Läuft täglich um 01:00 Uhr und löscht vergangene Events."""
+        from config import load_config
+        cfg = load_config()
+
+        for guild_id_str, guild_cfg in cfg.items():
+            if not isinstance(guild_cfg, dict) or not guild_cfg.get("auto_cleanup"):
+                continue
+            channel = self.bot.get_channel(guild_cfg.get("event_channel_id"))
+            if not channel:
+                continue
+            try:
+                deleted = await self._cleanup_past_events(channel)
+                if deleted:
+                    logger.info("Event-Cleanup: %d vergangene Events gelöscht (Guild %s)", deleted, guild_id_str)
+            except Exception as e:
+                logger.warning("Event-Cleanup Fehler (Guild %s): %s", guild_id_str, e)
+
+    @event_cleanup_loop.before_loop
+    async def before_cleanup(self):
+        await self.bot.wait_until_ready()
 
     async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
         lock = self._fetch_locks.setdefault(guild_id, asyncio.Lock())
@@ -494,7 +550,61 @@ class Overview(commands.Cog):
         if dynamic_on:
             lines.append(f"**Heute dynamisch:** {dynamic_str}")
 
+        # Event-Cleanup Status
+        cleanup_on = cfg.get("auto_cleanup", False)
+        cleanup_status = "aktiv \u2014 t\u00e4glich um 01:00 Uhr" if cleanup_on else "inaktiv"
+        lines.append("")
+        lines.append(f"**Event-Cleanup:** {cleanup_status}")
+        if cleanup_on and self.event_cleanup_loop.is_running():
+            nxt = self.event_cleanup_loop.next_iteration
+            if nxt:
+                nxt_berlin = nxt.astimezone(BERLIN_TZ)
+                nxt_str = nxt_berlin.strftime("%d.%m.%Y %H:%M")
+                lines.append(f"**N\u00e4chster Cleanup:** {nxt_str} Uhr")
+
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+    @app_commands.command(name="auto_cleanup", description="Vergangene Events automatisch l\u00f6schen (t\u00e4glich 01:00 Uhr)")
+    @app_commands.describe(active="An oder Aus")
+    @app_commands.choices(active=[
+        app_commands.Choice(name="An", value="on"),
+        app_commands.Choice(name="Aus", value="off"),
+    ])
+    async def auto_cleanup(self, interaction: discord.Interaction, active: app_commands.Choice[str]):
+        cfg = get_guild_config(interaction.guild_id)
+        enabled = active.value == "on"
+        cfg["auto_cleanup"] = enabled
+        save_guild_config(interaction.guild_id, cfg)
+
+        if enabled and not self.event_cleanup_loop.is_running():
+            self.event_cleanup_loop.start()
+            self._cleanup_task_started = True
+
+        if enabled:
+            reply = "Event-Cleanup aktiviert \u2714\ufe0f Vergangene Events werden t\u00e4glich um 01:00 Uhr automatisch gel\u00f6scht."
+        else:
+            reply = "Event-Cleanup deaktiviert \u274c"
+        await interaction.response.send_message(reply, ephemeral=True)
+
+    @app_commands.command(name="cleanup_events", description="Vergangene Events jetzt l\u00f6schen")
+    async def cleanup_events(self, interaction: discord.Interaction):
+        cfg = get_guild_config(interaction.guild_id)
+        channel = self.bot.get_channel(cfg.get("event_channel_id"))
+        if not channel:
+            await interaction.response.send_message("Kein Event-Channel gesetzt.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            deleted = await self._cleanup_past_events(channel)
+        except Exception as e:
+            await interaction.followup.send(f"Fehler: {e}", ephemeral=True)
+            return
+
+        if deleted:
+            await interaction.followup.send(f"{deleted} vergangene(s) Event(s) gel\u00f6scht.", ephemeral=True)
+        else:
+            await interaction.followup.send("Keine vergangenen Events gefunden.", ephemeral=True)
 
 
 async def setup(bot):
