@@ -57,6 +57,23 @@ logger = logging.getLogger(__name__)
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 BOT_COLOR = 0x5865F2
 
+# Base3 Sonderbehandlung
+BASE3_THUMBNAILS = {
+    "trouble_brewing": "https://wiki.bloodontheclocktower.com/images/a/a1/Logo_trouble_brewing.png",
+    "bad_moon_rising": "https://wiki.bloodontheclocktower.com/images/1/10/Logo_bad_moon_rising.png",
+    "sects_and_violets": "https://wiki.bloodontheclocktower.com/images/4/43/Logo_sects_and_violets.png",
+}
+BASE3_SCRIPT_URLS = {
+    "trouble_brewing": "https://www.botcscripts.com/script/133/1.0.0",
+    "bad_moon_rising": "https://www.botcscripts.com/script/135/1.0.0",
+    "sects_and_violets": "https://www.botcscripts.com/script/134/1.0.0",
+}
+BASE3_FULL_NAMES = {
+    "trouble_brewing": "Trouble Brewing",
+    "bad_moon_rising": "Bad Moon Rising",
+    "sects_and_violets": "Sects and Violets",
+}
+
 GERMAN_DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 
 
@@ -89,6 +106,20 @@ SCRIPT_CHANGE_PROMPT = (
 )
 
 MAX_CALLS = 20
+
+
+def _get_base3_key(script_name: str) -> str | None:
+    """Gibt den Base3-Key ('trouble_brewing' etc.) zurück oder None."""
+    from logic.script_cache import lookup_base_script
+    base = lookup_base_script(script_name or "")
+    if not base:
+        return None
+    # Key aus dem Namen ableiten
+    name = base.get("name", "")
+    for key, full in BASE3_FULL_NAMES.items():
+        if full == name:
+            return key
+    return None
 
 _SEARCH_PREFIXES = re.compile(
     r"^(?:such(?:e|t)?\s*(?:mal\s+)?(?:nach|für|lieber\s+nach)?|"
@@ -263,6 +294,12 @@ class SummaryView(discord.ui.View):
                 if script_source == "upload":
                     script_content = sd.get("content")
 
+        # Base3 Thumbnail
+        b3key = _get_base3_key(f.get("script") or "")
+        thumbnail_url = BASE3_THUMBNAILS.get(b3key, "") if b3key else ""
+        if b3key and not script_url:
+            script_url = BASE3_SCRIPT_URLS.get(b3key, "")
+
         event_data = {
             "title": title, "description": f.get("description"),
             "storyteller": f.get("storyteller") or "-",
@@ -279,6 +316,7 @@ class SummaryView(discord.ui.View):
             "creator_name": self.session.user_display_name,
             "creator_avatar_url": self.session.user_avatar_url,
             "label": self.session.label,
+            "thumbnail_url": thumbnail_url,
         }
         if script_content:
             event_data["script_content"] = script_content
@@ -303,7 +341,7 @@ class SummaryView(discord.ui.View):
                             script_file = discord.File(io.BytesIO(data), filename="event_image.png")
             except Exception as e:
                 logger.warning("Custom-Bild Fehler: %s", e)
-        elif script_characters and not is_free:
+        elif script_characters and not is_free and not b3key:
             try:
                 sd, _ = lookup_script(f["script"])
                 img = await generate_script_image(
@@ -594,6 +632,9 @@ class HostCommand(commands.Cog):
                 session.fields["complexity_analysis"] = analysis
                 session.label = compute_label(session.fields)
 
+        # Base3-Check
+        base3_key = _get_base3_key(script_name) if script_name else None
+
         # Generate title/description if needed
         is_retrigger = getattr(session, "_retrigger_proposal", False)
         session._retrigger_proposal = False
@@ -601,20 +642,29 @@ class HostCommand(commands.Cog):
         old_desc = session.fields.get("description") if is_retrigger else None
 
         if regenerate_title and (not session.fields.get("title") or is_retrigger):
-            async with channel.typing():
-                result = await generate_title_and_description(session)
-            if result:
-                title, desc, reasoning = result
-                session.fields["title"] = title
-                session.fields["description"] = desc
-                session._last_reasoning = reasoning
-            else:
-                script = session.fields.get("script") or "Event"
+            if base3_key:
+                # Base3: Hardcoded title + description, kein LLM-Call
+                full_name = BASE3_FULL_NAMES[base3_key]
                 st = session.fields.get("storyteller") or session.user_display_name
                 co = session.fields.get("co_storyteller")
-                session.fields["title"] = f"{script} mit {st}" + (f" und {co}" if co else "")
-                session.fields["description"] = f"Wir spielen eine Runde {script}!"
+                session.fields["title"] = f"{full_name} mit {st}" + (f" und {co}" if co else "")
+                session.fields["description"] = f"Wir spielen klassisches {full_name} \U0001f60c Meldet euch an!"
                 session._last_reasoning = ""
+            else:
+                async with channel.typing():
+                    result = await generate_title_and_description(session)
+                if result:
+                    title, desc, reasoning = result
+                    session.fields["title"] = title
+                    session.fields["description"] = desc
+                    session._last_reasoning = reasoning
+                else:
+                    script = session.fields.get("script") or "Event"
+                    st = session.fields.get("storyteller") or session.user_display_name
+                    co = session.fields.get("co_storyteller")
+                    session.fields["title"] = f"{script} mit {st}" + (f" und {co}" if co else "")
+                    session.fields["description"] = f"Wir spielen eine Runde {script}!"
+                    session._last_reasoning = ""
 
         if is_retrigger:
             session._old_title = old_title
@@ -646,19 +696,26 @@ class HostCommand(commands.Cog):
         script_version = (sd or {}).get("version", "")
         rating_word = {"green": "gr\u00fcn", "yellow": "gelb", "red": "rot", "hammer": "homebrew"}.get(rating, "")
 
-        intro_parts = [f"Ich hab das Skript f\u00fcr dich ausgew\u00e4hlt: **{script_name}**"]
-        if script_author:
-            intro_parts[0] += f" von **{script_author}**"
-        if script_version:
-            intro_parts[0] += f" **v{script_version}**"
-        intro_parts[0] += "."
-        if rating_word:
-            intro_parts.append(f"Ich sch\u00e4tze das Skript {rating_emoji} **{rating_word}** ein.")
-        intro_parts.append(
-            "Ebenfalls habe ich einen Titel und eine Beschreibung f\u00fcr deine Veranstaltung erstellt. "
-            "Aber ich bin nur ein Village Idiot und hab keine Ahnung, ob ich sober bin. "
-            "Also schau lieber nochmal dr\u00fcber:"
-        )
+        if base3_key:
+            full_name = BASE3_FULL_NAMES[base3_key]
+            intro_parts = [
+                f"Klassisches **{full_name}** \u2014 da brauch ich nicht lange \u00fcberlegen. "
+                "Schau trotzdem kurz dr\u00fcber:"
+            ]
+        else:
+            intro_parts = [f"Ich hab das Skript f\u00fcr dich ausgew\u00e4hlt: **{script_name}**"]
+            if script_author:
+                intro_parts[0] += f" von **{script_author}**"
+            if script_version:
+                intro_parts[0] += f" **v{script_version}**"
+            intro_parts[0] += "."
+            if rating_word:
+                intro_parts.append(f"Ich sch\u00e4tze das Skript {rating_emoji} **{rating_word}** ein.")
+            intro_parts.append(
+                "Ebenfalls habe ich einen Titel und eine Beschreibung f\u00fcr deine Veranstaltung erstellt. "
+                "Aber ich bin nur ein Village Idiot und hab keine Ahnung, ob ich sober bin. "
+                "Also schau lieber nochmal dr\u00fcber:"
+            )
 
         if is_retrigger:
             intro_parts = [
@@ -677,17 +734,26 @@ class HostCommand(commands.Cog):
         embed.add_field(name="1 \u00b7 Titel", value=f"```{title_display}```", inline=False)
 
         # 2 · Skript (inline)
-        script_info = script_name or "Freie Wahl"
-        if script_author:
-            script_info += f" von {script_author}"
-        if script_version:
-            script_info += f" \u00b7 v{script_version}"
-        if char_ids:
-            script_info += f" \u00b7 {len(char_ids)} Charaktere"
-        embed.add_field(name="2 \u00b7 Skript", value=f"```{script_info}```", inline=True)
+        if base3_key:
+            full_name = BASE3_FULL_NAMES[base3_key]
+            script_url = BASE3_SCRIPT_URLS[base3_key]
+            embed.add_field(
+                name="2 \u00b7 Skript",
+                value=f"[{full_name}]({script_url})",
+                inline=True,
+            )
+        else:
+            script_info = script_name or "Freie Wahl"
+            if script_author:
+                script_info += f" von {script_author}"
+            if script_version:
+                script_info += f" \u00b7 v{script_version}"
+            if char_ids:
+                script_info += f" \u00b7 {len(char_ids)} Charaktere"
+            embed.add_field(name="2 \u00b7 Skript", value=f"```{script_info}```", inline=True)
 
-        # Einschätzung (inline, als Zitat)
-        if reasoning:
+        # Einschätzung (inline, als Zitat) — bei Base3 nicht anzeigen
+        if reasoning and not base3_key:
             quote_lines = "\n".join(f"> {line}" for line in reasoning.split("\n"))
             embed.add_field(
                 name=f"{rating_emoji} Einsch\u00e4tzung",
@@ -741,9 +807,12 @@ class HostCommand(commands.Cog):
         termin_val = _format_termin_german(start_time, duration)
         embed.add_field(name="10 \u00b7 Termin", value=f"```{termin_val}```", inline=True)
 
-        # 11 · Skriptbild
+        # 11 · Skriptbild / Thumbnail
         script_file = None
-        if script_name and not is_free and sd_lookup:
+        if base3_key:
+            # Base3: Thumbnail statt Script-Bild
+            embed.set_thumbnail(url=BASE3_THUMBNAILS[base3_key])
+        elif script_name and not is_free and sd_lookup:
             chars = sd_lookup.get("characters", [])
             if chars:
                 try:
@@ -1075,6 +1144,13 @@ class HostCommand(commands.Cog):
         choices = session.pending_script_choices
         tl = text.lower()
 
+        # JSON-Upload hat HÖCHSTE Priorität — vor allem anderen prüfen
+        if message.attachments and message.attachments[0].filename.endswith(".json"):
+            session.pending_script_choices = None
+            session.pending_script_upload = True
+            await self._process_script_upload(session, ch, text, message)
+            return
+
         if tl in ("skip", "überspringen", "s"):
             session.pending_script_choices = None
             await self._show_final_review(session, ch)
@@ -1133,13 +1209,6 @@ class HostCommand(commands.Cog):
 
         if best_match is not None and best_score >= 4:
             await self._select_script(session, ch, choices[best_match])
-            return
-
-        # JSON-Upload direkt in der Script-Auswahl
-        if message.attachments and message.attachments[0].filename.endswith(".json"):
-            session.pending_script_choices = None
-            session.pending_script_upload = True
-            await self._process(session, message)
             return
 
         # Kein deterministischer Match → Haiku als Fallback
@@ -1457,6 +1526,20 @@ class HostCommand(commands.Cog):
 
             script_name = session.fields.get("script")
             if script_name and not session.fields.get("is_free_choice"):
+                # Homebrew/Custom/eigenes → direkt Upload anbieten, nicht DB-Suche
+                is_custom_intent = script_name.lower() in (
+                    "homebrew", "custom", "custom script", "eigenes", "eigenes skript",
+                    "mein skript", "mein eigenes", "mein eigenes skript",
+                    "custom skript", "homebrew skript",
+                )
+                if is_custom_intent:
+                    session.pending_script_upload = True
+                    await ch.send(
+                        "Sende dein **Skript als JSON-Datei** (.json) hoch.\n"
+                        "Du kannst auch in der Datenbank **suchen** oder **skip** schreiben."
+                    )
+                    return
+
                 _, source = lookup_script(script_name)
                 if source == "miss":
                     await ch.send(f"Ich suche **{script_name}** in der Datenbank...")

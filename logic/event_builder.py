@@ -146,6 +146,11 @@ def build_event_embed(event_data: dict) -> discord.Embed:
         timestamp=discord.utils.utcnow(),
     )
 
+    # ── Thumbnail (z.B. Base3 Script-Logo) ────────────────────────────────
+    thumbnail_url = event_data.get("thumbnail_url")
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
+
     # ── Author (oben) ────────────────────────────────────────────────────
     creator = event_data.get("creator_name", "Unbekannt")
     avatar_url = event_data.get("creator_avatar_url")

@@ -513,17 +513,16 @@ class TestScriptChoices:
 
     @pytest.mark.asyncio
     async def test_json_attachment_redirects(self, cog, session, channel):
-        """JSON-Attachment in script_choices → Redirect zu script_upload."""
+        """JSON-Attachment in script_choices → direkt zu script_upload."""
         session.pending_script_choices = self.SAMPLE_CHOICES
+        # _process_script_upload wird direkt aufgerufen, also mocken
+        cog._process_script_upload = AsyncMock()
         att = MagicMock()
         att.filename = "myscript.json"
-        # Text muss non-empty sein, weil "" in jedem String enthalten ist → Name-Match
         msg = _make_message("hier mein script", attachments=[att])
-        cog._process = AsyncMock()
         await cog._process_script_choices(session, channel, "hier mein script", msg)
-        assert getattr(session, "pending_script_upload", False) is True
         assert session.pending_script_choices is None
-        cog._process.assert_called_once()
+        cog._process_script_upload.assert_called_once()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
