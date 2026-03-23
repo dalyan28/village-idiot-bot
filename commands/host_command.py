@@ -12,7 +12,7 @@ import io
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import discord
@@ -56,20 +56,40 @@ logger = logging.getLogger(__name__)
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 BOT_COLOR = 0x5865F2
 
+GERMAN_DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+
+
+def _format_termin_german(start_time_str: str, duration_minutes: int) -> str:
+    """Formatiert start_time + duration als deutsches Datum.
+
+    z.B. 'Dienstag, der 24.03.2026, 15:00 Uhr – 17:30 Uhr'
+    """
+    ts = _parse_start_time(start_time_str) if start_time_str else None
+    if not ts:
+        return start_time_str or "-"
+    dt = datetime.fromtimestamp(ts, tz=BERLIN_TZ)
+    day_name = GERMAN_DAYS[dt.weekday()]
+    date_str = dt.strftime("%d.%m.%Y")
+    start_str = dt.strftime("%H:%M")
+    end_dt = dt + timedelta(minutes=duration_minutes)
+    end_str = end_dt.strftime("%H:%M")
+    return f"{day_name}, der {date_str}, {start_str} Uhr \u2013 {end_str} Uhr"
+
 CANCEL_KEYWORDS = {"abbrechen", "cancel", "stop"}
 CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes", "passt", "gut"}
 REQUIRED_FIELDS = ["script", "start_time", "storyteller", "level", "is_casual"]
 
 SUMMARY_FIELDS = [
-    ("title", "Titel"),
-    ("description", "Beschreibung"),
-    ("storyteller", "Storyteller:in"),
-    ("co_storyteller", "Co-Storyteller:in"),
-    ("level", "Level"),
-    ("_labels", "Labels"),
-    ("camera", "Kamera"),
-    ("max_players", "Max Spieler"),
-    ("start_time", "Termin & Dauer"),
+    ("title", "Titel"),                    # 1
+    ("script", "Skript"),                  # 2
+    ("description", "Beschreibung"),       # 3
+    ("storyteller", "Storyteller:in"),      # 4
+    ("co_storyteller", "Co-Storyteller:in"),# 5
+    ("level", "Level"),                    # 6
+    ("_labels", "Labels"),                 # 7
+    ("camera", "Kamera"),                  # 8
+    ("max_players", "Max Spieler"),        # 9
+    ("start_time", "Termin"),              # 10
 ]
 
 # Keywords für natürliche Sprache → Feld-Erkennung
@@ -608,56 +628,48 @@ class HostCommand(commands.Cog):
 
         intro_text = " ".join(intro_parts)
 
-        # -- Embed 1: Script Details --
+        # ── Single Embed: Event-Zusammenfassung ──
         char_ids = (sd or {}).get("characters", [])
-        script_embed = discord.Embed(title="\U0001f4dc Skriptinformationen", color=embed_color)
+        embed = discord.Embed(title="\U0001f4cb Event-Zusammenfassung", color=embed_color)
 
-        script_info = script_name or "?"
+        # 1 · Titel (NOT inline)
+        embed.add_field(name="1 \u00b7 Titel", value=f"```{title_display}```", inline=False)
+
+        # 2 · Skript (inline)
+        script_info = script_name or "Freie Wahl"
         if script_author:
             script_info += f" von {script_author}"
         if script_version:
             script_info += f" \u00b7 v{script_version}"
         if char_ids:
             script_info += f" \u00b7 {len(char_ids)} Charaktere"
-        script_embed.add_field(name="Skript", value=f"```{script_info}```", inline=True)
+        embed.add_field(name="2 \u00b7 Skript", value=f"```{script_info}```", inline=True)
 
+        # Einschätzung (inline, als Zitat)
         if reasoning:
-            script_embed.add_field(
+            quote_lines = "\n".join(f"> {line}" for line in reasoning.split("\n"))
+            embed.add_field(
                 name=f"{rating_emoji} Einsch\u00e4tzung",
-                value=f"```{reasoning}```",
+                value=quote_lines,
                 inline=True,
             )
 
-        if char_ids and not is_free:
-            content_data = (sd or {}).get("content")
-            teams = self._build_char_list_by_team(char_ids, content_data)
-            team_lines = []
-            for team_name in ("Townsfolk", "Outsider", "Minion", "Demon"):
-                names = teams.get(team_name, [])
-                if names:
-                    team_lines.append(f"**{team_name}**\n```{', '.join(names)}```")
-            if team_lines:
-                script_embed.add_field(name="\u200b", value="\n".join(team_lines), inline=False)
+        # 3 · Beschreibung (inline)
+        embed.add_field(name="3 \u00b7 Beschreibung", value=f"```{session.fields.get('description', '-')}```", inline=True)
 
-        # Send intro + script embed (ohne PNG)
-        await channel.send(content=intro_text, embed=script_embed)
-
-        # ── Embed 2: Event Summary ──
-        summary_embed = discord.Embed(title="\U0001f4cb Event-Zusammenfassung", color=embed_color)
-
-        summary_embed.add_field(name="1 \u00b7 Titel", value=f"```{title_display}```", inline=False)
-        summary_embed.add_field(name="2 \u00b7 Beschreibung", value=f"```{session.fields.get('description', '-')}```", inline=False)
-
+        # 4 · Storyteller:in (inline)
         st = session.fields.get("storyteller") or "-"
-        summary_embed.add_field(name="3 \u00b7 Storyteller:in", value=f"```{st}```", inline=True)
+        embed.add_field(name="4 \u00b7 Storyteller:in", value=f"```{st}```", inline=True)
 
+        # 5 · Co-Storyteller:in (inline)
         co_st = session.fields.get("co_storyteller") or "\u2014"
-        summary_embed.add_field(name="4 \u00b7 Co-Storyteller:in", value=f"```{co_st}```", inline=True)
+        embed.add_field(name="5 \u00b7 Co-Storyteller:in", value=f"```{co_st}```", inline=True)
 
+        # 6 · Level (inline)
         level = session.fields.get("level") or "Alle"
-        summary_embed.add_field(name="5 \u00b7 Level", value=f"```{level}```", inline=True)
+        embed.add_field(name="6 \u00b7 Level", value=f"```{level}```", inline=True)
 
-        # Labels
+        # 7 · Labels (inline)
         label_parts = []
         if session.fields.get("is_casual"):
             label_parts.append("\U0001f54a\ufe0f Casual")
@@ -666,9 +678,9 @@ class HostCommand(commands.Cog):
         if session.fields.get("is_recorded"):
             label_parts.append("\U0001f3a6 Aufzeichnung")
         labels_val = ", ".join(label_parts) if label_parts else "\u2014"
-        summary_embed.add_field(name="6 \u00b7 Labels", value=f"```{labels_val}```", inline=True)
+        embed.add_field(name="7 \u00b7 Labels", value=f"```{labels_val}```", inline=True)
 
-        # Camera
+        # 8 · Kamera (inline)
         cam = session.fields.get("camera")
         if cam is True:
             cam_str = "Pflicht"
@@ -676,22 +688,19 @@ class HostCommand(commands.Cog):
             cam_str = "Aus"
         else:
             cam_str = "Keine Pflicht"
-        summary_embed.add_field(name="7 \u00b7 Kamera", value=f"```{cam_str}```", inline=True)
+        embed.add_field(name="8 \u00b7 Kamera", value=f"```{cam_str}```", inline=True)
 
+        # 9 · Max Spieler (inline)
         max_p = session.fields.get("max_players") or 12
-        summary_embed.add_field(name="8 \u00b7 Max Spieler", value=f"```{max_p}```", inline=True)
+        embed.add_field(name="9 \u00b7 Max Spieler", value=f"```{max_p}```", inline=True)
 
-        # Termin
+        # 10 · Termin (inline) — deutsches Datumsformat
         start_time = session.fields.get("start_time") or "-"
         duration = session.fields.get("duration_minutes") or 150
-        termin_val = f"{start_time}\nDauer: {duration} Min"
-        summary_embed.add_field(name="9 \u00b7 Termin & Dauer", value=f"```{termin_val}```", inline=False)
+        termin_val = _format_termin_german(start_time, duration)
+        embed.add_field(name="10 \u00b7 Termin", value=f"```{termin_val}```", inline=True)
 
-        footer = _cost_footer(session)
-        if footer:
-            summary_embed.set_footer(text=footer)
-
-        # Script PNG — an die Summary-Nachricht anhängen
+        # 11 · Skriptbild
         script_file = None
         if script_name and not is_free and sd_lookup:
             chars = sd_lookup.get("characters", [])
@@ -703,8 +712,13 @@ class HostCommand(commands.Cog):
                         content=sd_lookup.get("content"),
                     )
                     script_file = discord.File(img, filename="script_preview.png")
+                    embed.set_image(url="attachment://script_preview.png")
                 except Exception as e:
                     logger.warning("Script-Bild: %s", e)
+
+        footer = _cost_footer(session)
+        if footer:
+            embed.set_footer(text=footer)
 
         # Buttons
         view = SummaryView(self, session, channel)
@@ -715,7 +729,7 @@ class HostCommand(commands.Cog):
             "Schreibe **ok** oder dr\u00fccke **Erstellen** wenn alles passt."
         )
 
-        kwargs = {"embed": summary_embed, "view": view}
+        kwargs = {"content": intro_text, "embed": embed, "view": view}
         if script_file:
             kwargs["file"] = script_file
         await channel.send(**kwargs)
@@ -1201,32 +1215,41 @@ class HostCommand(commands.Cog):
                 await ch.send("Keine bisherigen Werte vorhanden.")
                 return
 
-        # 5. Number input (1-9) → field edit
+        # 5. Number input (1-10) → field edit
         try:
             num = int(text)
             if 1 <= num <= len(SUMMARY_FIELDS):
                 key, label = SUMMARY_FIELDS[num - 1]
-                if key == "_labels":
+                if key == "script":
+                    # Skript hat eigenen Workflow
+                    session.pending_final_review = False
+                    session.pending_script_edit_mode = True
                     await ch.send(
-                        "Welches Label möchtest du ändern?\n"
-                        "• `casual ja/nein`\n"
-                        "• `academy ja/nein`"
+                        "M\u00f6chtest du:\n"
+                        "**1** \u2014 In der Datenbank suchen\n"
+                        "**2** \u2014 Selbst einen Namen eingeben"
+                    )
+                elif key == "_labels":
+                    await ch.send(
+                        "Welches Label m\u00f6chtest du \u00e4ndern?\n"
+                        "\u2022 `casual ja/nein`\n"
+                        "\u2022 `academy ja/nein`"
                     )
                     session.pending_field_edit = "_labels"
                 elif key == "start_time":
                     await ch.send(
-                        "Was möchtest du ändern?\n"
-                        "• Nur Termin: z.B. `2026-03-25 20:00`\n"
-                        "• Nur Dauer: z.B. `180`\n"
-                        "• Beides: z.B. `2026-03-25 20:00 180min`"
+                        "Was m\u00f6chtest du \u00e4ndern?\n"
+                        "\u2022 Nur Termin: z.B. `2026-03-25 20:00`\n"
+                        "\u2022 Nur Dauer: z.B. `180`\n"
+                        "\u2022 Beides: z.B. `2026-03-25 20:00 180min`"
                     )
                     session.pending_field_edit = "start_time"
                 else:
                     session.pending_field_edit = key
-                    await ch.send(f"Was soll der neue Wert für **{label}** sein?")
+                    await ch.send(f"Was soll der neue Wert f\u00fcr **{label}** sein?")
                 return
             else:
-                await ch.send(f"Bitte wähle 1-{len(SUMMARY_FIELDS)}.")
+                await ch.send(f"Bitte w\u00e4hle 1-{len(SUMMARY_FIELDS)}.")
                 return
         except ValueError:
             pass
@@ -1234,15 +1257,15 @@ class HostCommand(commands.Cog):
         # 6. Haiku fallback via interpret_final_review
         fields_summary = (
             f"1. Titel: {session.fields.get('title', '-')}\n"
-            f"2. Beschreibung: {session.fields.get('description', '-')}\n"
-            f"3. Storyteller: {session.fields.get('storyteller', '-')}\n"
-            f"4. Co-Storyteller: {session.fields.get('co_storyteller', '-')}\n"
-            f"5. Level: {session.fields.get('level', '-')}\n"
-            f"6. Labels: casual={session.fields.get('is_casual')}, academy={session.fields.get('is_academy')}, recorded={session.fields.get('is_recorded')}\n"
-            f"7. Kamera: {session.fields.get('camera')}\n"
-            f"8. Max Spieler: {session.fields.get('max_players', 12)}\n"
-            f"9. Termin: {session.fields.get('start_time', '-')}, Dauer: {session.fields.get('duration_minutes', 150)} Min\n"
-            f"Skript: {session.fields.get('script', '-')}"
+            f"2. Skript: {session.fields.get('script', '-')}\n"
+            f"3. Beschreibung: {session.fields.get('description', '-')}\n"
+            f"4. Storyteller: {session.fields.get('storyteller', '-')}\n"
+            f"5. Co-Storyteller: {session.fields.get('co_storyteller', '-')}\n"
+            f"6. Level: {session.fields.get('level', '-')}\n"
+            f"7. Labels: casual={session.fields.get('is_casual')}, academy={session.fields.get('is_academy')}, recorded={session.fields.get('is_recorded')}\n"
+            f"8. Kamera: {session.fields.get('camera')}\n"
+            f"9. Max Spieler: {session.fields.get('max_players', 12)}\n"
+            f"10. Termin: {session.fields.get('start_time', '-')}, Dauer: {session.fields.get('duration_minutes', 150)} Min"
         )
         async with ch.typing():
             result = await interpret_final_review(session, text, fields_summary)
@@ -1301,7 +1324,7 @@ class HostCommand(commands.Cog):
 
         await ch.send(
             "Das konnte ich nicht zuordnen. "
-            "Nutze eine **Nummer** (1-9) zum Ändern oder schreibe **ok**."
+            "Nutze eine **Nummer** (1-10) zum \u00c4ndern oder schreibe **ok**."
         )
         return
 
