@@ -12,6 +12,7 @@ import io
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -88,6 +89,19 @@ SCRIPT_CHANGE_PROMPT = (
 )
 
 MAX_CALLS = 20
+
+_SEARCH_PREFIXES = re.compile(
+    r"^(?:such(?:e|t)?\s*(?:mal\s+)?(?:nach|für|lieber\s+nach)?|"
+    r"zeig(?:\s+mir)?|find(?:e)?|gib\s+mir|ich\s+will|ich\s+möchte|"
+    r"nimm|wähle?|nehme?)\s+",
+    re.IGNORECASE,
+)
+
+
+def _extract_search_term(text: str) -> str:
+    """Entfernt natürliche Sprach-Präfixe und gibt den reinen Suchbegriff zurück."""
+    clean = _SEARCH_PREFIXES.sub("", text.strip())
+    return clean.strip() or text.strip()
 REQUIRED_FIELDS = ["script", "start_time", "storyteller", "level", "is_casual"]
 
 SUMMARY_FIELDS = [
@@ -529,7 +543,7 @@ class HostCommand(commands.Cog):
             chars = script.get("characters", [])
             content = script.get("content")
 
-            embed = discord.Embed(title=f"\U0001f4dc {display_num}. {name}", color=0xFDCB58)
+            embed = discord.Embed(title=f"{display_num} \u00b7 {name}", color=0xFDCB58)
             embed.add_field(name="Info", value=f"von {author} \u00b7 v{version} \u00b7 {len(chars)} Charaktere", inline=False)
 
             teams = self._build_char_list_by_team(chars, content)
@@ -548,9 +562,18 @@ class HostCommand(commands.Cog):
     async def _show_final_review(self, session, channel, regenerate_title=True):
         """Zeigt den kombinierten Abschluss-Screen: Skript-Details + Event-Zusammenfassung."""
         session.pending_final_review = True
-        # Clear old states
+        # Clear ALL other states — wir sind jetzt im Final Review
         session.pending_title_description = False
         session.pending_summary = False
+        session.pending_script_choices = None
+        session.pending_script_upload = False
+        session.pending_script_search = False
+        session.pending_script_edit_mode = False
+        session.pending_field_edit = None
+        session._pending_script_preview = False
+        session._preview_scripts = None
+        session._pending_version_choices = None
+        session._pending_manual_rating = False
 
         # Defaults setzen
         session.fields.setdefault("max_players", 12)
@@ -606,6 +629,11 @@ class HostCommand(commands.Cog):
         analysis = session.fields.get("complexity_analysis") or {}
         rating = analysis.get("rating")
         rating_emoji = LABEL_EMOJI.get(rating, "") if rating else ""
+
+        # Bei manuellem Script (nur Rating, keine Analyse): hardcoded Reasoning
+        if analysis and len(analysis) == 1 and "rating" in analysis:
+            rating_word_full = {"green": "gr\u00fcn", "yellow": "gelb", "red": "rot"}.get(rating, "")
+            reasoning = f"Der Storyteller hat das Skript {rating_emoji} {rating_word_full} eingesch\u00e4tzt."
 
         EMBED_COLORS = {
             "green": 0x78B159, "yellow": 0xFDCB58, "red": 0xDD2E44,
@@ -867,8 +895,9 @@ class HostCommand(commands.Cog):
             return
         # Haiku-Fallback: Natürliche Sprache → als Suchbegriff interpretieren
         if len(tl) > 2 and not tl.isdigit():
+            search_term = _extract_search_term(text)
             session.pending_script_search = True
-            await self._process_script_search(session, ch, text)
+            await self._process_script_search(session, ch, search_term)
             return
         await ch.send(
             "Du willst ein anderes Skript spielen. Sag mir gerne, nach welchem Suchbegriff "

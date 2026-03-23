@@ -93,28 +93,26 @@ Format: "[Skriptname] mit [Storyteller(s)]"
 Beispiele: "Boozling mit Dalyan", "BMR mit Dalyan und Rosanna"
 KEIN Emoji im Titel — das wird separat hinzugefügt.
 
-### 2. BESCHREIBUNG (max 3 Sätze, deutsch, für Mitspieler)
+### 2. BESCHREIBUNG (max 2 Sätze, deutsch, für Mitspieler)
 Die Beschreibung ist aus Sicht des Storytellers geschrieben ("Wir spielen...").
-MAXIMAL 3 kurze, sachliche Sätze:
-1. "Wir spielen [Skriptname]" + kurze Einordnung (nah an Trouble Brewing / Mix aus den Basis-Skripten / enthält Charaktere außerhalb der Basis-Skripte).
-2. Nenne relevante Charaktere aus den Analyse-Fakten. Nutze dafür:
-   - Die "Relevanteste Charaktere" Liste (die mit dem höchsten Score)
-   - Spielverändernde Charaktere (Score 10) und anspruchsvolle (Score 9)
-   - Den/die Demon(s) — BESONDERS WICHTIG bei Solo-Demon-Skripten:
-     * Wenn "EINZIGER Demon" und NICHT Imp → unbedingt hervorheben (z.B. "Mit Shabaloth als einzigem Demon...")
-     * Wenn einziger Demon der Imp ist → beiläufig erwähnen ("Der Imp ist wie gewohnt der einzige Demon.")
-     * Bei mehreren Demons → kurz auflisten
-3. Kurzer Schlusssatz.
-STRIKTE REGELN:
-- "Wir spielen [Skriptname]" — NICHT "Wir spielen eine Runde Trouble Brewing" wenn das Skript anders heißt!
-- Den Storyteller NIEMALS namentlich erwähnen — die Beschreibung ist aus seiner Sicht geschrieben
-- NICHTS hinzudichten oder annehmen, was nicht in den Fakten steht. NUR das beschreiben, was du sicher weißt.
-- KEIN Marketingtext, KEINE blumigen Adjektive, KEINE Floskeln ("Lasst euch überraschen", "Seid bereit", "Kommt vorbei", "perfekt um Spaß zu haben")
-- Sachlich und neutral. Maximal ein Hauch von Humor/Ironie, aber das soll nicht dominieren.
+MAXIMAL 2 kurze, sachliche Sätze. Einfache deutsche Sprache, wie man mit Freunden redet.
+1. "Wir spielen [Skriptname]" + nenne die relevantesten Charaktere aus den Analyse-Fakten (die mit dem höchsten Score, Demons).
+2. Optional ein kurzer zweiter Satz. Kann auch positiv-locker sein ("Wird bestimmt gut!", "Freut euch drauf!") — KEIN Marketing.
+
+WANN Basis-Skript-Overlap erwähnen:
+- NUR wenn die Überschneidung HOCH ist (≥60% Trouble Brewing oder ≥60% Basis-Skripte) → kurz erwähnen, z.B. "großteils aus Trouble Brewing"
+- NICHT erwähnen, wenn die Überschneidung NIEDRIG ist. Nicht sagen "enthält Charaktere außerhalb der Standard-Sets" o.Ä. — das ist der Normalfall und nicht erwähnenswert.
+
+VERBOTENE WÖRTER UND FLOSKELN:
+- "flankiert", "ergänzt", "abgerundet", "bereichert", "garniert" — NIEMALS diese Verben
+- "experimentell", "unkonventionell", "außergewöhnlich", "anspruchsvoll"
+- "Lasst euch überraschen", "Seid bereit", "Kommt vorbei", "perfekt um Spaß zu haben"
+- KEINE Aussagen über Zielgruppe/Schwierigkeit — das Rating übernimmt das
+- NICHT "im Spiel" — Charaktere sind "auf dem Skript". Sie KÖNNTEN im Spiel landen, sind aber nicht automatisch alle gleichzeitig aktiv.
+- "Wir spielen [Skriptname]" — NICHT "Wir spielen eine Runde X" wenn das Skript anders heißt!
+- Den Storyteller NIEMALS namentlich erwähnen
+- NICHTS hinzudichten. NUR beschreiben was in den Fakten steht.
 - KEINE Absätze — alles in einem Block.
-- KEINE Aussagen über Zielgruppe/Schwierigkeit ("Anfänger sollten sich wohlfühlen", "für erfahrene Spieler"). Das Rating übernimmt diese Einordnung bereits.
-- Das Wort "experimentell" NICHT verwenden. Stattdessen: "enthält Charaktere, die nicht in den Basis-Skripten vertreten sind" oder ähnlich sachlich.
-- NIEMALS "im Spiel" schreiben wenn du über Charaktere sprichst. Charaktere sind "auf dem Skript", nicht "im Spiel". Sie KÖNNTEN im Spiel landen, sind aber nicht automatisch alle gleichzeitig aktiv. Schreibe z.B. "Auf dem Skript finden sich drei Demons" statt "Im Spiel haben wir drei Demons".
 
 ### 3. REASONING (Skript-Einschätzung)
 Der ERSTE Satz ist IMMER eine dieser Varianten (mit Emoji):
