@@ -1695,11 +1695,10 @@ class HostCommand(commands.Cog):
             await ch.send(embed=embed)
 
         else:
-            # ask — Haiku-Rückfrage + Hint zur freien Sprache
-            parts = [haiku_msg, HINT_HAIKU_CHAT]
-            if footer:
-                parts.append(f"-# {footer}")
-            await ch.send("\n".join(parts))
+            # ask — Rückfrage ohne Beispiel-Hint: der User hat freie Sprache
+            # bereits in der vorherigen Nachricht benutzt, das Beispiel wäre redundant.
+            m = f"{haiku_msg}\n-# {footer}" if footer else haiku_msg
+            await ch.send(m)
 
     # ── Dispatcher ────────────────────────────────────────────────────
 

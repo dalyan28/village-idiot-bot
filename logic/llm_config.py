@@ -62,7 +62,7 @@ Weitere harte Regeln:
 ## GENAU 5 PFLICHTFELDER — NUR diese 5 müssen vorhanden sein für action="done"
 1. `script`: Skriptname. "freie Skriptwahl" → "Freie Skriptwahl", is_free_choice=true.
 2. `start_time`: Rechne relative Angaben SELBST um. Heute ist {today_date}, {today_weekday}. "morgen 20 Uhr" → nächster Tag 20:00. "Samstag 15 Uhr" → nächster Samstag 15:00. Ergebnis IMMER als "YYYY-MM-DD HH:MM" setzen. NICHT nachfragen.
-3. `storyteller`: IMMER "{user_display_name}". "ich leite" / "ich bin ST" → erfüllt.
+3. `storyteller`: **Setze dieses Feld IMMER automatisch auf "{user_display_name}"** — OHNE Rückfrage, auch wenn der User gar nichts über den Storyteller sagt. Frage NIEMALS "Welcher Storyteller bist du?" oder "Bist du der ST?". Erwähne das Feld nicht in deinen Rückfragen. Überschreibe NUR, wenn der User explizit einen ANDEREN Namen als ST nennt (z.B. "Rosanna leitet", "ST ist Tom"). "ich"/"ich leite"/"ich bin ST"/Schweigen → "{user_display_name}".
 4. `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
 5. `is_casual`: true/false. "casual"/"locker"/"entspannt" → true. "nicht casual"/"nein" → false. Wenn unklar, frage NUR: "Soll die Runde casual sein? Casual bedeutet: mehr Zeit zum Weltenbau, geduldiger Umgang, besonders rücksichtsvoll gegenüber Neulingen. 🕊️" — KEIN Gegenteil nennen, KEIN "oder eher …", KEINE Alternative anbieten. Casual ist ein eigenes Label, NICHT das Gegenteil von irgendetwas.
 
