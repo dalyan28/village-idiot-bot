@@ -96,13 +96,92 @@ def _format_termin_german(start_time_str: str, duration_minutes: int) -> str:
 CANCEL_KEYWORDS = {"abbrechen", "cancel", "stop"}
 CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes", "passt", "gut"}
 
+# ── Hilfszeilen (klein + kursiv) ──────────────────────────────────────────────
+# Discord: "-#" = Subtext (klein), "*...*" = kursiv.
+# Werden unter Bot-Nachrichten angehängt, damit der User weiß, was möglich ist.
+
+HINT_HAIKU_CHAT = (
+    "-# *Schreib frei in eigenen Worten — ich ziehe die Details selbst raus. "
+    "Beispiel: \"Samstag 19 Uhr BMR, Level Erfahren, casual\".*"
+)
+HINT_SCRIPT_CHOICE = (
+    "-# *Antworte mit einer **Nummer** (1–5), einem **Skriptnamen**, `preview N` "
+    "für Details, einem neuen **Suchbegriff**, einer **Script-JSON** als Anhang, "
+    "oder `skip`.*"
+)
+HINT_SCRIPT_PREVIEW = (
+    "-# *Wähle eine **Nummer**, schreibe `zurück` für die Suchergebnisse, oder "
+    "nenne den Skriptnamen frei.*"
+)
+HINT_SCRIPT_UPLOAD = (
+    "-# *Hänge die **.json-Datei** als Anhang an — oder schreibe `skip`.*"
+)
+HINT_SCRIPT_SEARCH_RETRY = (
+    "-# *Versuch einen anderen **Suchbegriff** — oder schreibe `abbrechen`.*"
+)
+HINT_MANUAL_RATING = (
+    "-# *Schreib einfach `grün`, `gelb` oder `rot` — oder nutze das passende Emoji.*"
+)
+HINT_SCRIPT_EDIT_MODE = (
+    "-# *Antworte mit einer **Nummer** (1–4) oder tippe direkt einen **Suchbegriff** "
+    "ein — freie Sprache geht auch.*"
+)
+HINT_VERSION_CHOICES = (
+    "-# *Gib die **Nummer** der gewünschten Version ein.*"
+)
+HINT_FINAL_REVIEW = (
+    "-# *Du kannst frei sprechen — z.B. \"Kamera aus, Level Profi\" oder "
+    "\"Termin Samstag 20 Uhr\". Einzelne Felder auch per **Nummer**.*"
+)
+HINT_FIELD_EDIT_GENERIC = (
+    "-# *Schreib einfach den neuen Wert in eigenen Worten.*"
+)
+HINT_FIELD_EDIT_LEVEL = "-# *Erlaubt: `Neuling`, `Erfahren`, `Profi`, `Alle`.*"
+HINT_FIELD_EDIT_CAMERA = "-# *Erlaubt: `Pflicht`, `Aus`, `Keine Pflicht`.*"
+HINT_FIELD_EDIT_MAX_PLAYERS = "-# *Gib eine **Zahl** ein, z.B. `12`.*"
+HINT_FIELD_EDIT_CO_ST = "-# *Name frei eingeben — oder `keiner` um zu entfernen.*"
+HINT_FIELD_EDIT_LABELS = (
+    "-# *Beispiele: `casual ja`, `academy nein`. Mehrere auch kombinierbar.*"
+)
+HINT_FIELD_EDIT_START_TIME = (
+    "-# *Beispiele: `Samstag 20 Uhr`, `2026-03-25 20:00`, `180` (nur Dauer in Min), "
+    "`2026-03-25 20:00 180min` (beides).*"
+)
+HINT_ALT_RESTORE = (
+    "-# *`alt` stellt deinen vorherigen Titel und deine Beschreibung wieder her.*"
+)
+HINT_ERROR_RETRY = (
+    "-# *Versuch es nochmal — oder schreibe `abbrechen` zum Beenden.*"
+)
+
+# ── Einheitliche Error-Messages ──────────────────────────────────────────────
+# Wir nutzen \u26a0\ufe0f als konsistentes Error-Prefix, damit User Fehler auf
+# einen Blick erkennen. Fettdruck nur auf Schlüsselwörter.
+
+ERR_PREFIX = "\u26a0\ufe0f"  # ⚠️
+
+def _err(msg: str, hint: str | None = None) -> str:
+    """Baut eine einheitliche Fehlermeldung mit optionalem Hint darunter."""
+    text = f"{ERR_PREFIX} {msg}"
+    if hint:
+        text += f"\n{hint}"
+    return text
+
+# Zentraler Refuse-Text — identisch bei Off-Topic UND Injection-/Tricksversuchen.
+REFUSE_MESSAGE = (
+    "Das hat nichts mit der Event-Erstellung zu tun. Bleib bitte beim Thema: "
+    "Beschreibe dein Event (Skript, Termin, Level, casual ja/nein) oder "
+    "schreibe `abbrechen`, um die Session zu beenden."
+)
+
 SCRIPT_CHANGE_PROMPT = (
     "Du willst ein anderes Skript spielen. Sag mir gerne, nach welchem Suchbegriff "
     "ich in der Datenbank suchen soll. Alternativ:\n"
     "**1** \u2014 In der Datenbank suchen\n"
     "**2** \u2014 Selbst einen Namen eingeben\n"
     "**3** \u2014 Script-JSON hochladen\n"
-    "**4** \u2014 Freie Skriptwahl"
+    "**4** \u2014 Freie Skriptwahl\n"
+    f"{HINT_SCRIPT_EDIT_MODE}"
 )
 
 MAX_CALLS = 20
@@ -223,8 +302,8 @@ def _build_script_choice_embed(script_name, results):
 
 
 SCRIPT_CHOICE_HELP = (
-    "Ist dein Skript dabei? Du kannst auch einen anderen Suchbegriff eingeben, "
-    "eine Script-JSON (.json) hochladen, oder den Schritt überspringen."
+    "Ist dein Skript dabei?\n"
+    f"{HINT_SCRIPT_CHOICE}"
 )
 
 
@@ -258,7 +337,7 @@ class SummaryView(discord.ui.View):
 
         start_ts = _parse_start_time(f.get("start_time") or "")
         if not start_ts:
-            await _reply("Fehler: Termin konnte nicht verarbeitet werden.")
+            await _reply(_err("Der Termin konnte nicht verarbeitet werden."))
             end_session(self.session.user_id)
             return
 
@@ -324,7 +403,7 @@ class SummaryView(discord.ui.View):
         event_cog = self.cog.bot.cogs.get("EventCommands")
         event_channel = self.cog.bot.get_channel(self.session.event_channel_id)
         if not event_cog or not event_channel:
-            await _reply("Fehler: Event-System nicht verfügbar.")
+            await _reply(_err("Event-System ist gerade nicht verfügbar."))
             end_session(self.session.user_id)
             return
 
@@ -391,7 +470,7 @@ class SummaryView(discord.ui.View):
                 await _reply(f"Event aktualisiert! ✏️\n{edit_msg.jump_url}")
             except Exception as e:
                 logger.error("Edit-Fehler: %s", e)
-                await _reply(f"Fehler beim Bearbeiten: {e}")
+                await _reply(_err(f"Beim Bearbeiten ist etwas schiefgelaufen: {e}"))
         else:
             # Neues Event erstellen
             try:
@@ -399,7 +478,7 @@ class SummaryView(discord.ui.View):
                 await _reply(f"Event erstellt! 🎉\n{msg.jump_url}")
             except Exception as e:
                 logger.error("Fehler: %s", e)
-                await _reply(f"Fehler: {e}")
+                await _reply(_err(f"Beim Erstellen ist etwas schiefgelaufen: {e}"))
 
         end_session(self.session.user_id)
 
@@ -407,14 +486,16 @@ class SummaryView(discord.ui.View):
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.stop()
         end_session(self.session.user_id)
-        await interaction.response.send_message("Event-Erstellung abgebrochen.")
+        await interaction.response.send_message("Event-Erstellung abgebrochen. ✌️")
 
     async def on_timeout(self):
         # Nur senden wenn Session noch aktiv ist (sonst wurde sie schon anderswo beendet)
         if get_session(self.session.user_id) is not None:
             end_session(self.session.user_id)
             try:
-                await self.dm_channel.send("\u23f0 Abgelaufen. Starte mit `/botc` neu.")
+                await self.dm_channel.send(
+                    "\u23f0 Session abgelaufen. Starte mit `/botc` neu."
+                )
             except Exception:
                 pass
 
@@ -496,10 +577,15 @@ class HostCommand(commands.Cog):
             dm = await interaction.user.create_dm()
             await dm.send(
                 f"Hey {interaction.user.display_name}! 👋\n"
-                f"Lass uns ein Event für **{guild.name}** erstellen.\n\n"
-                f"Beschreib mir dein Event in einer Nachricht — z.B.:\n"
-                f"*\"Morgen 20 Uhr Boozling, ich bin ST, Level Erfahren\"*\n\n"
-                f"-# Session läuft 5 Min · 'abbrechen' zum Beenden"
+                f"Ich helfe dir, ein **BotC-Event** für **{guild.name}** zu erstellen. "
+                f"Am Ende wird das Event im Event-Channel gepostet, und andere können sich anmelden.\n\n"
+                f"Bevor es losgeht: Schau kurz in die **Serverregeln**, damit dein Event dazu passt.\n\n"
+                f"Ich brauche von dir: **Skript**, **Termin**, **Storyteller**, **Level** und "
+                f"ob die Runde **casual** ist. Alles andere (Dauer, Max. Spieler, Kamera, Co-ST …) "
+                f"kannst du hinterher ergänzen.\n\n"
+                f"Leg einfach los — erzähl mir in eigenen Worten, was du planst.\n"
+                f"{HINT_HAIKU_CHAT}\n"
+                f"-# *Session läuft 5 Min · schreibe `abbrechen` zum Beenden.*"
             )
         except discord.Forbidden:
             await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
@@ -597,7 +683,7 @@ class HostCommand(commands.Cog):
 
         await channel.send(
             "W\u00e4hle ein Skript aus oder geh **zur\u00fcck** zur Liste.\n"
-            "Du kannst auch eine Nummer eingeben."
+            f"{HINT_SCRIPT_PREVIEW}"
         )
 
     async def _show_final_review(self, session, channel, regenerate_title=True):
@@ -836,11 +922,17 @@ class HostCommand(commands.Cog):
         # Buttons
         view = SummaryView(self, session, channel)
 
-        outro = (
-            "Du kannst Felder per **Nummer** oder **Freitext** \u00e4ndern (auch mehrere gleichzeitig).\n"
-            "Skript \u00e4ndern \u2192 **anderes Skript** / Version \u2192 **andere Version**\n"
-            "Schreibe **ok** oder dr\u00fccke **Erstellen** wenn alles passt."
-        )
+        outro_lines = [
+            "Schau dir die Zusammenfassung in Ruhe an. Wenn alles passt, drücke **Erstellen** "
+            "(oder schreib `ok`). Zum Ändern:",
+            "• **Nummer** (1–10) für ein einzelnes Feld",
+            "• **Freitext** für mehrere Felder gleichzeitig (z.B. \"Kamera aus, Level Profi\")",
+            "• `anderes Skript` · `andere Version`",
+        ]
+        if is_retrigger:
+            outro_lines.append("• `alt` um deinen vorherigen Titel und deine Beschreibung wiederherzustellen")
+        outro_lines.append(HINT_FINAL_REVIEW)
+        outro = "\n".join(outro_lines)
 
         kwargs = {"content": intro_text, "embed": embed, "view": view}
         if script_file:
@@ -865,7 +957,7 @@ class HostCommand(commands.Cog):
                 versions = await search_versions(script_name)
 
         if not versions:
-            await channel.send(f"Keine Versionen von **{script_name}** gefunden.")
+            await channel.send(_err(f"Keine Versionen von **{script_name}** gefunden."))
             return
 
         # Sortieren nach Version (absteigend)
@@ -880,7 +972,7 @@ class HostCommand(commands.Cog):
             char_count = len(v.get("characters", []))
             lines.append(f"**{i}** — v{v.get('version', '?')} ({char_count} Charaktere)")
 
-        lines.append("\nWähle eine Version (Nummer):")
+        lines.append(f"\nWähle eine Version.\n{HINT_VERSION_CHOICES}")
         await channel.send("\n".join(lines))
 
     # ── DM Listener ──────────────────────────────────────────────────
@@ -895,6 +987,8 @@ class HostCommand(commands.Cog):
             if was_recently_expired(message.author.id):
                 await message.channel.send("⏰ Session abgelaufen. Starte mit `/botc` neu.")
             return
+        # Hinweis: Timeout/Max-Calls-Meldungen bleiben konsistent "⏰ …" — klar als
+        # System-Ereignis erkennbar (nicht als User-Fehler).
 
         session.touch()
 
@@ -934,7 +1028,7 @@ class HostCommand(commands.Cog):
         if not rating:
             session._pending_manual_rating = True
             await ch.send(
-                "Bitte w\u00e4hle eine Farbe: **gr\u00fcn**, **gelb** oder **rot**."
+                _err("Bitte wähle eine Farbe: **grün**, **gelb** oder **rot**.", HINT_MANUAL_RATING)
             )
             return
         session.fields["complexity_analysis"] = {"rating": rating}
@@ -948,15 +1042,15 @@ class HostCommand(commands.Cog):
         tl = text.lower().strip()
         if tl in ("1", "suchen", "datenbank", "db"):
             session.pending_script_search = True
-            await ch.send("Gib den **Skriptnamen** ein, nach dem ich suchen soll:")
+            await ch.send(f"Gib den **Skriptnamen** ein, nach dem ich suchen soll.\n{HINT_SCRIPT_SEARCH_RETRY}")
             return
         if tl in ("2", "eingeben", "manuell", "selbst"):
             session.pending_field_edit = "script"
-            await ch.send("Gib den **neuen Skriptnamen** ein:")
+            await ch.send(f"Gib den **neuen Skriptnamen** ein.\n{HINT_FIELD_EDIT_GENERIC}")
             return
         if tl in ("3", "hochladen", "upload", "json"):
             session.pending_script_upload = True
-            await ch.send("Sende die **Script-JSON als Datei** (.json) oder 'skip'.")
+            await ch.send(f"Sende die **Script-JSON** als Datei (.json) oder schreibe `skip`.\n{HINT_SCRIPT_UPLOAD}")
             return
         if tl in ("4", "frei", "freie wahl", "free choice", "offen"):
             session.fields["script"] = "Freie Skriptwahl"
@@ -971,14 +1065,7 @@ class HostCommand(commands.Cog):
             session.pending_script_search = True
             await self._process_script_search(session, ch, search_term)
             return
-        await ch.send(
-            "Du willst ein anderes Skript spielen. Sag mir gerne, nach welchem Suchbegriff "
-            "ich in der Datenbank suchen soll. Alternativ:\n"
-            "**1** \u2014 In der Datenbank suchen\n"
-            "**2** \u2014 Selbst einen Namen eingeben\n"
-            "**3** \u2014 Script-JSON hochladen\n"
-            "**4** \u2014 Freie Skriptwahl"
-        )
+        await ch.send(SCRIPT_CHANGE_PROMPT)
         session.pending_script_edit_mode = True
         return
 
@@ -996,7 +1083,7 @@ class HostCommand(commands.Cog):
             await ch.send(embed=embed)
             await ch.send(SCRIPT_CHOICE_HELP)
         else:
-            await ch.send(f"**{text}** nicht gefunden. Gib einen anderen Suchbegriff ein oder 'abbrechen'.")
+            await ch.send(_err(f"**{text}** nicht gefunden.", HINT_SCRIPT_SEARCH_RETRY))
             session.pending_script_search = True
         return
 
@@ -1017,11 +1104,17 @@ class HostCommand(commands.Cog):
                     session._summary_has_image = False  # Custom ersetzt Auto
                     await ch.send(f"Eigenes Bild gesetzt.")
                 else:
-                    await ch.send("Das ist kein Bild. Sende eine Bilddatei oder schreibe `auto`.")
+                    await ch.send(_err(
+                        "Das ist kein Bild.",
+                        "-# *Sende eine **Bilddatei** als Anhang oder schreibe `auto` für das Standard-Bild.*",
+                    ))
                     session.pending_field_edit = "_image"
                     return
             else:
-                await ch.send("Sende ein **Bild als Datei** oder schreibe `auto`.")
+                await ch.send(
+                    "Sende ein **Bild als Datei** oder schreibe `auto`.\n"
+                    "-# *Hänge eine Bilddatei als Anhang an — oder `auto` für das Standard-Bild.*"
+                )
                 session.pending_field_edit = "_image"
                 return
             await self._show_final_review(session, ch, regenerate_title=False)
@@ -1034,7 +1127,7 @@ class HostCommand(commands.Cog):
             elif "academy" in tl:
                 session.fields["is_academy"] = any(w in tl for w in ("ja", "yes", "true", "an"))
             else:
-                await ch.send("Nicht erkannt. Schreibe z.B. `casual ja` oder `academy nein`.")
+                await ch.send(_err("Das habe ich nicht verstanden.", HINT_FIELD_EDIT_LABELS))
                 session.pending_field_edit = "_labels"
                 return
             await self._show_final_review(session, ch, regenerate_title=False)
@@ -1113,20 +1206,20 @@ class HostCommand(commands.Cog):
             await self._show_final_review(session, ch)
             return
         if not message.attachments:
-            await ch.send("Sende die Script-JSON als Datei (.json) oder 'skip'.")
+            await ch.send(f"Sende die **Script-JSON** als Datei (.json) oder schreibe `skip`.\n{HINT_SCRIPT_UPLOAD}")
             return
         att = message.attachments[0]
         if not att.filename.endswith(".json"):
-            await ch.send(f"**{att.filename}** ist keine JSON-Datei.")
+            await ch.send(_err(f"**{att.filename}** ist keine JSON-Datei.", HINT_SCRIPT_UPLOAD))
             return
         try:
             data = json.loads((await att.read()).decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
-            await ch.send("Ungültiges JSON.")
+            await ch.send(_err("Die Datei enthält kein gültiges JSON.", HINT_SCRIPT_UPLOAD))
             return
         parsed, error = validate_script_json(data)
         if error:
-            await ch.send(error)
+            await ch.send(_err(error, HINT_SCRIPT_UPLOAD))
             return
         name = parsed["name"]
         if name == "Custom Script" and session.fields.get("script"):
@@ -1162,64 +1255,71 @@ class HostCommand(commands.Cog):
         if tl in ("custom", "homebrew", "eigenes", "keines", "keins davon", "nichts davon"):
             session.pending_script_choices = None
             session.pending_script_upload = True
-            await ch.send("Sende die **Script-JSON als Datei** (.json) oder 'skip'.")
+            await ch.send(f"Sende die **Script-JSON** (.json) als Anhang — oder schreibe `skip`.\n{HINT_SCRIPT_UPLOAD}")
             return
 
-        # Direkte Nummer
-        try:
-            idx = int(tl) - 1
-            if 0 <= idx < len(choices):
-                await self._select_script(session, ch, choices[idx])
+        # Nach einer Haiku-Rückfrage: direkt an Haiku weiterleiten
+        # (keine deterministische Nummern-Auswertung, weil "3" die Rückfrage-Option meinen könnte)
+        haiku_clarification = getattr(session, "_haiku_clarification_pending", False)
+        if haiku_clarification:
+            session._haiku_clarification_pending = False
+
+        if not haiku_clarification:
+            # Direkte Nummer
+            try:
+                idx = int(tl) - 1
+                if 0 <= idx < len(choices):
+                    await self._select_script(session, ch, choices[idx])
+                    return
+                await ch.send(_err(f"Bitte wähle **1–{len(choices)}**.", HINT_SCRIPT_CHOICE))
                 return
-            await ch.send(f"Bitte wähle 1-{len(choices)}.")
-            return
-        except ValueError:
-            pass
+            except ValueError:
+                pass
 
-        # Natürliche Sprache: "das erste", "von Viva La Sam", "Extension Cord", etc.
-        ordinals = {"erste": 0, "ersten": 0, "zweite": 1, "zweiten": 1,
-                    "dritte": 2, "dritten": 2, "vierte": 3, "vierten": 3,
-                    "fünfte": 4, "fünften": 4, "letzte": len(choices) - 1, "letzten": len(choices) - 1}
+            # Natürliche Sprache: "das erste", "von Viva La Sam", "Extension Cord", etc.
+            ordinals = {"erste": 0, "ersten": 0, "zweite": 1, "zweiten": 1,
+                        "dritte": 2, "dritten": 2, "vierte": 3, "vierten": 3,
+                        "fünfte": 4, "fünften": 4, "letzte": len(choices) - 1, "letzten": len(choices) - 1}
 
-        # Ordinalzahl-Match
-        for word, idx in ordinals.items():
-            if word in tl and idx < len(choices):
-                await self._select_script(session, ch, choices[idx])
+            # Ordinalzahl-Match
+            for word, idx in ordinals.items():
+                if word in tl and idx < len(choices):
+                    await self._select_script(session, ch, choices[idx])
+                    return
+
+            # Name- oder Autor-Match
+            best_match = None
+            best_score = 0
+            for i, choice in enumerate(choices):
+                score = 0
+                name_lower = choice["name"].lower()
+                author_lower = (choice.get("author") or "").lower()
+
+                if name_lower in tl or tl in name_lower:
+                    score = 10
+                elif author_lower and author_lower in tl:
+                    score = 8
+
+                # Teilwort-Match
+                for word in tl.split():
+                    if len(word) > 2:
+                        if word in name_lower: score = max(score, 5)
+                        if author_lower and word in author_lower: score = max(score, 4)
+
+                if score > best_score:
+                    best_score = score
+                    best_match = i
+
+            if best_match is not None and best_score >= 4:
+                await self._select_script(session, ch, choices[best_match])
                 return
 
-        # Name- oder Autor-Match
-        best_match = None
-        best_score = 0
-        for i, choice in enumerate(choices):
-            score = 0
-            name_lower = choice["name"].lower()
-            author_lower = (choice.get("author") or "").lower()
-
-            if name_lower in tl or tl in name_lower:
-                score = 10
-            elif author_lower and author_lower in tl:
-                score = 8
-
-            # Teilwort-Match
-            for word in tl.split():
-                if len(word) > 2:
-                    if word in name_lower: score = max(score, 5)
-                    if author_lower and word in author_lower: score = max(score, 4)
-
-            if score > best_score:
-                best_score = score
-                best_match = i
-
-        if best_match is not None and best_score >= 4:
-            await self._select_script(session, ch, choices[best_match])
-            return
-
-        # Kein deterministischer Match → Haiku als Fallback
+        # Haiku als Fallback (oder nach Clarification)
         async with ch.typing():
             result = await interpret_script_choice(session, text, choices)
 
         if not result:
-            await ch.send("Das konnte ich nicht verarbeiten. Versuch es nochmal.")
+            await ch.send(_err("Das konnte ich nicht verarbeiten.", HINT_SCRIPT_CHOICE))
             return
 
         action = result.get("action")
@@ -1229,7 +1329,7 @@ class HostCommand(commands.Cog):
             if 0 <= idx < len(choices):
                 await self._select_script(session, ch, choices[idx])
             else:
-                await ch.send(f"Nummer {idx+1} gibt es nicht. Wähle 1-{len(choices)}.")
+                await ch.send(_err(f"Nummer **{idx+1}** gibt es nicht. Wähle **1–{len(choices)}**.", HINT_SCRIPT_CHOICE))
             return
 
         if action == "search":
@@ -1245,14 +1345,14 @@ class HostCommand(commands.Cog):
                 await ch.send(embed=embed)
                 await ch.send(SCRIPT_CHOICE_HELP)
             else:
-                await ch.send(f"**{term}** nicht gefunden. Versuch einen anderen Suchbegriff.")
+                await ch.send(_err(f"**{term}** nicht gefunden.", HINT_SCRIPT_SEARCH_RETRY))
                 session.pending_script_choices = choices
             return
 
         if action == "upload":
             session.pending_script_choices = None
             session.pending_script_upload = True
-            await ch.send("Lade deine **Script-JSON** (.json) hoch.")
+            await ch.send(f"Lade deine **Script-JSON** (.json) als Anhang hoch.\n{HINT_SCRIPT_UPLOAD}")
             return
 
         if action == "skip":
@@ -1275,6 +1375,8 @@ class HostCommand(commands.Cog):
                     return
 
         # unclear → Haiku erklärt die Möglichkeiten
+        # Nächste Eingabe geht wieder an Haiku (nicht an deterministische Nummern-Auswertung)
+        session._haiku_clarification_pending = True
         msg = result.get("message", "")
         if msg:
             footer = _cost_footer(session)
@@ -1295,10 +1397,10 @@ class HostCommand(commands.Cog):
                 await self._select_script(session, ch, chosen)
                 return
             else:
-                await ch.send(f"Wähle eine Nummer von 1 bis {len(version_choices)}.")
+                await ch.send(_err(f"Wähle eine **Nummer** von **1 bis {len(version_choices)}**.", HINT_VERSION_CHOICES))
                 return
         except ValueError:
-            await ch.send(f"Bitte gib eine Nummer von 1 bis {len(version_choices)} ein.")
+            await ch.send(_err(f"Das war keine Nummer. Wähle **1 bis {len(version_choices)}**.", HINT_VERSION_CHOICES))
             return
 
     async def _process_script_preview(self, session, ch, text):
@@ -1353,7 +1455,7 @@ class HostCommand(commands.Cog):
                 await ch.send(result["message"])
                 return
 
-        await ch.send("Wähle eine Nummer oder geh **zurück** zur Liste.")
+        await ch.send(_err("Wähle eine **Nummer** oder geh `zurück` zur Liste.", HINT_SCRIPT_PREVIEW))
         return
 
     async def _process_final_review(self, session, ch, text):
@@ -1392,7 +1494,7 @@ class HostCommand(commands.Cog):
                 await self._show_final_review(session, ch, regenerate_title=False)
                 return
             else:
-                await ch.send("Keine bisherigen Werte vorhanden.")
+                await ch.send(_err("Keine bisherigen Werte vorhanden.", HINT_FINAL_REVIEW))
                 return
 
         # 5. Number input (1-10) → field edit
@@ -1406,25 +1508,38 @@ class HostCommand(commands.Cog):
                     await ch.send(SCRIPT_CHANGE_PROMPT)
                 elif key == "_labels":
                     await ch.send(
-                        "Welches Label m\u00f6chtest du \u00e4ndern?\n"
-                        "\u2022 `casual ja/nein`\n"
-                        "\u2022 `academy ja/nein`"
+                        "Welches Label möchtest du ändern?\n"
+                        "• `casual ja/nein`\n"
+                        "• `academy ja/nein`\n"
+                        f"{HINT_FIELD_EDIT_LABELS}"
                     )
                     session.pending_field_edit = "_labels"
                 elif key == "start_time":
                     await ch.send(
-                        "Was m\u00f6chtest du \u00e4ndern?\n"
-                        "\u2022 Nur Termin: z.B. `2026-03-25 20:00`\n"
-                        "\u2022 Nur Dauer: z.B. `180`\n"
-                        "\u2022 Beides: z.B. `2026-03-25 20:00 180min`"
+                        "Was möchtest du ändern?\n"
+                        "• Nur Termin: z.B. `2026-03-25 20:00`\n"
+                        "• Nur Dauer: z.B. `180`\n"
+                        "• Beides: z.B. `2026-03-25 20:00 180min`\n"
+                        f"{HINT_FIELD_EDIT_START_TIME}"
                     )
                     session.pending_field_edit = "start_time"
                 else:
                     session.pending_field_edit = key
-                    await ch.send(f"Was soll der neue Wert f\u00fcr **{label}** sein?")
+                    # State-spezifischen Hint passend zum Feld auswählen
+                    field_hints = {
+                        "title": HINT_FIELD_EDIT_GENERIC,
+                        "description": HINT_FIELD_EDIT_GENERIC,
+                        "storyteller": HINT_FIELD_EDIT_GENERIC,
+                        "co_storyteller": HINT_FIELD_EDIT_CO_ST,
+                        "level": HINT_FIELD_EDIT_LEVEL,
+                        "camera": HINT_FIELD_EDIT_CAMERA,
+                        "max_players": HINT_FIELD_EDIT_MAX_PLAYERS,
+                    }
+                    hint = field_hints.get(key, HINT_FIELD_EDIT_GENERIC)
+                    await ch.send(f"Was soll der neue Wert für **{label}** sein?\n{hint}")
                 return
             else:
-                await ch.send(f"Bitte w\u00e4hle 1-{len(SUMMARY_FIELDS)}.")
+                await ch.send(_err(f"Bitte wähle **1–{len(SUMMARY_FIELDS)}**.", HINT_FINAL_REVIEW))
                 return
         except ValueError:
             pass
@@ -1493,10 +1608,10 @@ class HostCommand(commands.Cog):
                 await ch.send(result["message"])
                 return
 
-        await ch.send(
-            "Das konnte ich nicht zuordnen. "
-            "Nutze eine **Nummer** (1-10) zum \u00c4ndern oder schreibe **ok**."
-        )
+        await ch.send(_err(
+            "Das konnte ich nicht zuordnen.",
+            HINT_FINAL_REVIEW,
+        ))
         return
 
     async def _process_haiku_chat(self, session, ch, text):
@@ -1505,7 +1620,10 @@ class HostCommand(commands.Cog):
             response = await call_haiku(session, text)
 
         if not response:
-            await ch.send("Fehler. Versuche es nochmal oder `/botc` neu.")
+            await ch.send(_err(
+                "Da ist etwas schiefgelaufen.",
+                "-# *Versuch es nochmal — oder starte mit `/botc` neu.*",
+            ))
             return
 
         action = response.get("action", "ask")
@@ -1539,7 +1657,8 @@ class HostCommand(commands.Cog):
                     session.pending_script_upload = True
                     await ch.send(
                         "Sende dein **Skript als JSON-Datei** (.json) hoch.\n"
-                        "Du kannst auch in der Datenbank **suchen** oder **skip** schreiben."
+                        "Du kannst auch in der Datenbank **suchen** oder `skip` schreiben.\n"
+                        f"{HINT_SCRIPT_UPLOAD}"
                     )
                     return
 
@@ -1558,23 +1677,29 @@ class HostCommand(commands.Cog):
                         return
                     else:
                         session.pending_script_upload = True
-                        await ch.send(
-                            f"**{script_name}** nicht in der Datenbank gefunden.\n"
-                            "Sende die **Script-JSON als Datei** (.json) hoch oder schreibe **skip**."
-                        )
+                        await ch.send(_err(
+                            f"**{script_name}** ist nicht in der Datenbank.",
+                            f"*Sende die **Script-JSON** (.json) als Anhang — oder schreibe `skip`.*\n{HINT_SCRIPT_UPLOAD}",
+                        ))
                         return
 
             # Script OK → Final Review
             await self._show_final_review(session, ch)
 
         elif action == "refuse":
-            embed = discord.Embed(description=haiku_msg, color=0xED4245)
+            # Zentraler Refuse-Text — identisch bei Off-Topic und Injection-/Tricksversuchen.
+            # Haiku's eigene Message wird verworfen, damit der User konsistent dasselbe sieht.
+            embed = discord.Embed(description=REFUSE_MESSAGE, color=0xED4245)
+            if footer:
+                embed.set_footer(text=footer)
             await ch.send(embed=embed)
 
         else:
-            # ask
-            m = f"{haiku_msg}\n-# {footer}" if footer else haiku_msg
-            await ch.send(m)
+            # ask — Haiku-Rückfrage + Hint zur freien Sprache
+            parts = [haiku_msg, HINT_HAIKU_CHAT]
+            if footer:
+                parts.append(f"-# {footer}")
+            await ch.send("\n".join(parts))
 
     # ── Dispatcher ────────────────────────────────────────────────────
 
