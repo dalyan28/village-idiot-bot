@@ -27,11 +27,12 @@ from logic.conversation import (
     generate_title_and_description,
     get_session,
     has_active_session,
+    has_resumable_session,
     interpret_final_review,
     interpret_script_choice,
     interpret_script_preview,
+    resume_session,
     start_session,
-    was_recently_expired,
 )
 from logic.label import (
     FREE_CHOICE_DESCRIPTION,
@@ -95,63 +96,71 @@ def _format_termin_german(start_time_str: str, duration_minutes: int) -> str:
 
 CANCEL_KEYWORDS = {"abbrechen", "cancel", "stop"}
 CONFIRM_KEYWORDS = {"ok", "fertig", "bestätigen", "confirm", "ja", "yes", "passt", "gut"}
+RESUME_KEYWORDS = {"wiederaufnehmen", "weitermachen", "fortsetzen", "resume", "continue"}
 
 # ── Hilfszeilen (klein + kursiv) ──────────────────────────────────────────────
 # Discord: "-#" = Subtext (klein), "*...*" = kursiv.
 # Werden unter Bot-Nachrichten angehängt, damit der User weiß, was möglich ist.
 
+_ABORT = " · `abbrechen` zum Beenden"  # wird an jede Hint-Zeile angehängt
+
 HINT_HAIKU_CHAT = (
     "-# *Schreib frei in eigenen Worten — ich ziehe die Details selbst raus. "
-    "Beispiel: \"Samstag 19 Uhr BMR, Level Erfahren, casual\".*"
+    "Beispiel: \"Samstag 19 Uhr BMR, Level Erfahren, casual\"." + _ABORT + "*"
 )
 HINT_SCRIPT_CHOICE = (
     "-# *Antworte mit einer **Nummer** (1–5), einem **Skriptnamen**, `preview N` "
     "für Details, einem neuen **Suchbegriff**, einer **Script-JSON** als Anhang, "
-    "oder `skip`.*"
+    "oder `skip`." + _ABORT + "*"
 )
 HINT_SCRIPT_PREVIEW = (
     "-# *Wähle eine **Nummer**, schreibe `zurück` für die Suchergebnisse, oder "
-    "nenne den Skriptnamen frei.*"
+    "nenne den Skriptnamen frei." + _ABORT + "*"
 )
 HINT_SCRIPT_UPLOAD = (
-    "-# *Hänge die **.json-Datei** als Anhang an — oder schreibe `skip`.*"
+    "-# *Hänge die **.json-Datei** als Anhang an — oder schreibe `skip`." + _ABORT + "*"
 )
 HINT_SCRIPT_SEARCH_RETRY = (
-    "-# *Versuch einen anderen **Suchbegriff** — oder schreibe `abbrechen`.*"
+    "-# *Versuch einen anderen **Suchbegriff**." + _ABORT + "*"
 )
 HINT_MANUAL_RATING = (
-    "-# *Schreib einfach `grün`, `gelb` oder `rot` — oder nutze das passende Emoji.*"
+    "-# *Schreib einfach `grün`, `gelb` oder `rot` — oder nutze das passende Emoji." + _ABORT + "*"
 )
 HINT_SCRIPT_EDIT_MODE = (
     "-# *Antworte mit einer **Nummer** (1–4) oder tippe direkt einen **Suchbegriff** "
-    "ein — freie Sprache geht auch.*"
+    "ein — freie Sprache geht auch." + _ABORT + "*"
 )
 HINT_VERSION_CHOICES = (
-    "-# *Gib die **Nummer** der gewünschten Version ein.*"
+    "-# *Gib die **Nummer** der gewünschten Version ein." + _ABORT + "*"
 )
 HINT_FINAL_REVIEW = (
     "-# *Du kannst frei sprechen — z.B. \"Kamera aus, Level Profi\" oder "
-    "\"Termin Samstag 20 Uhr\". Einzelne Felder auch per **Nummer**.*"
+    "\"Termin Samstag 20 Uhr\". Einzelne Felder auch per **Nummer**." + _ABORT + "*"
 )
 HINT_FIELD_EDIT_GENERIC = (
-    "-# *Schreib einfach den neuen Wert in eigenen Worten.*"
+    "-# *Schreib einfach den neuen Wert in eigenen Worten." + _ABORT + "*"
 )
-HINT_FIELD_EDIT_LEVEL = "-# *Erlaubt: `Neuling`, `Erfahren`, `Profi`, `Alle`.*"
-HINT_FIELD_EDIT_CAMERA = "-# *Erlaubt: `Pflicht`, `Aus`, `Keine Pflicht`.*"
-HINT_FIELD_EDIT_MAX_PLAYERS = "-# *Gib eine **Zahl** ein, z.B. `12`.*"
-HINT_FIELD_EDIT_CO_ST = "-# *Name frei eingeben — oder `keiner` um zu entfernen.*"
+HINT_FIELD_EDIT_LEVEL = "-# *Erlaubt: `Neuling`, `Erfahren`, `Profi`, `Alle`." + _ABORT + "*"
+HINT_FIELD_EDIT_CAMERA = "-# *Erlaubt: `Pflicht`, `Aus`, `Keine Pflicht`." + _ABORT + "*"
+HINT_FIELD_EDIT_MAX_PLAYERS = "-# *Gib eine **Zahl** ein, z.B. `12`." + _ABORT + "*"
+HINT_FIELD_EDIT_CO_ST = "-# *Name frei eingeben — oder `keiner` um zu entfernen." + _ABORT + "*"
 HINT_FIELD_EDIT_LABELS = (
-    "-# *Beispiele: `casual ja`, `academy nein`. Mehrere auch kombinierbar.*"
+    "-# *Beispiele: `casual ja`, `academy nein`. Mehrere auch kombinierbar." + _ABORT + "*"
 )
 HINT_FIELD_EDIT_START_TIME = (
     "-# *Beispiele: `Samstag 20 Uhr`, `2026-03-25 20:00`, `180` (nur Dauer in Min), "
-    "`2026-03-25 20:00 180min` (beides).*"
+    "`2026-03-25 20:00 180min` (beides)." + _ABORT + "*"
 )
 HINT_ALT_RESTORE = (
     "-# *`alt` stellt deinen vorherigen Titel und deine Beschreibung wieder her.*"
 )
 HINT_ERROR_RETRY = (
-    "-# *Versuch es nochmal — oder schreibe `abbrechen` zum Beenden.*"
+    "-# *Versuch es nochmal." + _ABORT + "*"
+)
+# Wiederaufnahme: zeigt sich, wenn die Session pausiert ist.
+HINT_SESSION_PAUSED = (
+    "-# *Schreibe `wiederaufnehmen`, um dort weiterzumachen, wo du aufgehört hast "
+    "(bis zu 1 Stunde möglich). Oder starte mit `/botc` neu." + _ABORT + "*"
 )
 
 # ── Einheitliche Error-Messages ──────────────────────────────────────────────
@@ -489,15 +498,11 @@ class SummaryView(discord.ui.View):
         await interaction.response.send_message("Event-Erstellung abgebrochen. ✌️")
 
     async def on_timeout(self):
-        # Nur senden wenn Session noch aktiv ist (sonst wurde sie schon anderswo beendet)
-        if get_session(self.session.user_id) is not None:
-            end_session(self.session.user_id)
-            try:
-                await self.dm_channel.send(
-                    "\u23f0 Session abgelaufen. Starte mit `/botc` neu."
-                )
-            except Exception:
-                pass
+        # Die Buttons sind nun inaktiv. Wir beenden die Session hier NICHT —
+        # der User könnte per Freitext noch editieren. Falls er inaktiv bleibt,
+        # wird die Session beim nächsten Nachrichteneingang durch get_session()
+        # automatisch in den 1h-Wiederaufnahme-Speicher verschoben.
+        return
 
 
 # ── Cog ──────────────────────────────────────────────────────────────────────
@@ -585,7 +590,8 @@ class HostCommand(commands.Cog):
                 f"kannst du hinterher ergänzen.\n\n"
                 f"Leg einfach los — erzähl mir in eigenen Worten, was du planst.\n"
                 f"{HINT_HAIKU_CHAT}\n"
-                f"-# *Session läuft 5 Min · schreibe `abbrechen` zum Beenden.*"
+                f"-# *Session läuft 5 Min. Danach kannst du bis zu 1 Stunde lang mit "
+                f"`wiederaufnehmen` weitermachen. `abbrechen` beendet sofort.*"
             )
         except discord.Forbidden:
             await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
@@ -984,8 +990,24 @@ class HostCommand(commands.Cog):
 
         session = get_session(message.author.id)
         if session is None:
-            if was_recently_expired(message.author.id):
-                await message.channel.send("⏰ Session abgelaufen. Starte mit `/botc` neu.")
+            # Keine aktive Session. Prüfen ob eine pausierte wiederaufnehmbar ist.
+            user_id = message.author.id
+            if has_resumable_session(user_id):
+                text_lower = message.content.strip().lower()
+                if text_lower in RESUME_KEYWORDS:
+                    session = resume_session(user_id)
+                    if session:
+                        await message.channel.send(
+                            "✅ Session wiederaufgenommen. Mach einfach weiter, wo du aufgehört hast."
+                        )
+                        # Falls User im Final Review pausiert hat, Screen neu rendern.
+                        if getattr(session, "pending_final_review", False):
+                            await self._show_final_review(session, message.channel, regenerate_title=False)
+                        return
+                # Andere Eingabe → Resume-Angebot zeigen
+                await message.channel.send(
+                    f"\u23f0 Deine Session ist pausiert.\n{HINT_SESSION_PAUSED}"
+                )
             return
         # Hinweis: Timeout/Max-Calls-Meldungen bleiben konsistent "⏰ …" — klar als
         # System-Ereignis erkennbar (nicht als User-Fehler).
