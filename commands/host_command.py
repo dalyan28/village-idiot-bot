@@ -279,6 +279,53 @@ def _fmt(key, value):
 
 
 
+def _format_current_for_edit(session, key: str) -> str | None:
+    """Gibt den aktuellen Wert eines Feldes als kopierbaren Text-Block zurück.
+
+    Der User kann ihn direkt kopieren, leicht anpassen und zurückschicken —
+    spart Tipparbeit bei längeren Texten wie Titel oder Beschreibung.
+    Return: Multi-Line ```-Block (Discord code block), oder None falls leer.
+    """
+    fields = session.fields
+    if key == "_labels":
+        parts = []
+        if fields.get("is_casual"):
+            parts.append("casual ja")
+        else:
+            parts.append("casual nein")
+        if fields.get("is_academy"):
+            parts.append("academy ja")
+        else:
+            parts.append("academy nein")
+        value = ", ".join(parts)
+    elif key == "start_time":
+        st = fields.get("start_time") or ""
+        dur = fields.get("duration_minutes") or 150
+        if not st:
+            return None
+        value = f"{st} {dur}min"
+    elif key == "camera":
+        cam = fields.get("camera")
+        if cam is True:
+            value = "Pflicht"
+        elif cam is False:
+            value = "Aus"
+        else:
+            value = "Keine Pflicht"
+    elif key == "co_storyteller":
+        value = fields.get("co_storyteller") or ""
+    else:
+        raw = fields.get(key)
+        if raw is None or raw == "":
+            return None
+        value = str(raw)
+    if not value:
+        return None
+    # Triple-Backticks als Multi-Line Code-Block — funktioniert auch mit einzeiligem Text
+    # und erlaubt dem User den bequemen „Kopieren“-Button in Discord.
+    return f"Vorher:\n```\n{value}\n```"
+
+
 def _parse_start_time(s):
     for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%d.%m.%Y %H:%M"]:
         try:
@@ -767,9 +814,11 @@ class HostCommand(commands.Cog):
 
         reasoning = getattr(session, "_last_reasoning", "")
 
-        # Prefix + display
-        prefix = build_title_prefix(session.fields)
-        title_display = f"{prefix} {session.fields['title']}" if prefix else session.fields['title']
+        # Kein Label-Prefix in der Summary-Anzeige — der User soll seinen Titel
+        # genau so sehen, wie er geschrieben wurde. Das Label hat sein eigenes
+        # Feld (7 · Labels) und wird erst beim finalen Event-Post angehängt
+        # (siehe SummaryView.confirm).
+        title_display = session.fields["title"]
 
         analysis = session.fields.get("complexity_analysis") or {}
         rating = analysis.get("rating")
@@ -1529,21 +1578,29 @@ class HostCommand(commands.Cog):
                     session.pending_script_edit_mode = True
                     await ch.send(SCRIPT_CHANGE_PROMPT)
                 elif key == "_labels":
-                    await ch.send(
-                        "Welches Label möchtest du ändern?\n"
-                        "• `casual ja/nein`\n"
-                        "• `academy ja/nein`\n"
-                        f"{HINT_FIELD_EDIT_LABELS}"
-                    )
+                    previous = _format_current_for_edit(session, "_labels")
+                    parts = [
+                        "Welches Label möchtest du ändern?",
+                        "• `casual ja/nein`",
+                        "• `academy ja/nein`",
+                    ]
+                    if previous:
+                        parts.append(previous)
+                    parts.append(HINT_FIELD_EDIT_LABELS)
+                    await ch.send("\n".join(parts))
                     session.pending_field_edit = "_labels"
                 elif key == "start_time":
-                    await ch.send(
-                        "Was möchtest du ändern?\n"
-                        "• Nur Termin: z.B. `2026-03-25 20:00`\n"
-                        "• Nur Dauer: z.B. `180`\n"
-                        "• Beides: z.B. `2026-03-25 20:00 180min`\n"
-                        f"{HINT_FIELD_EDIT_START_TIME}"
-                    )
+                    previous = _format_current_for_edit(session, "start_time")
+                    parts = [
+                        "Was möchtest du ändern?",
+                        "• Nur Termin: z.B. `2026-03-25 20:00`",
+                        "• Nur Dauer: z.B. `180`",
+                        "• Beides: z.B. `2026-03-25 20:00 180min`",
+                    ]
+                    if previous:
+                        parts.append(previous)
+                    parts.append(HINT_FIELD_EDIT_START_TIME)
+                    await ch.send("\n".join(parts))
                     session.pending_field_edit = "start_time"
                 else:
                     session.pending_field_edit = key
@@ -1558,7 +1615,12 @@ class HostCommand(commands.Cog):
                         "max_players": HINT_FIELD_EDIT_MAX_PLAYERS,
                     }
                     hint = field_hints.get(key, HINT_FIELD_EDIT_GENERIC)
-                    await ch.send(f"Was soll der neue Wert für **{label}** sein?\n{hint}")
+                    previous = _format_current_for_edit(session, key)
+                    parts = [f"Was soll der neue Wert für **{label}** sein?"]
+                    if previous:
+                        parts.append(previous)
+                    parts.append(hint)
+                    await ch.send("\n".join(parts))
                 return
             else:
                 await ch.send(_err(f"Bitte wähle **1–{len(SUMMARY_FIELDS)}**.", HINT_FINAL_REVIEW))

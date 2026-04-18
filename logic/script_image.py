@@ -8,6 +8,7 @@ import asyncio
 import io
 import logging
 import os
+import random
 import re
 import textwrap
 
@@ -48,6 +49,8 @@ DJINN_ID = "djinn"
 
 DESIGN_PLAIN_WHITE = "plain_white"
 DESIGN_MYSTIC_PAPER = "mystic_paper"
+DESIGN_STARFIELD = "starfield"
+DESIGN_STARFIELD_NEON = "starfield_neon"
 
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "images")
 PAPER_TEXTURE_PATH = os.path.join(IMAGES_DIR, "paper textures", "Texturelabs_Paper_331S.jpg")
@@ -74,11 +77,50 @@ NAME_COLORS = {
     "Loric":     (117, 138, 84),
 }
 
+STARFIELD_COLORS = {
+    "header":  (232, 195, 118),
+    "ability": (240, 240, 245),
+    "line":    (180, 145, 70),
+    "footer":  (140, 135, 125),
+    "subtitle": (200, 170, 110),
+    "title":   (232, 195, 118),
+    "names": {
+        "Townsfolk": (232, 195, 118),  # gold
+        "Outsider":  (232, 195, 118),  # gold
+        "Minion":    (220, 110, 110),  # rot
+        "Demon":     (220, 110, 110),  # rot
+        "Traveller": (190, 170, 235),
+        "Fabled":    (232, 195, 118),
+        "Loric":     (170, 200, 130),
+    },
+}
+
+STARFIELD_NEON_COLORS = {
+    "header":  (232, 195, 118),
+    "ability": (240, 240, 245),
+    "line":    (180, 145, 70),
+    "footer":  (140, 135, 125),
+    "subtitle": (200, 170, 110),
+    "title":   (232, 195, 118),
+    "names": {
+        "Townsfolk": (100, 210, 230),  # teal
+        "Outsider":  (100, 210, 230),  # teal
+        "Minion":    (235, 100, 145),  # magenta
+        "Demon":     (235, 100, 145),  # magenta
+        "Traveller": (190, 170, 235),
+        "Fabled":    (232, 195, 118),
+        "Loric":     (170, 200, 130),
+    },
+}
+# Gold-Hue für Icon-Colorization (matched Title-Gradient-Mittelwert)
+STARFIELD_ICON_GOLD_HUE = 0.114
+
 # ── Fonts ────────────────────────────────────────────────────────────────────
 
 FONT_DIR = os.path.join(STATIC_DIR, "fonts")
 _F_TITLE = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_TITLE_STYLED = os.path.join(FONT_DIR, "Thesead.ttf")
+_F_TITLE_GOLD = os.path.join(FONT_DIR, "Benguiat Bold.ttf")
 _F_AUTHOR = os.path.join(FONT_DIR, "Inter.ttf")
 _F_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")
@@ -162,8 +204,10 @@ def _text_height(text, max_chars=42):
     return lines * ABILITY_LINE_HEIGHT
 
 
-def _draw_ability(draw, x, y, text, font_r, font_b, max_width=300):
+def _draw_ability(draw, x, y, text, font_r, font_b, max_width=300, color=None):
     """Zeichnet Ability mit [bracket]-Fettdruck."""
+    if color is None:
+        color = ABILITY_COLOR
     segments = re.split(r'(\[[^\]]*\])', text)
     words = []
     for seg in segments:
@@ -186,7 +230,7 @@ def _draw_ability(draw, x, y, text, font_r, font_b, max_width=300):
             curr_x = x
             space = ""
         t = space + word if curr_x > x else word
-        draw.text((curr_x, y), t, fill=ABILITY_COLOR, font=f)
+        draw.text((curr_x, y), t, fill=color, font=f)
         bbox = draw.textbbox((curr_x, y), t, font=f)
         curr_x = bbox[2]
 
@@ -216,7 +260,8 @@ def _row_height(ability_text, icon_size=ICON_SIZE):
     return max(icon_size - ICON_OVERLAP_ALLOW, text_h)
 
 
-def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_width, icon_size=ICON_SIZE):
+def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts,
+              text_width, icon_size=ICON_SIZE, ability_color=None):
     """Zeichnet eine Zeile (Icon + Name + Ability) vertikal zentriert. Gibt row_height zurück."""
     # Sichtbare Texthöhe berechnen (mit Font-Offset-Korrektur)
     name_bb = draw.textbbox((0, 0), name, font=fonts["name"])
@@ -237,7 +282,8 @@ def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts, text_widt
     draw.text((tx, text_y), name, fill=name_color, font=fonts["name"])
     if ability:
         _draw_ability(draw, tx, text_y + name_offset + name_h, ability,
-                      fonts["ability"], fonts["ability_b"], max_width=text_width)
+                      fonts["ability"], fonts["ability_b"], max_width=text_width,
+                      color=ability_color)
 
     return row_h
 
@@ -409,6 +455,350 @@ def _render_styled_title(text, font_size=SZ_TITLE):
     return result
 
 
+# ── Styled Title (Starfield — Stranger-Things-Stil in Gold) ────────────────
+
+def _render_gold_title(text, font_size=None):
+    """Rendert einen goldenen Titel in Benguiat Bold.
+
+    - Großbuchstaben, einheitliche Größe (keine Per-Char-Variation)
+    - Gold-Gradient (hell oben → dunkler unten)
+    - Horizontale dünne Gold-Linien über und unter dem Text
+    - Dezenter warmer Glow + Shadow für Tiefe auf dunklem BG
+    """
+    text = text.upper()
+    size = font_size or int(SZ_TITLE * 1.15)
+    font = _font(_F_TITLE_GOLD, size)
+
+    dummy = Image.new("RGBA", (1, 1))
+    dd = ImageDraw.Draw(dummy)
+    bb = dd.textbbox((0, 0), text, font=font)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    ox, oy = bb[0], bb[1]
+
+    pad_x = 24 * SCALE
+    pad_y = 14 * SCALE
+    line_gap = 10 * SCALE
+    line_thickness = max(2, 2 * SCALE)
+
+    w = tw + pad_x * 2
+    h = th + pad_y * 2 + (line_gap + line_thickness) * 2
+    tx = pad_x - ox
+    ty = pad_y + line_gap + line_thickness - oy
+
+    # Warmer Glow (gold, passt zum Sternen-Gold)
+    glow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(glow).text((tx, ty), text, fill=(200, 150, 60, 130), font=font)
+    glow = glow.filter(ImageFilter.GaussianBlur(8 * SCALE))
+
+    # Dicker dunkler Outline (dunkelbraun, harmoniert mit Gold)
+    outline = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    od = ImageDraw.Draw(outline)
+    outline_radius = max(3, 3 * SCALE)
+    for angle in range(0, 360, 8):
+        dx = int(outline_radius * math.cos(math.radians(angle)))
+        dy = int(outline_radius * math.sin(math.radians(angle)))
+        od.text((tx + dx, ty + dy), text, fill=(28, 18, 8, 255), font=font)
+
+    # Gold-Gradient: hellgold oben → warmgold mitte → bronze unten
+    gradient = Image.new("RGBA", (w, h))
+    for row in range(h):
+        t = row / h
+        if t < 0.5:
+            u = t * 2
+            r = int(255 + (232 - 255) * u)
+            g = int(232 + (180 - 232) * u)
+            b = int(140 + (70 - 140) * u)
+        else:
+            u = (t - 0.5) * 2
+            r = int(232 + (162 - 232) * u)
+            g = int(180 + (105 - 180) * u)
+            b = int(70 + (30 - 70) * u)
+        ImageDraw.Draw(gradient).line([(0, row), (w, row)], fill=(r, g, b, 255))
+
+    text_mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(text_mask).text((tx, ty), text, fill=255, font=font)
+    gradient.putalpha(text_mask)
+
+    # Horizontale Gold-Linien
+    lines_layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lines_layer)
+    line_color = (212, 168, 72, 255)
+    line_left = pad_x
+    line_right = w - pad_x
+    line_top_y = pad_y
+    line_bottom_y = h - pad_y - line_thickness
+    ld.rectangle(
+        [line_left, line_top_y, line_right, line_top_y + line_thickness - 1],
+        fill=line_color,
+    )
+    ld.rectangle(
+        [line_left, line_bottom_y, line_right, line_bottom_y + line_thickness - 1],
+        fill=line_color,
+    )
+
+    result = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    result = Image.alpha_composite(result, glow)
+    result = Image.alpha_composite(result, outline)
+    result = Image.alpha_composite(result, gradient)
+    result = Image.alpha_composite(result, lines_layer)
+    return result
+
+
+def _lum_gradient_icon(icon, c_dark, c_mid, c_light, mid_alpha=1.0):
+    """Mappt das Icon auf einen monochromen Farb-Gradient basierend auf
+    Pixel-Luminanz. Details bleiben erhalten, Farbe wird einheitlich.
+
+    mid_alpha: Alpha-Faktor für Pixel nahe c_mid (< 1.0 dämpft den Körper,
+    sodass dark/light prominent hervortreten und mid zurückhaltender wirkt).
+    """
+    result = icon.copy()
+    pixels = result.load()
+    w, h = result.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                continue
+            lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+            if lum < 0.5:
+                t = lum * 2
+                nr = int(c_dark[0] + (c_mid[0] - c_dark[0]) * t)
+                ng = int(c_dark[1] + (c_mid[1] - c_dark[1]) * t)
+                nb = int(c_dark[2] + (c_mid[2] - c_dark[2]) * t)
+                af = 1.0 + (mid_alpha - 1.0) * t   # 1.0 → mid_alpha
+            else:
+                t = (lum - 0.5) * 2
+                nr = int(c_mid[0] + (c_light[0] - c_mid[0]) * t)
+                ng = int(c_mid[1] + (c_light[1] - c_mid[1]) * t)
+                nb = int(c_mid[2] + (c_light[2] - c_mid[2]) * t)
+                af = mid_alpha + (1.0 - mid_alpha) * t  # mid_alpha → 1.0
+            pixels[x, y] = (nr, ng, nb, int(a * af))
+    return result
+
+
+def _goldize_icon(icon):
+    """Monochrome Gold-Silhouette (Gold-Folien-Prägung)."""
+    return _lum_gradient_icon(icon, (96, 64, 22), (196, 150, 65), (248, 220, 140))
+
+
+def _redize_icon(icon):
+    """Monochrome Rot-Silhouette für Evil-Team."""
+    return _lum_gradient_icon(icon, (70, 18, 22), (170, 48, 48), (245, 140, 130))
+
+
+def _winered_icon(icon):
+    """Variante A — tiefes Weinrot/Rost, Light heller + Mid dezenter."""
+    return _lum_gradient_icon(
+        icon, (50, 10, 10), (130, 35, 30), (255, 185, 170), mid_alpha=0.65,
+    )
+
+
+def _magenta_icon(icon):
+    """Stranger-Things-Magenta/Rot — leuchtend, neon, Mid dezenter."""
+    return _lum_gradient_icon(
+        icon, (40, 8, 25), (175, 30, 75), (255, 160, 185), mid_alpha=0.6,
+    )
+
+
+def _teal_icon(icon):
+    """Stranger-Things-Teal/Cyan — leuchtend, neon, Mid dezenter."""
+    return _y_gradient_icon(
+        icon, (8, 35, 55), (35, 140, 165), (195, 245, 250), mid_alpha=0.6,
+    )
+
+
+def _darkcopper_icon(icon):
+    """Variante B — Dunkelkupfer (näher am Bronze des Gold)."""
+    return _lum_gradient_icon(icon, (55, 20, 12), (145, 70, 40), (225, 140, 90))
+
+
+def _whitize_icon(icon):
+    """Weißes Inverse-Design: dunkle Pixel (Lineart) werden weiß mit voller
+    Alpha, helle Pixel werden zu transparentem Weiß gedämpft.
+
+    Das dreht die Haupt-Sichtbarkeit um: was Farb-Fill war wird subtil,
+    was Lineart/dunkle Details waren wird zur Hauptlinie in Weiß.
+    """
+    result = icon.copy()
+    pixels = result.load()
+    w, h = result.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                continue
+            lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+            # Dunkel → volle Alpha; hell → reduzierte Alpha
+            new_alpha = int(a * max(0.08, 1.0 - lum * 0.88))
+            pixels[x, y] = (255, 255, 255, new_alpha)
+    return result
+
+
+def _y_gradient_icon(icon, c_dark, c_mid, c_light, mid_alpha=1.0):
+    """Wie _lum_gradient_icon, zusätzlich mit vertikalem Positions-Gradient:
+    obere Pixel werden heller in die Palette gemappt, untere dunkler."""
+    result = icon.copy()
+    pixels = result.load()
+    w, h = result.size
+    for y in range(h):
+        y_mod = 1.30 - 0.55 * (y / h)
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                continue
+            lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
+            lum = max(0.0, min(1.0, lum * y_mod))
+            if lum < 0.5:
+                t = lum * 2
+                nr = int(c_dark[0] + (c_mid[0] - c_dark[0]) * t)
+                ng = int(c_dark[1] + (c_mid[1] - c_dark[1]) * t)
+                nb = int(c_dark[2] + (c_mid[2] - c_dark[2]) * t)
+                af = 1.0 + (mid_alpha - 1.0) * t
+            else:
+                t = (lum - 0.5) * 2
+                nr = int(c_mid[0] + (c_light[0] - c_mid[0]) * t)
+                ng = int(c_mid[1] + (c_light[1] - c_mid[1]) * t)
+                nb = int(c_mid[2] + (c_light[2] - c_mid[2]) * t)
+                af = mid_alpha + (1.0 - mid_alpha) * t
+            pixels[x, y] = (nr, ng, nb, int(a * af))
+    return result
+
+
+def _goldize_icon_gradient(icon):
+    """Gold mit y-Gradient: oben hellgold → fast weiß, unten bronze.
+    Mid-Opacity reduziert → Highlights stechen stärker hervor."""
+    return _y_gradient_icon(
+        icon, (80, 50, 18), (200, 155, 70), (255, 250, 225), mid_alpha=0.65,
+    )
+
+
+def _apply_finishing_filter_gold(img):
+    """Mildes Finishing für Gold-Starfield: leichter Kontrast + warmer Ton,
+    keine aggressive Split-Tone oder Radialmaske."""
+    from PIL import ImageEnhance
+    img = ImageEnhance.Color(img).enhance(0.95)
+    img = ImageEnhance.Contrast(img).enhance(1.08)
+    has_alpha = img.mode == "RGBA"
+    if has_alpha:
+        r, g, b, a = img.split()
+    else:
+        img = img.convert("RGB")
+        r, g, b = img.split()
+        a = None
+    r = r.point(lambda v: min(255, int(v * 1.04)))
+    b = b.point(lambda v: int(v * 0.93))
+    if a is not None:
+        img = Image.merge("RGBA", (r, g, b, a))
+    else:
+        img = Image.merge("RGB", (r, g, b))
+    return img
+
+
+def _apply_finishing_filter(img):
+    """80s-Retro-Sci-Fi-Finishing für Starfield-Neon:
+
+    - Hoher Kontrast + Sättigung (knackig, cinematic)
+    - Split Tone: Shadows Richtung teal/blau, Highlights Richtung orange/gold
+    - Subtles Bloom (weicher Glow um helle Bereiche → magisch/elektrisch)
+    - Radialer Fokus (Ecken dunkler, Titel-Bereich geschützt)
+    - Film-Grain
+    """
+    from PIL import ImageEnhance
+
+    # 1. Kontrast + Sättigung dramatisch anheben
+    img = ImageEnhance.Contrast(img).enhance(1.22)
+    img = ImageEnhance.Color(img).enhance(1.28)
+
+    # Alpha separat behandeln (muss beim Merge erhalten bleiben)
+    has_alpha = img.mode == "RGBA"
+    if has_alpha:
+        r, g, b, a = img.split()
+    else:
+        img = img.convert("RGB")
+        r, g, b = img.split()
+        a = None
+
+    # 2. Split Tone (Teal & Orange)
+    # Dunkel (v<120): shift Richtung teal (B↑, R↓)
+    # Hell (v>140): shift Richtung warm orange (R↑, B↓)
+    def shadow_lift_r(v):
+        if v < 120:
+            return max(0, int(v * 0.94))
+        return min(255, int(v * 1.08)) if v > 140 else v
+
+    def shadow_lift_g(v):
+        return min(255, int(v * 1.03)) if v < 120 else v
+
+    def shadow_lift_b(v):
+        if v < 120:
+            return min(255, int(v * 1.12))
+        return int(v * 0.86) if v > 140 else v
+
+    r = r.point(shadow_lift_r)
+    g = g.point(shadow_lift_g)
+    b = b.point(shadow_lift_b)
+
+    img = Image.merge("RGB", (r, g, b))
+
+    # 3. Bloom: helle Bereiche bekommen weichen Glow (Screen-Blend)
+    W, H = img.size
+    blurred = img.filter(ImageFilter.GaussianBlur(radius=max(6, min(W, H) // 200)))
+    # Nur helle Bereiche aus Blur für Screen-Blend
+    bloom_mask = blurred.convert("L").point(lambda v: max(0, v - 120) * 2)
+    bloom = Image.new("RGB", (W, H), (0, 0, 0))
+    bloom.paste(blurred, mask=bloom_mask)
+    img = ImageChops.screen(img, bloom)
+
+    # 4. Radialer Fokus — Mitte hell, Ecken dunkler. Oberer Bereich
+    # (ca. 20% Titel+Autor+Fabled) bleibt geschützt, Schriftzüge verschwinden
+    # nicht im Rand-Shadow.
+    cx, cy = W // 2, H // 2
+    radius_ref = min(W, H) * 0.8
+    protect_top = 0.20  # oberen 20% des Bildes vor Dimming schützen
+    protect_fade = 0.08  # smoother fade-out über weitere 8%
+    low_w = max(32, W // 6)
+    low_h = max(32, H // 6)
+    low_mask = Image.new("L", (low_w, low_h), 0)
+    lm_px = low_mask.load()
+    for y in range(low_h):
+        yy_norm = y / low_h
+        protect = max(0.0, min(1.0,
+            (protect_top + protect_fade - yy_norm) / protect_fade
+        ))
+        yy = yy_norm * H
+        for x in range(low_w):
+            xx = (x / low_w) * W
+            d = min(1.0, math.hypot(xx - cx, yy - cy) / radius_ref)
+            dim = 1.0 - d * 0.35
+            # protect=1 → kein Dimm; protect=0 → voller Effekt
+            effective = dim + (1.0 - dim) * protect
+            v = int(255 * max(0.65, effective))
+            lm_px[x, y] = v
+    focus_mask = low_mask.resize((W, H), Image.BILINEAR)
+    focus_mask = focus_mask.filter(ImageFilter.GaussianBlur(radius=min(W, H) // 20))
+    dark = Image.new("RGB", (W, H), (0, 0, 0))
+    img = Image.composite(img, dark, focus_mask)
+
+    # 5. Film-Grain: low-res Random-Noise um 128, blend 6% → leichtes Rauschen
+    # ohne Gesamt-Helligkeit merklich zu verändern.
+    gs = 6
+    gw, gh = max(1, W // gs), max(1, H // gs)
+    grain = Image.new("L", (gw, gh))
+    gpx = grain.load()
+    grain_rng = random.Random(42)
+    for y in range(gh):
+        for x in range(gw):
+            gpx[x, y] = grain_rng.randint(108, 148)  # ±20 um 128
+    grain = grain.resize((W, H), Image.BILINEAR)
+    grain_rgb = Image.merge("RGB", (grain, grain, grain))
+    img = Image.blend(img, grain_rgb, 0.09)
+
+    if a is not None:
+        img = img.convert("RGBA")
+        img.putalpha(a)
+    return img
+
+
 # ── Paper Background ─────────────────────────────────────────────────────────
 
 def _tile_paper_background(width, height):
@@ -456,7 +846,7 @@ def _tile_paper_background(width, height):
 
 # ── Main Generation ──────────────────────────────────────────────────────────
 
-def _generate_sync(script_name, author, char_ids, version="", meta=None, content=None, transparent=False, show_fabled=True, design=DESIGN_PLAIN_WHITE):
+def _generate_sync(script_name, author, char_ids, version="", meta=None, content=None, transparent=False, show_fabled=True, design=DESIGN_PLAIN_WHITE, white_icons=False):
     chars_db = load_characters()
 
     content_data = {}
@@ -519,6 +909,10 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         _title_img = _render_styled_title(script_name)
         title_h = _title_img.height + 8 * SCALE
         height = PADDING + title_h + 18 * SCALE  # styled title + author
+    elif design == DESIGN_STARFIELD:
+        _title_img = _render_gold_title(script_name)
+        title_h = _title_img.height + 8 * SCALE
+        height = PADDING + title_h + 18 * SCALE
     else:
         height = PADDING + 42 * SCALE + 18 * SCALE  # title + author
     if fabled_loric:
@@ -551,19 +945,53 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     height += FOOTER_HEIGHT + PADDING
 
     # ── Zeichnen ──────────────────────────────────────────────────────
+    is_mystic = design == DESIGN_MYSTIC_PAPER
+    is_starfield_gold = design == DESIGN_STARFIELD
+    is_starfield_neon = design == DESIGN_STARFIELD_NEON
+    is_starfield = is_starfield_gold or is_starfield_neon
+    is_centered = is_mystic or is_starfield
+
+    # Theme-abhängige Farben (starfield = dunkler BG → helle Texte)
+    if is_starfield_neon:
+        _pal = STARFIELD_NEON_COLORS
+    elif is_starfield_gold:
+        _pal = STARFIELD_COLORS
+    else:
+        _pal = None
+
+    if _pal is not None:
+        theme_header = _pal["header"]
+        theme_ability = _pal["ability"]
+        theme_line = _pal["line"]
+        theme_footer = _pal["footer"]
+        theme_subtitle = _pal["subtitle"]
+        theme_names = _pal["names"]
+    else:
+        theme_header = HEADER_COLOR
+        theme_ability = ABILITY_COLOR
+        theme_line = LINE_COLOR
+        theme_footer = FOOTER_COLOR
+        theme_subtitle = SUBTITLE_COLOR
+        theme_names = NAME_COLORS
+
     if transparent:
         img = Image.new("RGBA", (img_width, height), (0, 0, 0, 0))
-    elif design == DESIGN_MYSTIC_PAPER:
+    elif is_mystic:
         img = _tile_paper_background(img_width, height).convert("RGBA")
+    elif is_starfield_gold or is_starfield_neon:
+        from logic.starfield_bg import render_starfield_bg
+        img = render_starfield_bg(img_width, height).convert("RGBA")
     else:
         img = Image.new("RGB", (img_width, height), BG_COLOR)
     draw = ImageDraw.Draw(img)
     y = PADDING
 
     # Titel + Version
-    is_mystic = design == DESIGN_MYSTIC_PAPER
-    if is_mystic:
-        title_img = _render_styled_title(script_name)
+    if is_mystic or is_starfield:
+        title_img = (
+            _render_styled_title(script_name) if is_mystic
+            else _render_gold_title(script_name)
+        )
         title_x = (img_width - title_img.width) // 2
         _paste(img, title_img, title_x, y)
         if version:
@@ -585,19 +1013,20 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
 
     # Autor
     if author:
-        if is_mystic:
+        if is_centered:
             at = f"by {author}"
             ab = draw.textbbox((0, 0), at, font=f_author)
             aw = ab[2] - ab[0]
-            draw.text(((img_width - aw) // 2, y), at, fill=SUBTITLE_COLOR, font=f_author)
+            draw.text(((img_width - aw) // 2, y), at,
+                      fill=theme_subtitle, font=f_author)
         else:
-            draw.text((PADDING, y), f"by {author}", fill=SUBTITLE_COLOR, font=f_author)
+            draw.text((PADDING, y), f"by {author}", fill=theme_subtitle, font=f_author)
     y += 18 * SCALE
 
     # Fabled/Loric Icons unter Autor
     if fabled_loric:
         fabled_h = 40 * SCALE
-        if is_mystic:
+        if is_centered:
             # Breite vorab messen für Zentrierung
             total_w = 0
             for i, fl in enumerate(fabled_loric):
@@ -614,7 +1043,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
             icon_y = y + (fabled_h - ICON_SMALL) // 2
             _paste(img, icon, fx, icon_y)
             fx += ICON_SMALL + 5 * SCALE
-            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
+            color = theme_names.get(fl["team"], theme_header)
             text_bb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
             text_h = text_bb[3] - text_bb[1]
             text_offset_y = text_bb[1]
@@ -634,14 +1063,14 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
 
         # Header
         header_text = team.upper()
-        draw.text((PADDING, y + 4 * SCALE), header_text, fill=HEADER_COLOR, font=f_header)
+        draw.text((PADDING, y + 4 * SCALE), header_text, fill=theme_header, font=f_header)
         hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
         text_mid_y = (hb[1] + hb[3]) // 2
         draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
-                  fill=LINE_COLOR, width=DIVIDER_THICKNESS)
+                  fill=theme_line, width=DIVIDER_THICKNESS)
         y += HEADER_HEIGHT
 
-        name_color = NAME_COLORS.get(team, (0, 100, 172))
+        name_color = theme_names.get(team, theme_subtitle)
         is_evil = team in ("Minion", "Demon")
 
         for i in range(0, len(chars), COLS):
@@ -657,29 +1086,40 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
                     icon = _stylize_icon(icon, outline_color=(120, 20, 80))
                 elif is_mystic and team in ("Minion", "Demon"):
                     icon = _stylize_icon(icon, outline_color=(120, 20, 20))
+                elif is_starfield and white_icons:
+                    icon = _whitize_icon(icon)
+                elif is_starfield_gold and team in ("Townsfolk", "Outsider"):
+                    icon = _goldize_icon_gradient(icon)
+                elif is_starfield_gold and team in ("Minion", "Demon"):
+                    icon = _winered_icon(icon)
+                elif is_starfield_neon and team in ("Townsfolk", "Outsider"):
+                    icon = _teal_icon(icon)
+                elif is_starfield_neon and team in ("Minion", "Demon"):
+                    icon = _magenta_icon(icon)
 
                 _draw_row(draw, img, x, y, icon, char["name"], char["ability"],
                           name_color, fonts, text_area_width,
-                          icon_size=icon.size[0] if is_mystic else ICON_SIZE)
+                          icon_size=icon.size[0] if is_mystic else ICON_SIZE,
+                          ability_color=theme_ability)
             y += row_h
         y += SECTION_GAP
 
     # ── Fabled & Loric Sektion ────────────────────────────────────────
     if show_fabled and (fabled_loric or jinxes or bootlegger_rules):
         header_text = "FABLED & LORIC"
-        draw.text((PADDING, y + 4 * SCALE), header_text, fill=HEADER_COLOR, font=f_header)
+        draw.text((PADDING, y + 4 * SCALE), header_text, fill=theme_header, font=f_header)
         hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
         text_mid_y = (hb[1] + hb[3]) // 2
         draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
-                  fill=LINE_COLOR, width=DIVIDER_THICKNESS)
+                  fill=theme_line, width=DIVIDER_THICKNESS)
         y += HEADER_HEIGHT
 
         for fl in fabled_loric:
-            color = NAME_COLORS.get(fl["team"], TITLE_COLOR)
+            color = theme_names.get(fl["team"], theme_header)
             icon = _load_icon(fl["id"], icon_urls=fl.get("icon_urls")) or ph
 
             row_h = _draw_row(draw, img, PADDING, y, icon, fl["name"], fl["ability"],
-                              color, fonts, fl_text_width)
+                              color, fonts, fl_text_width, ability_color=theme_ability)
             y += row_h
 
             # Jinxes unter Djinn
@@ -714,22 +1154,22 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
 
                     content_y = y + (jh - content_h) // 2
                     draw.text((text_x, content_y), f"{name_a} & {name_b}",
-                              fill=ABILITY_COLOR, font=f_name)
+                              fill=theme_ability, font=f_name)
 
                     jt_y = content_y + header_h
                     for li, line in enumerate(reason_lines):
                         draw.text((text_x, jt_y + li * JINX_LINE_HEIGHT),
-                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                                  line, fill=theme_ability, font=f_jinx)
                     y += jh
 
             # Bootlegger-Regeln
             if fl["id"] == "bootlegger" and bootlegger_rules:
                 for rule in bootlegger_rules:
                     lines = _wrap(rule, boot_wrap_chars)
-                    draw.text((jinx_x, y), "•", fill=ABILITY_COLOR, font=f_jinx)
+                    draw.text((jinx_x, y), "•", fill=theme_ability, font=f_jinx)
                     for li, line in enumerate(lines):
                         draw.text((jinx_x + 12 * SCALE, y + li * JINX_LINE_HEIGHT),
-                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                                  line, fill=theme_ability, font=f_jinx)
                     y += len(lines) * JINX_LINE_HEIGHT + 2 * SCALE
 
         y += SECTION_GAP
@@ -737,11 +1177,18 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     # ── Footer ────────────────────────────────────────────────────────
     y = height - FOOTER_HEIGHT
     draw.text((PADDING, y + 4 * SCALE), "© Steven Medway  bloodontheclocktower.com",
-              fill=FOOTER_COLOR, font=f_footer)
+              fill=theme_footer, font=f_footer)
     nfn = "*not the first night"
     nb = draw.textbbox((0, 0), nfn, font=f_footer)
     draw.text((img_width - PADDING - (nb[2] - nb[0]), y + 4 * SCALE), nfn,
-              fill=FOOTER_COLOR, font=f_footer)
+              fill=theme_footer, font=f_footer)
+
+    # ── Finishing: Color-Grading pro Design-Variante ──────────────────
+    if not transparent:
+        if is_starfield_gold:
+            img = _apply_finishing_filter_gold(img)
+        elif is_starfield_neon:
+            img = _apply_finishing_filter(img)
 
     # ── Export ────────────────────────────────────────────────────────
     buf = io.BytesIO()
