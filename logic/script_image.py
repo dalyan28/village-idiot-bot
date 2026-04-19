@@ -122,12 +122,14 @@ _F_TITLE = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_TITLE_STYLED = os.path.join(FONT_DIR, "Thesead.ttf")
 _F_TITLE_GOLD = os.path.join(FONT_DIR, "Benguiat Bold.ttf")
 _F_AUTHOR = os.path.join(FONT_DIR, "Inter.ttf")
+_F_CREAM_CAKE = os.path.join(FONT_DIR, "Cream Cake Bold.otf")
 _F_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")
 _F_ABILITY = os.path.join(FONT_DIR, "TradeGothic-Regular.otf")
 
 SZ_TITLE = 36 * SCALE
 SZ_AUTHOR = 14 * SCALE
+SZ_AUTHOR_NEON = 26 * SCALE
 SZ_FABLED_TITLE = 13 * SCALE
 SZ_HEADER = 14 * SCALE
 SZ_NAME = 15 * SCALE
@@ -544,6 +546,532 @@ def _render_gold_title(text, font_size=None):
     return result
 
 
+# ── Styled Title (Starfield Neon — Stranger-Things-Style) ──────────────────
+
+def _split_title_for_neon(text, font, max_width):
+    """Teilt einen Titel in 1 oder 2 Zeilen. Für Stranger-Things-Block-Feel
+    wird ab 2 Wörtern immer gesplittet. Der Split wird so gewählt, dass die
+    Breiten beider Zeilen möglichst balanciert sind und unter `max_width`
+    bleiben."""
+    words = text.split()
+    if not words or len(words) == 1:
+        return [text]
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    best = None
+    for i in range(1, len(words)):
+        l1 = " ".join(words[:i])
+        l2 = " ".join(words[i:])
+        w1 = dummy.textbbox((0, 0), l1, font=font)[2]
+        w2 = dummy.textbbox((0, 0), l2, font=font)[2]
+        over = 1 if max(w1, w2) > max_width else 0
+        score = (over, max(w1, w2), abs(w1 - w2))
+        if best is None or score < best[0]:
+            best = (score, [l1, l2])
+    return best[1]
+
+
+def _render_neon_line(line, font, fill, stroke, stroke_w, tracking_px):
+    """Eine Stranger-Things-Zeile: uniforme Buchstabengröße, weites Tracking,
+    Magenta-Fill + Teal-Stroke, horizontale Bars extern (links vor erstem
+    und rechts nach letztem sichtbaren Buchstaben) auf Baseline-Höhe.
+
+    Rendering in zwei Passes (Strokes unter Fills), damit sich benachbarte
+    Buchstaben-Strokes nicht gegenseitig auf Fills draufmalen.
+    """
+    chars = list(line)
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+
+    advances = [font.getlength(c) + tracking_px for c in chars]
+    bboxes = [dummy.textbbox((0, 0), c, font=font) for c in chars]
+    bb_ref = dummy.textbbox((0, 0), "H", font=font)
+    ref_h = bb_ref[3] - bb_ref[1]
+
+    first_vis_w = bboxes[0][2] - bboxes[0][0]
+    last_vis_w = bboxes[-1][2] - bboxes[-1][0]
+    bar_len = int(max(first_vis_w, last_vis_w) * 0.80)
+    bar_thick = max(6, int(ref_h * 0.14))
+    margin = max(10, stroke_w * 3 + 2)
+
+    total_w = int(sum(advances)) + margin * 2 + bar_len * 2 + 4
+    total_h = ref_h + margin * 2
+    Y_top = margin
+
+    stroke_img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
+    fill_img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(stroke_img)
+    fd = ImageDraw.Draw(fill_img)
+
+    x = float(margin + bar_len)
+    x_positions = []
+    for i, c in enumerate(chars):
+        y = Y_top - bboxes[i][1]
+        xi = int(round(x))
+        x_positions.append(xi)
+        sd.text((xi, y), c, fill=stroke, font=font,
+                stroke_width=stroke_w, stroke_fill=stroke)
+        fd.text((xi, y), c, fill=fill, font=font)
+        x += advances[i]
+
+    first_vis_left = x_positions[0] + bboxes[0][0]
+    last_vis_right = x_positions[-1] + bboxes[-1][2]
+
+    # Bars auf Baseline-Höhe
+    bar_y = Y_top + ref_h
+    bh = bar_thick // 2
+
+    sd.rectangle(
+        [first_vis_left - bar_len - stroke_w, bar_y - bh - stroke_w,
+         first_vis_left, bar_y + bh + stroke_w],
+        fill=stroke,
+    )
+    fd.rectangle(
+        [first_vis_left - bar_len, bar_y - bh,
+         first_vis_left, bar_y + bh],
+        fill=fill,
+    )
+    sd.rectangle(
+        [last_vis_right, bar_y - bh - stroke_w,
+         last_vis_right + bar_len + stroke_w, bar_y + bh + stroke_w],
+        fill=stroke,
+    )
+    fd.rectangle(
+        [last_vis_right, bar_y - bh,
+         last_vis_right + bar_len, bar_y + bh],
+        fill=fill,
+    )
+
+    return Image.alpha_composite(stroke_img, fill_img)
+
+
+def _fit_size_to_width(line, max_w, base_size, min_size, tracking_ratio=0.04):
+    """Skaliert font_size schrittweise herunter, bis die Zeile in max_w passt."""
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    size = base_size
+    while size > min_size:
+        f = _font(_F_TITLE_GOLD, size)
+        tr = int(size * tracking_ratio)
+        w = int(dummy.textbbox((0, 0), line, font=f)[2] + tr * max(0, len(line) - 1))
+        if w <= max_w:
+            break
+        size = max(min_size, int(size * 0.94))
+    return size
+
+
+def _measure_line_mixed(chars, font_big, font_small, tr_big, tr_small):
+    """Misst Advance-Widths + BBoxes für eine mixed-size Zeile
+    (erster/letzter big, middle small). Gibt Listen zurück."""
+    n = len(chars)
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    advances, bboxes, fonts = [], [], []
+    for i, c in enumerate(chars):
+        is_big = n <= 2 or i == 0 or i == n - 1
+        f = font_big if is_big else font_small
+        tr = tr_big if is_big else tr_small
+        advances.append(f.getlength(c) + tr)
+        bboxes.append(dummy.textbbox((0, 0), c, font=f))
+        fonts.append(f)
+    return advances, bboxes, fonts
+
+
+def _choose_wider_line1_split(words, size_big, size_small_mid, size_l2,
+                               tracking_ratio):
+    """Wählt den Split so, dass Zeile 1 (mixed mit big+small-middle) sichtbar
+    wider ist als Zeile 2 (uniform size_l2). Nur natürliche Wort-Reihenfolge.
+
+    Gibt (line1_str, line2_str) oder None zurück wenn kein solcher Split
+    möglich (z. B. wenn das längste Wort hinten steht).
+    """
+    if len(words) < 2:
+        return None
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    f_big = _font(_F_TITLE_GOLD, size_big)
+    f_mid = _font(_F_TITLE_GOLD, size_small_mid)
+    f_l2 = _font(_F_TITLE_GOLD, size_l2)
+    tr_big = int(size_big * tracking_ratio)
+    tr_mid = int(size_small_mid * tracking_ratio)
+    tr_l2 = int(size_l2 * tracking_ratio)
+
+    def line1_width(s):
+        chars = list(s)
+        n = len(chars)
+        w = 0.0
+        for i, c in enumerate(chars):
+            is_big = n <= 2 or i == 0 or i == n - 1
+            f = f_big if is_big else f_mid
+            tr = tr_big if is_big else tr_mid
+            w += f.getlength(c) + tr
+        return w
+
+    def line2_width(s):
+        return sum(f_l2.getlength(c) + tr_l2 for c in s)
+
+    best = None
+    for i in range(1, len(words)):
+        l1 = " ".join(words[:i])
+        l2 = " ".join(words[i:])
+        w1 = line1_width(l1)
+        w2 = line2_width(l2)
+        if w1 <= w2 * 1.12:  # Zeile 1 muss deutlich wider sein (Bindeglied)
+            continue
+        # Score: bevorzuge Splits, bei denen Zeile 2 nicht zu schmal wird
+        # (line2 zu schmal → Bars zu lang → unbalanciert)
+        ratio = w2 / w1  # Zielbereich ≈ 0.55 – 0.82
+        # Idealer Ratio ~0.7
+        ideal_score = abs(ratio - 0.70)
+        if best is None or ideal_score < best[0]:
+            best = (ideal_score, l1, l2, w1, w2)
+    if best is None:
+        return None
+    return best[1], best[2]
+
+
+def _render_neon_single_word(text, fill, stroke, stroke_w, tracking_ratio,
+                              max_line_w, font_size):
+    """Single-Word-Neon-Titel. First/Last groß, Middle kleiner top-aligned.
+    EIN Bar unter den Middle-Buchstaben (Underline-Effekt). Keine Bars unter
+    First/Last."""
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    small_mid_ratio = 0.78
+
+    size_big = font_size or int(SZ_TITLE * 1.95)
+    min_big = int(SZ_TITLE * 0.9)
+    while True:
+        size_small = max(1, int(size_big * small_mid_ratio))
+        f_big = _font(_F_TITLE_GOLD, size_big)
+        f_small = _font(_F_TITLE_GOLD, size_small)
+        tr_big = int(size_big * tracking_ratio)
+        tr_small = int(size_small * tracking_ratio)
+        chars = list(text)
+        advances, bboxes, fonts = _measure_line_mixed(
+            chars, f_big, f_small, tr_big, tr_small)
+        line_w = int(sum(advances))
+        if line_w <= max_line_w or size_big <= min_big:
+            break
+        size_big = max(min_big, int(size_big * 0.94))
+
+    bb_big = dummy.textbbox((0, 0), "H", font=f_big)
+    full_h = bb_big[3] - bb_big[1]
+    bb_small = dummy.textbbox((0, 0), "H", font=f_small)
+    small_h = bb_small[3] - bb_small[1]
+
+    margin = max(10, stroke_w * 3 + 2)
+    total_w = line_w + margin * 2
+    total_h = full_h + margin * 2
+    Y_top = margin
+
+    x_cursor = float(margin)
+    x_positions = []
+    for adv in advances:
+        x_positions.append(int(round(x_cursor)))
+        x_cursor += adv
+
+    stroke_img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
+    fill_img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(stroke_img)
+    fd = ImageDraw.Draw(fill_img)
+
+    for i, c in enumerate(chars):
+        f = fonts[i]
+        y = Y_top - bboxes[i][1]
+        sd.text((x_positions[i], y), c, fill=stroke, font=f,
+                stroke_width=stroke_w, stroke_fill=stroke)
+        fd.text((x_positions[i], y), c, fill=fill, font=f)
+
+    n = len(chars)
+    if n >= 3:
+        first_right = x_positions[0] + bboxes[0][2]
+        last_left = x_positions[-1] + bboxes[-1][0]
+        if last_left > first_right + 4:
+            # Bar direkt unter den Middle-Buchstaben (Underline)
+            bar_gap = max(4, int(size_small * 0.08))
+            bar_y = Y_top + small_h + bar_gap
+            bar_thick = max(6, int(full_h * 0.055))
+            bh = bar_thick // 2
+            pad_side = max(4, stroke_w)
+            bar_x1 = first_right + pad_side
+            bar_x2 = last_left - pad_side
+            sd.rectangle(
+                [bar_x1 - stroke_w, bar_y - bh - stroke_w,
+                 bar_x2 + stroke_w, bar_y + bh + stroke_w],
+                fill=stroke,
+            )
+            fd.rectangle(
+                [bar_x1, bar_y - bh, bar_x2, bar_y + bh],
+                fill=fill,
+            )
+
+    return Image.alpha_composite(stroke_img, fill_img)
+
+
+def _render_neon_composite(line1, line2, fill, stroke, stroke_w,
+                           tracking_ratio, max_line_w, font_size):
+    """Multi-Word-Layout (Box-Diagramm-Spec):
+    - Zeile 1 (Orange + Blau): first/last big (orange), middle top-aligned smaller (blau)
+    - Zeile 2 (Rosa): eingeschoben im Vertikal-Band zwischen small-bottom und
+      big-bottom (füllt den Platz, der durch die kleineren middle-Buchstaben
+      entsteht), horizontal zentriert im Middle-Zone zwischen den beiden
+      Big-Letters
+    - Bars (Grün): UNTERHALB der big-Letters (nicht daneben), beide gleich lang:
+      bar_len = max(first_w + 0.4*second_w, last_w + 0.4*second_to_last_w).
+      Gap oberhalb der Bar zur Big-Letter-Baseline.
+    """
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    small_mid_ratio = 0.55  # Middle 55% von Big → Band ≈ 45% für Line 2
+
+    # Auto-Shrink Zeile 1, bis sie passt
+    size_big = font_size or int(SZ_TITLE * 2.1)
+    min_big = int(SZ_TITLE * 1.0)
+    while True:
+        size_small = max(1, int(size_big * small_mid_ratio))
+        f_big = _font(_F_TITLE_GOLD, size_big)
+        f_small = _font(_F_TITLE_GOLD, size_small)
+        tr_big = int(size_big * tracking_ratio)
+        tr_small = int(size_small * tracking_ratio)
+        chars1 = list(line1)
+        advances1, bboxes1, fonts1 = _measure_line_mixed(
+            chars1, f_big, f_small, tr_big, tr_small)
+        line1_w = int(sum(advances1))
+        if line1_w <= max_line_w or size_big <= min_big:
+            break
+        size_big = max(min_big, int(size_big * 0.94))
+
+    bb_big = dummy.textbbox((0, 0), "H", font=f_big)
+    full_h = bb_big[3] - bb_big[1]
+    bb_small = dummy.textbbox((0, 0), "H", font=f_small)
+    small_h = bb_small[3] - bb_small[1]
+    band_h = full_h - small_h
+
+    # Canvas Layout
+    margin = max(10, stroke_w * 3 + 2)
+    total_w = line1_w + margin * 2
+    Y_top = margin
+
+    # Zeile 1 Positionen
+    line1_x_start = (total_w - line1_w) // 2
+    x_cursor = float(line1_x_start)
+    x_positions = []
+    for adv in advances1:
+        x_positions.append(int(round(x_cursor)))
+        x_cursor += adv
+
+    n = len(chars1)
+    first_vis_left = x_positions[0] + bboxes1[0][0]
+    first_vis_right = x_positions[0] + bboxes1[0][2]
+    last_vis_left = x_positions[-1] + bboxes1[-1][0]
+    last_vis_right = x_positions[-1] + bboxes1[-1][2]
+    first_w_v = first_vis_right - first_vis_left
+    last_w_v = last_vis_right - last_vis_left
+
+    # Middle-Zone (horizontal): zwischen first-rechts und last-links
+    middle_zone_left = first_vis_right
+    middle_zone_right = last_vis_left
+    middle_zone_w = max(10, middle_zone_right - middle_zone_left)
+
+    # Zeile 2 Sizing: Höhe auf Band-Höhe, Breite ggf. kleiner wenn sonst zu breit
+    l2_pad_side = max(6, int(size_big * 0.02))
+    l2_avail_w = max(10, middle_zone_w - 2 * l2_pad_side)
+
+    # Effektives Band für Line 2 (mit Stroke-Clearance zu Middle + Big Baseline)
+    effective_top_clearance = 2 * stroke_w  # über Middle-baseline
+    effective_bottom_clearance = stroke_w    # unter Big-baseline (darf knapp sein)
+    effective_band_h = max(
+        20, band_h - effective_top_clearance - effective_bottom_clearance
+    )
+
+    # Benguiat "H" ≈ 0.72 × font_size — Ziel l2_ref_h sitzt im effective band
+    target_h_l2 = int(effective_band_h * 0.95)
+    size_l2 = max(1, int(target_h_l2 / 0.72))
+    size_l2 = _fit_size_to_width(line2, l2_avail_w, size_l2,
+                                  int(SZ_TITLE * 0.45), tracking_ratio)
+    f_l2 = _font(_F_TITLE_GOLD, size_l2)
+    tr_l2 = int(size_l2 * tracking_ratio)
+    l2_advance = int(sum(f_l2.getlength(c) + tr_l2 for c in line2))
+
+    bb_l2_h = dummy.textbbox((0, 0), "H", font=f_l2)
+    l2_ref_h = bb_l2_h[3] - bb_l2_h[1]
+    bb_l2_full = dummy.textbbox((0, 0), line2, font=f_l2)
+    l2_top_off = bb_l2_full[1]
+
+    # Zeile 2 im Band, mit Stroke-Clearance nach oben
+    band_top = Y_top + small_h
+    band_bottom = Y_top + full_h
+    effective_top = band_top + effective_top_clearance
+    effective_bottom = band_bottom - effective_bottom_clearance
+    # Zentriert im effective band
+    l2_y_top_logical = effective_top + (effective_band_h - l2_ref_h) // 2
+    l2_y_draw = l2_y_top_logical - l2_top_off
+    l2_x_start = middle_zone_left + l2_pad_side + (l2_avail_w - l2_advance) // 2
+
+    # Bars UNTER den big-Letters (außerhalb der Vertikal-Reichweite von line 1)
+    if n >= 3:
+        second_w_v = bboxes1[1][2] - bboxes1[1][0]
+        second_to_last_w_v = bboxes1[-2][2] - bboxes1[-2][0]
+    else:
+        second_w_v = 0
+        second_to_last_w_v = 0
+    ext_ratio = 0.40
+    left_needed = first_w_v + int(second_w_v * ext_ratio)
+    right_needed = last_w_v + int(second_to_last_w_v * ext_ratio)
+    bar_len = max(left_needed, right_needed)
+
+    gap_below_letters = max(12, int(size_big * 0.08))
+    bar_y_top = Y_top + full_h + gap_below_letters
+    bar_thick = max(10, int(full_h * 0.10))
+    bar_y_center = bar_y_top + bar_thick // 2
+    bh = bar_thick // 2
+
+    # Bars ankern an first-letter-LEFT bzw. last-letter-RIGHT
+    lb_x1 = first_vis_left
+    lb_x2 = first_vis_left + bar_len
+    rb_x1 = last_vis_right - bar_len
+    rb_x2 = last_vis_right
+
+    total_h = bar_y_top + bar_thick + margin
+
+    # Render
+    stroke_img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
+    fill_img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(stroke_img)
+    fd = ImageDraw.Draw(fill_img)
+
+    # Zeile 1 (Orange + Blau)
+    for i, c in enumerate(chars1):
+        f = fonts1[i]
+        y = Y_top - bboxes1[i][1]
+        sd.text((x_positions[i], y), c, fill=stroke, font=f,
+                stroke_width=stroke_w, stroke_fill=stroke)
+        fd.text((x_positions[i], y), c, fill=fill, font=f)
+
+    # Zeile 2 (Rosa) — im Band
+    x_f = float(l2_x_start)
+    for c in line2:
+        xi = int(round(x_f))
+        sd.text((xi, l2_y_draw), c, fill=stroke, font=f_l2,
+                stroke_width=stroke_w, stroke_fill=stroke)
+        fd.text((xi, l2_y_draw), c, fill=fill, font=f_l2)
+        x_f += f_l2.getlength(c) + tr_l2
+
+    # Bars (Grün) — unter den big-Letters, gleiche Länge
+    for bx1, bx2 in [(lb_x1, lb_x2), (rb_x1, rb_x2)]:
+        sd.rectangle(
+            [bx1 - stroke_w, bar_y_center - bh - stroke_w,
+             bx2 + stroke_w, bar_y_center + bh + stroke_w],
+            fill=stroke,
+        )
+        fd.rectangle(
+            [bx1, bar_y_center - bh,
+             bx2, bar_y_center + bh],
+            fill=fill,
+        )
+
+    return Image.alpha_composite(stroke_img, fill_img)
+
+
+def _render_neon_title(text, font_size=None):
+    """Stranger-Things-Neon-Titel. Dispatcht nach Wortzahl + Breiten-Fit:
+    - 1 Wort: einzelne uniforme Zeile mit externen Bars.
+    - 2+ Wörter: Bindeglied-Stil (Zeile 1 mit First/Last-big-middle-top-aligned,
+      Zeile 2 uniform darunter, Bars an Zeile-1-Baseline füllen den Gap zu
+      Zeile 2). Split wird so gewählt, dass Zeile 1 > Zeile 2 in Breite.
+    - Fallback: wenn kein Split möglich (z. B. Zeile 2 wäre immer breiter),
+      uniform-2-lines-mit-externen-Bars (simpler ST-Block).
+    """
+    text = text.upper()
+    words = text.split()
+
+    fill = (175, 30, 75)
+    stroke = (35, 140, 165)
+    stroke_w = 3 * SCALE
+    tracking_ratio = 0.05
+
+    img_width = PADDING * 2 + COLS * CHAR_WIDTH
+    max_line_w = img_width - 120 * SCALE
+
+    if len(words) <= 1:
+        # Single-Word: first/last big, middle top-aligned, Bar UNTER Middle
+        return _render_neon_single_word(text, fill, stroke, stroke_w,
+                                         tracking_ratio, max_line_w, font_size)
+
+    # Split-Suche: Zeile 1 muss wider als Zeile 2 sein
+    size_big_target = font_size or int(SZ_TITLE * 2.0)
+    split = _choose_wider_line1_split(
+        words, size_big_target,
+        int(size_big_target * 0.78),
+        int(size_big_target * 0.56),
+        tracking_ratio,
+    )
+
+    if split is not None:
+        line1, line2 = split
+        return _render_neon_composite(line1, line2, fill, stroke, stroke_w,
+                                       tracking_ratio, max_line_w, font_size)
+
+    # Fallback: Zeile 2 wäre breiter — uniform 2-lines mit externen Bars
+    lines = _split_title_for_neon(
+        text, _font(_F_TITLE_GOLD, SZ_TITLE), max_line_w)
+    l1_str, l2_str = lines[0], lines[1]
+    size_1 = _fit_size_to_width(l1_str, max_line_w, int(SZ_TITLE * 1.5),
+                                 SZ_TITLE, tracking_ratio)
+    size_2 = _fit_size_to_width(l2_str, max_line_w, int(size_1 * 0.72),
+                                 int(SZ_TITLE * 0.7), tracking_ratio)
+
+    def _render(line, size):
+        f = _font(_F_TITLE_GOLD, size)
+        tr = int(size * tracking_ratio)
+        return _render_neon_line(line, f, fill, stroke, stroke_w, tr)
+
+    l1_img = _render(l1_str, size_1)
+    l2_img = _render(l2_str, size_2)
+    gap = -6 * SCALE
+    tot_w = max(l1_img.width, l2_img.width)
+    tot_h = l1_img.height + l2_img.height + gap
+    result = Image.new("RGBA", (tot_w, tot_h), (0, 0, 0, 0))
+    result.paste(l1_img, ((tot_w - l1_img.width) // 2, 0), l1_img)
+    result.paste(l2_img, ((tot_w - l2_img.width) // 2,
+                          l1_img.height + gap), l2_img)
+    return result
+
+
+# ── Sticker Author (Neon — weißer Cream-Cake-Bold) ─────────────────────────
+
+def _render_sticker_author(text, font_size=None):
+    """Rendert den Autor als weißen Sticker in Cream Cake Bold.
+
+    Designed um den Titel leicht von unten zu überlappen (Unterschrift-Feel).
+    Soft Drop-Shadow für Sticker-Tiefe auf dunklem BG.
+    """
+    size = font_size or SZ_AUTHOR_NEON
+    font = _font(_F_CREAM_CAKE, size)
+
+    dummy = Image.new("RGBA", (1, 1))
+    dd = ImageDraw.Draw(dummy)
+    bb = dd.textbbox((0, 0), text, font=font)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    ox, oy = bb[0], bb[1]
+
+    pad = 14 * SCALE
+    w = tw + pad * 2
+    h = th + pad * 2
+    tx = pad - ox
+    ty = pad - oy
+
+    # Soft Drop Shadow (dunkel, weich)
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).text((tx + 2 * SCALE, ty + 3 * SCALE), text,
+                                 fill=(0, 0, 0, 170), font=font)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(3 * SCALE))
+
+    # Weißer Text
+    white_text = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(white_text).text((tx, ty), text,
+                                     fill=(255, 255, 255, 255), font=font)
+
+    result = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    result = Image.alpha_composite(result, shadow)
+    result = Image.alpha_composite(result, white_text)
+    return result
+
+
 def _lum_gradient_icon(icon, c_dark, c_mid, c_light, mid_alpha=1.0):
     """Mappt das Icon auf einen monochromen Farb-Gradient basierend auf
     Pixel-Luminanz. Details bleiben erhalten, Farbe wird einheitlich.
@@ -913,6 +1441,17 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         _title_img = _render_gold_title(script_name)
         title_h = _title_img.height + 8 * SCALE
         height = PADDING + title_h + 18 * SCALE
+    elif design == DESIGN_STARFIELD_NEON:
+        _title_img = _render_neon_title(script_name)
+        # Author-Sticker überlappt den Titel um STICKER_OVERLAP
+        if author:
+            _author_img = _render_sticker_author(f"by {author}")
+            overlap = 20 * SCALE
+            # Gesamt: Titel + (Autor_height - overlap) + kleine Margin
+            extra = max(18 * SCALE, _author_img.height - overlap + 6 * SCALE)
+            height = PADDING + _title_img.height + extra
+        else:
+            height = PADDING + _title_img.height + 8 * SCALE + 18 * SCALE
     else:
         height = PADDING + 42 * SCALE + 18 * SCALE  # title + author
     if fabled_loric:
@@ -987,11 +1526,14 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     y = PADDING
 
     # Titel + Version
+    title_bottom = None
     if is_mystic or is_starfield:
-        title_img = (
-            _render_styled_title(script_name) if is_mystic
-            else _render_gold_title(script_name)
-        )
+        if is_mystic:
+            title_img = _render_styled_title(script_name)
+        elif is_starfield_neon:
+            title_img = _render_neon_title(script_name)
+        else:
+            title_img = _render_gold_title(script_name)
         title_x = (img_width - title_img.width) // 2
         _paste(img, title_img, title_x, y)
         if version:
@@ -1000,6 +1542,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
             vw = vb[2] - vb[0]
             draw.text(((img_width - vw) // 2, y + title_img.height), vt,
                       fill=SUBTITLE_COLOR, font=f_author)
+        title_bottom = y + title_img.height
         y += title_img.height + 8 * SCALE
     else:
         draw.text((PADDING, y), script_name, fill=TITLE_COLOR, font=f_title)
@@ -1012,16 +1555,25 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         y += 42 * SCALE
 
     # Autor
-    if author:
-        if is_centered:
-            at = f"by {author}"
-            ab = draw.textbbox((0, 0), at, font=f_author)
-            aw = ab[2] - ab[0]
-            draw.text(((img_width - aw) // 2, y), at,
-                      fill=theme_subtitle, font=f_author)
-        else:
-            draw.text((PADDING, y), f"by {author}", fill=theme_subtitle, font=f_author)
-    y += 18 * SCALE
+    if is_starfield_neon and author:
+        # Cream-Cake-Bold weißer Sticker, leicht überlappend mit Titel
+        author_img = _render_sticker_author(f"by {author}")
+        overlap = 20 * SCALE
+        ax = (img_width - author_img.width) // 2
+        ay = (title_bottom if title_bottom is not None else y) - overlap
+        _paste(img, author_img, ax, ay)
+        y = max(y, ay + author_img.height + 6 * SCALE)
+    else:
+        if author:
+            if is_centered:
+                at = f"by {author}"
+                ab = draw.textbbox((0, 0), at, font=f_author)
+                aw = ab[2] - ab[0]
+                draw.text(((img_width - aw) // 2, y), at,
+                          fill=theme_subtitle, font=f_author)
+            else:
+                draw.text((PADDING, y), f"by {author}", fill=theme_subtitle, font=f_author)
+        y += 18 * SCALE
 
     # Fabled/Loric Icons unter Autor
     if fabled_loric:
