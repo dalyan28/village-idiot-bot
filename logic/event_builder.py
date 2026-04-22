@@ -262,9 +262,9 @@ def build_event_embed(event_data: dict) -> discord.Embed:
     end_ts = event_data.get("end_timestamp")
     if ts:
         if end_ts:
-            termin_value = f"<t:{ts}:F> - <t:{end_ts}:t>\n<t:{ts}:R>"
+            termin_value = f"<t:{ts}:F> - <t:{end_ts}:t> - <t:{ts}:R>"
         else:
-            termin_value = f"<t:{ts}:F>\n<t:{ts}:R>"
+            termin_value = f"<t:{ts}:F> - <t:{ts}:R>"
     else:
         termin_value = "-"
     embed.add_field(name="Termin", value=termin_value, inline=False)
