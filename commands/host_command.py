@@ -55,6 +55,7 @@ from logic.script_cache import (
 )
 from logic.event_builder import build_academy_description, build_event_embed
 from logic.script_image import generate_script_image
+from logic import bot_config
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,27 @@ BASE3_FULL_NAMES = {
     "trouble_brewing": "Trouble Brewing",
     "bad_moon_rising": "Bad Moon Rising",
     "sects_and_violets": "Sects and Violets",
+}
+
+# Hardcoded Rating + Einschätzung für Base3 — unabhängig vom LLM, immer konsistent.
+BASE3_RATING = {
+    "trouble_brewing": "green",
+    "bad_moon_rising": "yellow",
+    "sects_and_violets": "yellow",
+}
+BASE3_REASONING = {
+    "trouble_brewing": (
+        "Ich schätze **Trouble Brewing** 💚 **grün** ein. "
+        "Der klassische Einstieg in BotC — unkompliziert und für alle Levels gut geeignet."
+    ),
+    "bad_moon_rising": (
+        "Ich schätze **Bad Moon Rising** 🟡 **gelb** ein. "
+        "Anspruchsvoller durch die Demon-Mechanik — ideal für erfahrenere Runden."
+    ),
+    "sects_and_violets": (
+        "Ich schätze **Sects & Violets** 🟡 **gelb** ein. "
+        "Info-Balancing ist trickier als bei TB — eher etwas für erfahrene Storyteller."
+    ),
 }
 
 # Academy: Logo wird als Thumbnail eingehängt (lokale Datei → attachment-URL)
@@ -336,7 +358,7 @@ def _format_current_for_edit(session, key: str) -> str | None:
         value = ", ".join(parts)
     elif key == "start_time":
         st = fields.get("start_time") or ""
-        dur = fields.get("duration_minutes") or 150
+        dur = fields.get("duration_minutes") or bot_config.get("defaults.duration_minutes")
         if not st:
             return None
         value = f"{st} {dur}min"
@@ -433,7 +455,7 @@ class SummaryView(discord.ui.View):
             end_session(self.session.user_id)
             return
 
-        duration = f.get("duration_minutes") or 150
+        duration = f.get("duration_minutes") or bot_config.get("defaults.duration_minutes")
         title = f.get("title") or "BotC Event"
         prefix = build_title_prefix(f)
         if prefix:
@@ -485,7 +507,7 @@ class SummaryView(discord.ui.View):
             "botcscripts_id": botcscripts_id,
             "script_source": script_source,
             "level": f.get("level") or "Alle",
-            "camera": f.get("camera"), "max_players": f.get("max_players") or 12,
+            "camera": f.get("camera"), "max_players": f.get("max_players") or bot_config.get("defaults.max_players"),
             "timestamp": start_ts, "end_timestamp": start_ts + duration * 60,
             "creator_id": self.session.user_id,
             "creator_name": self.session.user_display_name,
@@ -656,7 +678,7 @@ class HostCommand(commands.Cog):
         session.fields["script"] = event_data.get("script", "")
         session.fields["level"] = event_data.get("level", "")
         session.fields["camera"] = event_data.get("camera")
-        session.fields["max_players"] = event_data.get("max_players", 12)
+        session.fields["max_players"] = event_data.get("max_players", bot_config.get("defaults.max_players"))
         session.fields["is_casual"] = event_data.get("is_casual")
         session.fields["is_recorded"] = event_data.get("is_recorded")
         session.fields["is_academy"] = event_data.get("is_academy")
@@ -853,8 +875,8 @@ class HostCommand(commands.Cog):
         # Ende, nach erfolgreichem Send, auf True gesetzt.
 
         # Defaults setzen
-        session.fields.setdefault("max_players", 12)
-        session.fields.setdefault("duration_minutes", 150)
+        session.fields.setdefault("max_players", bot_config.get("defaults.max_players"))
+        session.fields.setdefault("duration_minutes", bot_config.get("defaults.duration_minutes"))
 
         # Script data
         script_name = session.fields.get("script")
@@ -874,6 +896,12 @@ class HostCommand(commands.Cog):
         # Base3-Check
         base3_key = _get_base3_key(script_name) if script_name else None
 
+        # Für Base3 das Rating hart setzen (unabhängig von Char-Analyse).
+        # Macht die Einschätzung deterministisch: TB=grün, BMR/S&V=gelb.
+        if base3_key:
+            session.fields["complexity_analysis"] = {"rating": BASE3_RATING[base3_key]}
+            session.label = compute_label(session.fields)
+
         # Generate title/description if needed
         is_retrigger = getattr(session, "_retrigger_proposal", False)
         session._retrigger_proposal = False
@@ -881,14 +909,16 @@ class HostCommand(commands.Cog):
         old_desc = session.fields.get("description") if is_retrigger else None
 
         if regenerate_title and (not session.fields.get("title") or is_retrigger):
+            # Titel wird gerade (neu) generiert → nicht mehr als user-editiert behandeln
+            session._title_user_edited = False
             if base3_key:
-                # Base3: Hardcoded title + description, kein LLM-Call
+                # Base3: Hardcoded title + description + reasoning, kein LLM-Call
                 full_name = BASE3_FULL_NAMES[base3_key]
                 st = session.fields.get("storyteller") or session.user_display_name
                 co = session.fields.get("co_storyteller")
                 session.fields["title"] = f"{full_name} mit {st}" + (f" und {co}" if co else "")
                 session.fields["description"] = f"Wir spielen klassisches {full_name} \U0001f60c Meldet euch an!"
-                session._last_reasoning = ""
+                session._last_reasoning = BASE3_REASONING[base3_key]
             else:
                 async with channel.typing():
                     result = await generate_title_and_description(session)
@@ -918,11 +948,18 @@ class HostCommand(commands.Cog):
 
         reasoning = getattr(session, "_last_reasoning", "")
 
-        # Kein Label-Prefix in der Summary-Anzeige — der User soll seinen Titel
-        # genau so sehen, wie er geschrieben wurde. Das Label hat sein eigenes
-        # Feld (7 · Labels) und wird erst beim finalen Event-Post angehängt
-        # (siehe SummaryView.confirm).
-        title_display = session.fields["title"]
+        # Label-Prefix nur bei auto-generierten Titeln (LLM oder Base3) zeigen.
+        # Wenn der User den Titel selbst editiert hat, zeigen wir den Wert roh —
+        # sonst wirkt es, als würde das Emoji magisch in den Text „hineinwandern".
+        # Der finale Event-Post bekommt den Prefix in jedem Fall (siehe SummaryView.confirm).
+        user_edited_title = getattr(session, "_title_user_edited", False)
+        if user_edited_title:
+            title_display = session.fields["title"]
+        else:
+            prefix = build_title_prefix(session.fields)
+            title_display = (
+                f"{prefix} {session.fields['title']}" if prefix else session.fields["title"]
+            )
 
         analysis = session.fields.get("complexity_analysis") or {}
         rating = analysis.get("rating")
@@ -1000,8 +1037,9 @@ class HostCommand(commands.Cog):
                 script_info += f" \u00b7 {len(char_ids)} Charaktere"
             embed.add_field(name="2 \u00b7 Skript", value=f"```{script_info}```", inline=True)
 
-        # Einschätzung (inline, als Zitat) — bei Base3 nicht anzeigen
-        if reasoning and not base3_key:
+        # Einschätzung (inline, als Zitat) — Base3 hat ein hardcoded Reasoning
+        # (siehe BASE3_REASONING), LLM-Scripts ihr generiertes.
+        if reasoning:
             quote_lines = "\n".join(f"> {line}" for line in reasoning.split("\n"))
             embed.add_field(
                 name=f"{rating_emoji} Einsch\u00e4tzung",
@@ -1046,12 +1084,12 @@ class HostCommand(commands.Cog):
         embed.add_field(name="8 \u00b7 Kamera", value=f"```{cam_str}```", inline=True)
 
         # 9 · Max Spieler (inline)
-        max_p = session.fields.get("max_players") or 12
+        max_p = session.fields.get("max_players") or bot_config.get("defaults.max_players")
         embed.add_field(name="9 \u00b7 Max Spieler", value=f"```{max_p}```", inline=True)
 
         # 10 · Termin (inline) — deutsches Datumsformat
         start_time = session.fields.get("start_time") or "-"
-        duration = session.fields.get("duration_minutes") or 150
+        duration = session.fields.get("duration_minutes") or bot_config.get("defaults.duration_minutes")
         termin_val = _format_termin_german(start_time, duration)
         embed.add_field(name="10 \u00b7 Termin", value=f"```{termin_val}```", inline=True)
 
@@ -1382,6 +1420,9 @@ class HostCommand(commands.Cog):
             try: val = int(val)
             except ValueError: pass
         session.fields[key] = val
+        if key == "title":
+            # User hat Titel manuell gesetzt → in der Summary ohne Label-Prefix anzeigen.
+            session._title_user_edited = True
         if key in ("is_casual", "is_academy"):
             # Wenn casual auf true gesetzt wird → academy aus, und umgekehrt erzwingt der Mutex.
             if key == "is_casual" and val:
@@ -1763,6 +1804,11 @@ class HostCommand(commands.Cog):
             if old_t and old_d:
                 session.fields["title"] = old_t
                 session.fields["description"] = old_d
+                # `alt` restauriert den vorherigen (auto- oder user-) Titel. Wir
+                # nehmen an: wer `alt` schreibt, wollte zu einem zuvor sichtbaren
+                # Stand zurück — das Prefix-Verhalten soll dort wie beim ersten
+                # Anzeigen sein, also auto (kein User-Edit-Flag).
+                session._title_user_edited = False
                 await ch.send("Bisherige Titel und Beschreibung wiederhergestellt.")
                 await self._show_final_review(session, ch, regenerate_title=False)
                 return
@@ -1840,8 +1886,8 @@ class HostCommand(commands.Cog):
             f"6. Level: {session.fields.get('level', '-')}\n"
             f"7. Labels: casual={session.fields.get('is_casual')}, academy={session.fields.get('is_academy')}, recorded={session.fields.get('is_recorded')}\n"
             f"8. Kamera: {session.fields.get('camera')}\n"
-            f"9. Max Spieler: {session.fields.get('max_players', 12)}\n"
-            f"10. Termin: {session.fields.get('start_time', '-')}, Dauer: {session.fields.get('duration_minutes', 150)} Min"
+            f"9. Max Spieler: {session.fields.get('max_players', bot_config.get('defaults.max_players'))}\n"
+            f"10. Termin: {session.fields.get('start_time', '-')}, Dauer: {session.fields.get('duration_minutes', bot_config.get('defaults.duration_minutes'))} Min"
         )
         async with ch.typing():
             result = await interpret_final_review(session, text, fields_summary)
@@ -1869,6 +1915,9 @@ class HostCommand(commands.Cog):
                             pass
                     else:
                         session.fields[field_key] = field_val
+                if "title" in edits:
+                    # User hat (via Haiku-Fallback) Titel editiert → Prefix in Summary ausblenden.
+                    session._title_user_edited = True
                 enforce_label_mutex(session.fields)
                 # Recompute label after edits
                 session.label = compute_label(session.fields)
@@ -1908,8 +1957,9 @@ class HostCommand(commands.Cog):
 
         if not response:
             await ch.send(_err(
-                "Da ist etwas schiefgelaufen.",
-                "-# *Versuch es nochmal — oder starte mit `/botc` neu.*",
+                "Die Antwort war unverständlich oder zu komplex.",
+                "-# *Versuch's nochmal — gerne etwas kürzer, oder teile deine "
+                "Nachricht in zwei auf (z.B. erst Angaben, dann Rückfragen).*",
             ))
             return
 
