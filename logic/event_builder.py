@@ -22,21 +22,11 @@ EMOJI_TENTATIVE = "<:tent_rec:1484978258553471066>"
 EMOJI_WAITLIST = "<:warteliste:1484675744389927193>"
 EMOJI_FILLER = "\U0001f607"  # 😇 — Engelicon für „Auffüller" bei Academy-Runden
 
-def _academy_max_rounds() -> dict[str, int]:
-    """Liest die Academy-Rundenlimits zur Laufzeit aus bot_config.
-
-    Fallback auf harte Defaults, falls bot_config nicht verfügbar ist
-    (z.B. in Unit-Tests ohne Modul-Init).
-    """
-    try:
-        from logic import bot_config
-        return {
-            "green": bot_config.get("academy.max_rounds.green"),
-            "yellow": bot_config.get("academy.max_rounds.yellow"),
-            "red": bot_config.get("academy.max_rounds.red"),
-        }
-    except (ImportError, KeyError):
-        return {"green": 100, "yellow": 200, "red": 300}
+ACADEMY_MAX_ROUNDS = {
+    "green": 100,
+    "yellow": 200,
+    "red": 300,
+}
 
 
 def build_academy_description(rating: str | None) -> str:
@@ -45,18 +35,17 @@ def build_academy_description(rating: str | None) -> str:
     Die Zeile zur passenden Komplexitätsstufe (rating) wird **fett** markiert.
     Ohne Rating bleiben alle Zeilen normal.
     """
-    rounds = _academy_max_rounds()
     rounds_lines_raw = [
-        ("green", f"💚-Angebote: maximal {rounds['green']} Runden gespielt"),
-        ("yellow", f"🟡-Angebote: maximal {rounds['yellow']} Runden gespielt"),
-        ("red", f"🟥-Angebote: maximal {rounds['red']} Runden gespielt"),
+        ("green", "💚-Angebote: maximal 100 Runden gespielt"),
+        ("yellow", "🟡-Angebote: maximal 200 Runden gespielt"),
+        ("red", "🟥-Angebote: maximal 300 Runden gespielt"),
     ]
     rounds_lines = [
         f"**{text}**" if key == rating else text
         for key, text in rounds_lines_raw
     ]
 
-    max_rounds = rounds.get(rating)
+    max_rounds = ACADEMY_MAX_ROUNDS.get(rating)
     rounds_suffix = f"(hier {max_rounds})" if max_rounds else "(s. oben)"
 
     return (

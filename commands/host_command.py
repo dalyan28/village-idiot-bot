@@ -55,7 +55,6 @@ from logic.script_cache import (
 )
 from logic.event_builder import build_academy_description, build_event_embed
 from logic.script_image import generate_script_image
-from logic import bot_config
 
 logger = logging.getLogger(__name__)
 
@@ -358,7 +357,7 @@ def _format_current_for_edit(session, key: str) -> str | None:
         value = ", ".join(parts)
     elif key == "start_time":
         st = fields.get("start_time") or ""
-        dur = fields.get("duration_minutes") or bot_config.get("defaults.duration_minutes")
+        dur = fields.get("duration_minutes") or 150
         if not st:
             return None
         value = f"{st} {dur}min"
@@ -455,7 +454,7 @@ class SummaryView(discord.ui.View):
             end_session(self.session.user_id)
             return
 
-        duration = f.get("duration_minutes") or bot_config.get("defaults.duration_minutes")
+        duration = f.get("duration_minutes") or 150
         title = f.get("title") or "BotC Event"
         prefix = build_title_prefix(f)
         if prefix:
@@ -507,7 +506,7 @@ class SummaryView(discord.ui.View):
             "botcscripts_id": botcscripts_id,
             "script_source": script_source,
             "level": f.get("level") or "Alle",
-            "camera": f.get("camera"), "max_players": f.get("max_players") or bot_config.get("defaults.max_players"),
+            "camera": f.get("camera"), "max_players": f.get("max_players") or 12,
             "timestamp": start_ts, "end_timestamp": start_ts + duration * 60,
             "creator_id": self.session.user_id,
             "creator_name": self.session.user_display_name,
@@ -678,7 +677,7 @@ class HostCommand(commands.Cog):
         session.fields["script"] = event_data.get("script", "")
         session.fields["level"] = event_data.get("level", "")
         session.fields["camera"] = event_data.get("camera")
-        session.fields["max_players"] = event_data.get("max_players", bot_config.get("defaults.max_players"))
+        session.fields["max_players"] = event_data.get("max_players", 12)
         session.fields["is_casual"] = event_data.get("is_casual")
         session.fields["is_recorded"] = event_data.get("is_recorded")
         session.fields["is_academy"] = event_data.get("is_academy")
@@ -875,8 +874,8 @@ class HostCommand(commands.Cog):
         # Ende, nach erfolgreichem Send, auf True gesetzt.
 
         # Defaults setzen
-        session.fields.setdefault("max_players", bot_config.get("defaults.max_players"))
-        session.fields.setdefault("duration_minutes", bot_config.get("defaults.duration_minutes"))
+        session.fields.setdefault("max_players", 12)
+        session.fields.setdefault("duration_minutes", 150)
 
         # Script data
         script_name = session.fields.get("script")
@@ -1084,12 +1083,12 @@ class HostCommand(commands.Cog):
         embed.add_field(name="8 \u00b7 Kamera", value=f"```{cam_str}```", inline=True)
 
         # 9 · Max Spieler (inline)
-        max_p = session.fields.get("max_players") or bot_config.get("defaults.max_players")
+        max_p = session.fields.get("max_players") or 12
         embed.add_field(name="9 \u00b7 Max Spieler", value=f"```{max_p}```", inline=True)
 
         # 10 · Termin (inline) — deutsches Datumsformat
         start_time = session.fields.get("start_time") or "-"
-        duration = session.fields.get("duration_minutes") or bot_config.get("defaults.duration_minutes")
+        duration = session.fields.get("duration_minutes") or 150
         termin_val = _format_termin_german(start_time, duration)
         embed.add_field(name="10 \u00b7 Termin", value=f"```{termin_val}```", inline=True)
 
@@ -1886,8 +1885,8 @@ class HostCommand(commands.Cog):
             f"6. Level: {session.fields.get('level', '-')}\n"
             f"7. Labels: casual={session.fields.get('is_casual')}, academy={session.fields.get('is_academy')}, recorded={session.fields.get('is_recorded')}\n"
             f"8. Kamera: {session.fields.get('camera')}\n"
-            f"9. Max Spieler: {session.fields.get('max_players', bot_config.get('defaults.max_players'))}\n"
-            f"10. Termin: {session.fields.get('start_time', '-')}, Dauer: {session.fields.get('duration_minutes', bot_config.get('defaults.duration_minutes'))} Min"
+            f"9. Max Spieler: {session.fields.get('max_players', 12)}\n"
+            f"10. Termin: {session.fields.get('start_time', '-')}, Dauer: {session.fields.get('duration_minutes', 150)} Min"
         )
         async with ch.typing():
             result = await interpret_final_review(session, text, fields_summary)

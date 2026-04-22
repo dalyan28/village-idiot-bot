@@ -99,7 +99,6 @@ async def main():
         await bot.load_extension("commands.event_commands")
         await bot.load_extension("commands.host_command")
         await bot.load_extension("commands.reminder")
-        await bot.load_extension("commands.config_command")
         if os.getenv("ENV") == "dev":
             await bot.load_extension("commands.test_commands")
             print("Dev-Modus: Test-Commands geladen")
