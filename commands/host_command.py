@@ -1956,9 +1956,10 @@ class HostCommand(commands.Cog):
 
         if not response:
             await ch.send(_err(
-                "Die Antwort war unverständlich oder zu komplex.",
-                "-# *Versuch's nochmal — gerne etwas kürzer, oder teile deine "
-                "Nachricht in zwei auf (z.B. erst Angaben, dann Rückfragen).*",
+                "Ich hab das gerade nicht sauber verarbeiten können.",
+                "-# *Versuch's nochmal kurz und klar. Tipp: Wenn dein Skriptname "
+                "wie ein Satz klingt (z.B. \"Everyone can Play\"), setze ihn in "
+                "Anführungszeichen — z.B. `Skript \"Everyone can Play\"`.*",
             ))
             return
 

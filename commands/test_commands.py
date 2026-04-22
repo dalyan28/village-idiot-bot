@@ -7,6 +7,7 @@ Befehle:
     /clear_test_events      – Löscht alle Test-Events aus dem Event-Channel
     /smart_status           – Zeigt internen Smart-Mode-Zustand (Locks, Dynamic Times, Last Run)
     /create_event           – Erstellt ein Event-Embed mit RSVP-Buttons (Test für Event-System)
+    /delete_last_dm         – Löscht die zuletzt gesendete Bot-DM im aktuellen Private-Chat
 """
 import time as time_module
 from datetime import datetime, timedelta
@@ -302,6 +303,58 @@ class TestCommands(commands.Cog):
             f"Letzter Update: {last_run_str}",
         ]
         await interaction.response.send_message("\n".join(lines), ephemeral=True)
+
+
+    @app_commands.command(
+        name="delete_last_dm",
+        description="[DEV] Löscht die zuletzt gesendete Bot-DM in diesem Private-Chat",
+    )
+    @app_commands.allowed_contexts(guilds=False, dms=True, private_channels=False)
+    async def delete_last_dm(self, interaction: discord.Interaction):
+        # Nur in DMs sinnvoll — in Guild-Channels kann der Bot die ephemeral
+        # Response eh nicht als „DM" behandeln.
+        if interaction.guild is not None:
+            await interaction.response.send_message(
+                "Nur in DMs nutzbar. Öffne den Private-Chat mit dem Bot.",
+                ephemeral=True,
+            )
+            return
+
+        # DM-Channel holen — bei DM-Interaktionen ist `interaction.channel`
+        # manchmal None bis `create_dm()` gerufen wird.
+        channel = interaction.channel or await interaction.user.create_dm()
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Jüngste Bot-Message suchen (History läuft neu → alt).
+        target = None
+        async for msg in channel.history(limit=50):
+            if msg.author.id == self.bot.user.id:
+                target = msg
+                break
+
+        if target is None:
+            await interaction.followup.send(
+                "Keine Bot-Nachricht in den letzten 50 gefunden.", ephemeral=True
+            )
+            return
+
+        try:
+            await target.delete()
+        except discord.NotFound:
+            await interaction.followup.send(
+                "Nachricht war schon weg.", ephemeral=True
+            )
+            return
+        except discord.Forbidden:
+            await interaction.followup.send(
+                "Darf die Nachricht nicht löschen.", ephemeral=True
+            )
+            return
+
+        await interaction.followup.send(
+            f"Letzte Bot-DM gelöscht (ID `{target.id}`).", ephemeral=True
+        )
 
 
 async def setup(bot):

@@ -234,13 +234,32 @@ def _strip_markdown_fences(text: str) -> str:
 
 
 def _parse_response(raw_text: str) -> dict | None:
-    """Parst die JSON-Antwort von Haiku."""
-    cleaned = _strip_markdown_fences(raw_text)
+    """Parst die JSON-Antwort von Haiku.
+
+    Mehrstufiger Fallback: zuerst direkt, dann Code-Fence-strip, dann das
+    größte `{…}`-Substring greedy extrahieren. Haiku schreibt gelegentlich
+    Prosa um das JSON herum — das soll uns nicht killen.
+    """
+    stripped = _strip_markdown_fences(raw_text)
+    # (1) Direkt als JSON
     try:
-        return json.loads(cleaned)
+        return json.loads(stripped)
     except json.JSONDecodeError:
-        logger.warning("Ungültiges JSON von Haiku: %s", cleaned[:200])
-        return None
+        pass
+    # (2) Größtes {…}-Substring (greedy) extrahieren
+    first = stripped.find("{")
+    last = stripped.rfind("}")
+    if first != -1 and last > first:
+        candidate = stripped[first : last + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+    logger.warning(
+        "Ungültiges JSON von Haiku (auch nach Fallback). Raw (500): %s",
+        raw_text[:500],
+    )
+    return None
 
 
 async def call_haiku(session: EventSession, user_message: str) -> dict | None:
@@ -298,7 +317,12 @@ async def call_haiku(session: EventSession, user_message: str) -> dict | None:
 
     parsed = _parse_response(raw_text)
     if parsed is None:
-        session.messages.append({"role": "assistant", "content": raw_text})
+        # Kaputte Response NICHT in die History schreiben — das würde Folge-Calls
+        # kontaminieren (Haiku „lernt", dass Prosa-Antworten OK sind).
+        # Auch die user-Message wieder rausnehmen, damit der nächste Call
+        # mit intakter History neu ansetzen kann.
+        if session.messages and session.messages[-1].get("role") == "user":
+            session.messages.pop()
         return None
 
     session.messages.append({"role": "assistant", "content": raw_text})

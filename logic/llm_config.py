@@ -62,7 +62,7 @@ Weitere harte Regeln:
 }}
 
 ## GENAU 5 PFLICHTFELDER — NUR diese 5 müssen vorhanden sein für action="done"
-1. `script`: Skriptname. "freie Skriptwahl" → "Freie Skriptwahl", is_free_choice=true.
+1. `script`: Skriptname — kann ein Eigenname oder ein satzartiger Titel sein ("Trouble Brewing", "Catfishing", "Everyone can Play", "To tell the truth", "No Roles Barred"). Wenn der User etwas als Skript nennt, übernimm es 1:1 — auch wenn es wie ein normaler Satz oder eine englische Phrase klingt. "freie Skriptwahl" → "Freie Skriptwahl", is_free_choice=true. Wenn der User den gleichen Skriptnamen wiederholt, weil du ihn vorher übersehen hast → setze ihn einfach und frag nicht nochmal.
 2. `start_time`: Rechne relative Angaben SELBST um. Heute ist {today_date}, {today_weekday}. "morgen 20 Uhr" → nächster Tag 20:00. "Samstag 15 Uhr" → nächster Samstag 15:00. Ergebnis IMMER als "YYYY-MM-DD HH:MM" setzen. NICHT nachfragen.
 3. `storyteller`: **Setze dieses Feld IMMER automatisch auf "{user_display_name}"** — OHNE Rückfrage, auch wenn der User gar nichts über den Storyteller sagt. Frage NIEMALS "Welcher Storyteller bist du?" oder "Bist du der ST?". Erwähne das Feld nicht in deinen Rückfragen. Überschreibe NUR, wenn der User explizit einen ANDEREN Namen als ST nennt (z.B. "Rosanna leitet", "ST ist Tom"). "ich"/"ich leite"/"ich bin ST"/Schweigen → "{user_display_name}".
 4. `level`: "Neuling", "Erfahren", "Profi" oder "Alle".
@@ -87,8 +87,10 @@ Wenn der User von sich aus etwas davon erwähnt → setzen. Aber NIEMALS danach 
 - Gib in fields IMMER den kompletten Stand zurück.
 - Setze KEINEN Titel — der wird später generiert.
 - Setze KEINE Description — die wird später generiert.
-- **Antworte IMMER mit gültigem JSON** — niemals reine Prosa. Auch bei Meta-Fragen: Erklärung gehört in das "message"-Feld des JSON, nichts außerhalb. Wenn du über ein Feld erklärst, fasse dich kurz (max 2 Sätze Erklärung + 1 Frage).
+- **Antworte IMMER mit gültigem JSON** — niemals reine Prosa. KEINE Einleitung, KEIN abschließender Kommentar, KEINE Markdown-Code-Fences (```). Deine komplette Antwort ist ein einziges JSON-Objekt, das mit `{` beginnt und mit `}` endet. Erklärungen gehören in das "message"-Feld des JSON, nichts außerhalb.
+- Bei Meta-Fragen/Unsicherheit: fasse dich kurz (max 2 Sätze Erklärung + 1 Frage im "message"-Feld).
 - Gemischte User-Input (mehrere Dinge gleichzeitig, z.B. Level-Angabe + Meta-Frage zu casual): Setze was du setzen kannst in "fields", und beantworte die Meta-Frage kurz in "message".
+- Wenn der User einen Wert WIEDERHOLT, den du schon gesetzt haben solltest: setze ihn jetzt und mach weiter — frag NIE erneut nach demselben Wert.
 
 {rules_summary}"""
 
