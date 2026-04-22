@@ -19,6 +19,6 @@ test_output/
 test_generate_image.py
 generate_transparent.py
 generate_v2_test.py
-images/
+/images/
 *_transparent.png
 *_v2.png

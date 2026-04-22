@@ -62,10 +62,14 @@ BERLIN_TZ = ZoneInfo("Europe/Berlin")
 BOT_COLOR = 0x5865F2
 
 # Base3 Sonderbehandlung
-BASE3_THUMBNAILS = {
-    "trouble_brewing": "https://wiki.bloodontheclocktower.com/images/a/a1/Logo_trouble_brewing.png",
-    "bad_moon_rising": "https://wiki.bloodontheclocktower.com/images/1/10/Logo_bad_moon_rising.png",
-    "sects_and_violets": "https://wiki.bloodontheclocktower.com/images/4/43/Logo_sects_and_violets.png",
+# Thumbnails werden als lokale Files aus `static/images/thumbnails/` geladen
+# und als Attachment angehängt — statt eine externe URL zu referenzieren, die
+# offline gehen oder sich ändern kann.
+# (PATH → Datei auf Disk, URL → `attachment://…` für Embed.set_thumbnail(url=…))
+BASE3_THUMBNAIL_FILENAMES = {
+    "trouble_brewing":   "trouble_brewing.png",
+    "bad_moon_rising":   "bad_moon_rising.png",
+    "sects_and_violets": "sects_and_violets.png",
 }
 BASE3_SCRIPT_URLS = {
     "trouble_brewing": "https://www.botcscripts.com/script/133/1.0.0",
@@ -99,13 +103,39 @@ BASE3_REASONING = {
     ),
 }
 
-# Academy: Logo wird als Thumbnail eingehängt (lokale Datei → attachment-URL)
+# Thumbnails liegen in `static/images/thumbnails/` — dem Ordner für deployte,
+# produktiv genutzte Embed-Thumbnails. `images/` im Repo-Root ist für lokale
+# Test-Artefakte reserviert und wird durch .gitignore ausgeschlossen.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
-ACADEMY_THUMBNAIL_PATH = os.path.join(
-    _PROJECT_ROOT, "images", "embedPictures", "academy_transparent.png"
-)
+_THUMBNAIL_DIR = os.path.join(_PROJECT_ROOT, "static", "images", "thumbnails")
+
+
+def _thumbnail_path(filename: str) -> str:
+    """Gibt den absoluten Pfad zu einem Thumbnail im static-Ordner zurück."""
+    return os.path.join(_THUMBNAIL_DIR, filename)
+
+
+def _attachment_url(filename: str) -> str:
+    """Discord-Embed-URL, um auf ein mit-attached File zu verweisen."""
+    return f"attachment://{filename}"
+
+
+# Academy: Logo für Academy-Events
 ACADEMY_THUMBNAIL_FILENAME = "academy.png"
-ACADEMY_THUMBNAIL_URL = f"attachment://{ACADEMY_THUMBNAIL_FILENAME}"
+ACADEMY_THUMBNAIL_PATH = _thumbnail_path(ACADEMY_THUMBNAIL_FILENAME)
+ACADEMY_THUMBNAIL_URL = _attachment_url(ACADEMY_THUMBNAIL_FILENAME)
+
+
+def _base3_thumbnail_path(base3_key: str) -> str | None:
+    """Lokaler Pfad zum Base3-Thumbnail, oder None wenn Key unbekannt."""
+    fn = BASE3_THUMBNAIL_FILENAMES.get(base3_key)
+    return _thumbnail_path(fn) if fn else None
+
+
+def _base3_thumbnail_url(base3_key: str) -> str | None:
+    """Attachment-URL für das Base3-Thumbnail, oder None wenn Key unbekannt."""
+    fn = BASE3_THUMBNAIL_FILENAMES.get(base3_key)
+    return _attachment_url(fn) if fn else None
 
 GERMAN_DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 
@@ -523,9 +553,9 @@ class SummaryView(discord.ui.View):
                 if script_source == "upload":
                     script_content = sd.get("content")
 
-        # Base3 Thumbnail
+        # Base3 Thumbnail — lokales File via attachment:// URL
         b3key = _get_base3_key(f.get("script") or "")
-        thumbnail_url = BASE3_THUMBNAILS.get(b3key, "") if b3key else ""
+        thumbnail_url = _base3_thumbnail_url(b3key) if b3key else ""
         if b3key and not script_url:
             script_url = BASE3_SCRIPT_URLS.get(b3key, "")
 
@@ -590,12 +620,19 @@ class SummaryView(discord.ui.View):
             except Exception as e:
                 logger.warning("Script-Bild Fehler: %s", e)
 
-        # Academy: Logo-Datei für Thumbnail mit-attached (jeder Post/Edit)
+        # Thumbnail-Datei mit-attachen (jeder Post/Edit).
+        # Academy überschreibt Base3 (Check oben hat thumbnail_url schon entsprechend gesetzt).
         thumbnail_file = None
         if f.get("is_academy") and os.path.exists(ACADEMY_THUMBNAIL_PATH):
             thumbnail_file = discord.File(
                 ACADEMY_THUMBNAIL_PATH, filename=ACADEMY_THUMBNAIL_FILENAME
             )
+        elif b3key:
+            b3_path = _base3_thumbnail_path(b3key)
+            if b3_path and os.path.exists(b3_path):
+                thumbnail_file = discord.File(
+                    b3_path, filename=BASE3_THUMBNAIL_FILENAMES[b3key]
+                )
 
         # Edit-Modus: bestehendes Event updaten
         editing_msg_id = getattr(self.session, "editing_message_id", None)
@@ -628,11 +665,16 @@ class SummaryView(discord.ui.View):
                 from views.event_view import view_for_event
 
                 # attachments IMMER explizit setzen, damit entfernte Attachments
-                # (z.B. academy.png nach „Academy aus", oder script.png nach
-                # Wechsel auf Base3) nicht orphan an der Message hängen bleiben.
+                # (z.B. academy.png nach „Academy aus", script.png nach Wechsel
+                # auf Base3, oder ein Base3-Logo nach Wechsel auf ein anderes
+                # Skript) nicht orphan an der Message hängen bleiben.
                 # Nur die Dateien, die wir selbst verwalten (auto-Skript,
-                # Academy-Logo) werden ersetzt — Custom-Uploads bleiben erhalten.
-                _MANAGED_FILES = {"script.png", ACADEMY_THUMBNAIL_FILENAME}
+                # Thumbnails) werden ersetzt — Custom-Uploads bleiben erhalten.
+                _MANAGED_FILES = {
+                    "script.png",
+                    ACADEMY_THUMBNAIL_FILENAME,
+                    *BASE3_THUMBNAIL_FILENAMES.values(),
+                }
                 preserved = [a for a in edit_msg.attachments if a.filename not in _MANAGED_FILES]
                 attachments = list(preserved)
                 if script_file:
@@ -1133,9 +1175,16 @@ class HostCommand(commands.Cog):
 
         # 11 · Skriptbild / Thumbnail
         script_file = None
+        thumbnail_file = None
         if base3_key:
-            # Base3: Thumbnail statt Script-Bild
-            embed.set_thumbnail(url=BASE3_THUMBNAILS[base3_key])
+            # Base3: lokales Thumbnail-File statt externer URL + Script-Bild.
+            # File wird gleich mitgeschickt, Embed referenziert es via attachment://
+            b3_path = _base3_thumbnail_path(base3_key)
+            if b3_path and os.path.exists(b3_path):
+                thumbnail_file = discord.File(
+                    b3_path, filename=BASE3_THUMBNAIL_FILENAMES[base3_key]
+                )
+                embed.set_thumbnail(url=_base3_thumbnail_url(base3_key))
         elif script_name and not is_free and sd_lookup:
             chars = sd_lookup.get("characters", [])
             if chars:
@@ -1170,8 +1219,13 @@ class HostCommand(commands.Cog):
         outro = "\n".join(outro_lines)
 
         kwargs = {"content": intro_text, "embed": embed, "view": view}
-        if script_file:
-            kwargs["file"] = script_file
+        # Script-Bild ODER Base3-Thumbnail können als Attachment mitgehen.
+        # Gleichzeitig auftreten können sie nicht (Base3 → kein Script-Bild).
+        attach_files = [f for f in (script_file, thumbnail_file) if f is not None]
+        if len(attach_files) == 1:
+            kwargs["file"] = attach_files[0]
+        elif len(attach_files) > 1:
+            kwargs["files"] = attach_files
         try:
             await channel.send(**kwargs)
             await channel.send(outro)
