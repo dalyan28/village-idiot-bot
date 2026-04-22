@@ -309,6 +309,43 @@ def _fmt(key, value):
 
 
 
+_FIELD_CHAR_LIMIT = 1024  # Discord-Limit pro Embed-Field-Value
+_CODE_BLOCK_OVERHEAD = 8  # ```\n ... \n``` (Fence + Newlines)
+
+
+def _add_description_field(embed: "discord.Embed", description: str) -> None:
+    """Fügt das Beschreibungs-Feld zum Summary-Embed robust gegen das 1024-Limit.
+
+    - Kurz (passt mit Code-Block) → Code-Block (kopierbar, konsistent mit anderen Feldern)
+    - Mittel (passt nur plain) → plain, ohne Code-Block
+    - Lang → mehrere Felder, plain. Die weiteren Felder bekommen einen Zero-Width-
+      Space als Namen, damit sie als Fortsetzung lesbar sind.
+    """
+    text = description or "-"
+    if len(text) + _CODE_BLOCK_OVERHEAD <= _FIELD_CHAR_LIMIT:
+        embed.add_field(name="3 \u00b7 Beschreibung", value=f"```\n{text}\n```", inline=False)
+        return
+    if len(text) <= _FIELD_CHAR_LIMIT:
+        embed.add_field(name="3 \u00b7 Beschreibung", value=text, inline=False)
+        return
+
+    # Muss gesplittet werden — an Zeilenumbrüchen, mit Sicherheitsabstand.
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        if len(current) + len(line) + 1 > _FIELD_CHAR_LIMIT - 10:
+            if current:
+                chunks.append(current)
+            current = line
+        else:
+            current = f"{current}\n{line}" if current else line
+    if current:
+        chunks.append(current)
+    for i, chunk in enumerate(chunks):
+        name = "3 \u00b7 Beschreibung" if i == 0 else "\u200b"
+        embed.add_field(name=name, value=chunk, inline=False)
+
+
 def _build_resume_offer(resumable_session) -> str:
     """Baut die Resume-Offer-Message für die Welcome-DM.
 
@@ -1047,7 +1084,9 @@ class HostCommand(commands.Cog):
             )
 
         # 3 · Beschreibung (NOT inline — zu lang für Inline)
-        embed.add_field(name="3 \u00b7 Beschreibung", value=f"```{session.fields.get('description', '-')}```", inline=False)
+        # Discord limitiert Embed-Felder auf 1024 Zeichen. Bei langen Beschreibungen
+        # (v.a. Academy, ~1500 Zeichen) fliegt sonst ein 400 Bad Request.
+        _add_description_field(embed, session.fields.get("description", "-"))
 
         # 4 · Storyteller:in (inline)
         st = session.fields.get("storyteller") or "-"
