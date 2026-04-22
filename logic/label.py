@@ -34,6 +34,17 @@ LABEL_DESCRIPTION = {
 FREE_CHOICE_EMOJI = "💚/🟡/🟥"
 FREE_CHOICE_DESCRIPTION = "Freie Skriptwahl"
 
+
+def enforce_label_mutex(fields: dict) -> None:
+    """Academy und Casual sind konkurrierende Labels — nur eins darf aktiv sein.
+
+    Academy hat Vorrang: ist `is_academy=True`, wird `is_casual=False` gesetzt.
+    In-place-Modifikation von `fields`.
+    """
+    if fields.get("is_academy"):
+        fields["is_casual"] = False
+
+
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
 _ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
 

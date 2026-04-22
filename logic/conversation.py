@@ -26,7 +26,7 @@ from logic.llm_config import (
     TITLE_DESCRIPTION_UPDATE_PROMPT,
     SCRIPT_CHOICE_FALLBACK_PROMPT,
 )
-from logic.label import compute_label
+from logic.label import compute_label, enforce_label_mutex
 
 logger = logging.getLogger(__name__)
 
@@ -295,6 +295,7 @@ async def call_haiku(session: EventSession, user_message: str) -> dict | None:
         for key, value in new_fields.items():
             if value is not None:
                 session.fields[key] = value
+        enforce_label_mutex(session.fields)
 
     # Label berechnen wenn möglich
     session.label = compute_label(session.fields)

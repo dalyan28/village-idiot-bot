@@ -41,6 +41,7 @@ from logic.label import (
     analyze_script_complexity,
     build_title_prefix,
     compute_label,
+    enforce_label_mutex,
     get_label_emoji,
 )
 from logic.botcscripts import search_scripts
@@ -113,20 +114,23 @@ RESUME_KEYWORDS = {"wiederaufnehmen", "weitermachen", "fortsetzen", "resume", "c
 _ABORT = " · `abbrechen` zum Beenden"  # wird an jede Hint-Zeile angehängt
 
 HINT_HAIKU_CHAT = (
-    "-# *Schreib frei in eigenen Worten — ich ziehe die Details selbst raus. "
-    "Beispiel: \"Samstag 19 Uhr BMR, Level Erfahren, casual\"." + _ABORT + "*"
+    "-# *Schreib einfach in natürlicher Sprache, was du leiten möchtest. Ich "
+    "ziehe mir die Details selbst raus. Beispiel: \"Ich will am Samstag um 19 Uhr "
+    "Catfishing leiten. Level eher erfahren und der Vibe sollte Casual sein.\"*"
 )
 HINT_SCRIPT_CHOICE = (
-    "-# *Antworte mit einer **Nummer** (1–5), einem **Skriptnamen**, `preview N` "
-    "für Details, einem neuen **Suchbegriff**, einer **Script-JSON** als Anhang, "
-    "oder `skip`." + _ABORT + "*"
+    "-# *Falls dein Skript dabei ist, kannst du es hier auswählen. Ebenfalls "
+    "kannst du dir die genannten Skripte anzeigen lassen (`Vorschau 1, 2, 4`), "
+    "einen neuen Suchbegriff eingeben oder eine eigene `.json` hochladen.*\n"
+    "-# *Schreib einfach in natürlicher Sprache, was du machen willst · "
+    "`skip` überspringt die Skriptauswahl" + _ABORT + "*"
 )
 HINT_SCRIPT_PREVIEW = (
     "-# *Wähle eine **Nummer**, schreibe `zurück` für die Suchergebnisse, oder "
     "nenne den Skriptnamen frei." + _ABORT + "*"
 )
 HINT_SCRIPT_UPLOAD = (
-    "-# *Hänge die **.json-Datei** als Anhang an — oder schreibe `skip`." + _ABORT + "*"
+    "-# *Hänge eine `.json`-Datei als Anhang an — oder schreibe `skip`." + _ABORT + "*"
 )
 HINT_SCRIPT_SEARCH_RETRY = (
     "-# *Versuch einen anderen **Suchbegriff**." + _ABORT + "*"
@@ -537,16 +541,36 @@ class SummaryView(discord.ui.View):
 
                 # Embed + Bild updaten
                 new_embed = build_event_embed(event_data)
+                if script_file:
+                    new_embed.set_image(url=f"attachment://{script_file.filename}")
                 from views.event_view import view_for_event
-                kwargs = {"embed": new_embed, "view": view_for_event(event_data)}
-                attachments = []
+
+                # attachments IMMER explizit setzen, damit entfernte Attachments
+                # (z.B. academy.png nach „Academy aus", oder script.png nach
+                # Wechsel auf Base3) nicht orphan an der Message hängen bleiben.
+                # Nur die Dateien, die wir selbst verwalten (auto-Skript,
+                # Academy-Logo) werden ersetzt — Custom-Uploads bleiben erhalten.
+                _MANAGED_FILES = {"script.png", ACADEMY_THUMBNAIL_FILENAME}
+                preserved = [a for a in edit_msg.attachments if a.filename not in _MANAGED_FILES]
+                attachments = list(preserved)
                 if script_file:
                     attachments.append(script_file)
                 if thumbnail_file:
                     attachments.append(thumbnail_file)
-                if attachments:
-                    kwargs["attachments"] = attachments
+                kwargs = {
+                    "embed": new_embed,
+                    "view": view_for_event(event_data),
+                    "attachments": attachments,
+                }
                 await edit_msg.edit(**kwargs)
+
+                # image_url aktualisieren (oder entfernen wenn kein Bottom-Image mehr)
+                if script_file:
+                    refreshed = await edit_channel.fetch_message(editing_msg_id)
+                    if refreshed.embeds and refreshed.embeds[0].image and refreshed.embeds[0].image.url:
+                        event_data["image_url"] = refreshed.embeds[0].image.url
+                else:
+                    event_data.pop("image_url", None)
 
                 # Storage updaten
                 from event_storage import save_event
@@ -646,7 +670,7 @@ class HostCommand(commands.Cog):
             return
 
         if has_active_session(interaction.user.id):
-            await interaction.response.send_message("Aktive Session läuft. Schreibe **abbrechen** in den DMs.", ephemeral=True)
+            await interaction.response.send_message("Aktive Session läuft. Schreibe `abbrechen` in den DMs.", ephemeral=True)
             return
 
         session = start_session(
@@ -660,17 +684,12 @@ class HostCommand(commands.Cog):
         try:
             dm = await interaction.user.create_dm()
             await dm.send(
-                f"Hey {interaction.user.display_name}! 👋\n"
-                f"Ich helfe dir, ein **BotC-Event** für **{guild.name}** zu erstellen. "
-                f"Am Ende wird das Event im Event-Channel gepostet, und andere können sich anmelden.\n\n"
-                f"Bevor es losgeht: Schau kurz in die **Serverregeln**, damit dein Event dazu passt.\n\n"
-                f"Ich brauche von dir: **Skript**, **Termin**, **Storyteller**, **Level** und "
-                f"ob die Runde **casual** ist. Alles andere (Dauer, Max. Spieler, Kamera, Co-ST …) "
-                f"kannst du hinterher ergänzen.\n\n"
-                f"Leg einfach los — erzähl mir in eigenen Worten, was du planst.\n"
+                f"Hey {interaction.user.display_name}! 👋\n\n"
+                f"Schön, dass du bei uns eine Onlinerunde leiten willst! Ich helfe "
+                f"dir gerne beim Ausfüllen der Infos. Deine Runde landet dann im "
+                f"<#{eci}>. Von dort können sich Mitglieder der Community anmelden. 🎉\n\n"
                 f"{HINT_HAIKU_CHAT}\n"
-                f"-# *Session läuft 5 Min. Danach kannst du bis zu 1 Stunde lang mit "
-                f"`wiederaufnehmen` weitermachen. `abbrechen` beendet sofort.*"
+                f"-# *Session läuft 5 Min. `abbrechen` um die Event-Erstellung abzubrechen.*"
             )
         except discord.Forbidden:
             await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
@@ -772,9 +791,14 @@ class HostCommand(commands.Cog):
         )
 
     async def _show_final_review(self, session, channel, regenerate_title=True):
-        """Zeigt den kombinierten Abschluss-Screen: Skript-Details + Event-Zusammenfassung."""
-        session.pending_final_review = True
-        # Clear ALL other states — wir sind jetzt im Final Review
+        """Zeigt den kombinierten Abschluss-Screen: Skript-Details + Event-Zusammenfassung.
+
+        WICHTIG: `pending_final_review` wird erst am Ende committet, nachdem die
+        Nachricht erfolgreich versendet ist. Wenn LLM-Call, Image-Gen oder Discord-
+        Send mittendrin fehlschlagen, bleibt der State sauber und der User sieht
+        eine klare Fehlermeldung — statt stumm im nächsten State zu landen.
+        """
+        # Andere States direkt aufräumen — wir verlassen sie unabhängig vom Erfolg.
         session.pending_title_description = False
         session.pending_summary = False
         session.pending_script_choices = None
@@ -786,6 +810,8 @@ class HostCommand(commands.Cog):
         session._preview_scripts = None
         session._pending_version_choices = None
         session._pending_manual_rating = False
+        # pending_final_review bleibt (vorerst) unverändert — wird erst ganz am
+        # Ende, nach erfolgreichem Send, auf True gesetzt.
 
         # Defaults setzen
         session.fields.setdefault("max_players", 12)
@@ -904,7 +930,7 @@ class HostCommand(commands.Cog):
             intro_parts = [
                 f"Neues Skript: **{script_name}**.",
                 "Ich habe Titel und Beschreibung neu generiert. "
-                "Du kannst die neuen \u00fcbernehmen oder **alt** schreiben, um bei den bisherigen zu bleiben:",
+                "Du kannst die neuen übernehmen oder `alt` schreiben, um bei den bisherigen zu bleiben:",
             ]
 
         intro_text = " ".join(intro_parts)
@@ -1031,8 +1057,29 @@ class HostCommand(commands.Cog):
         kwargs = {"content": intro_text, "embed": embed, "view": view}
         if script_file:
             kwargs["file"] = script_file
-        await channel.send(**kwargs)
-        await channel.send(outro)
+        try:
+            await channel.send(**kwargs)
+            await channel.send(outro)
+        except Exception as e:
+            logger.error("Final-Review konnte nicht angezeigt werden: %s", e)
+            # State NICHT committen — User-Eingaben gehen wieder an den Haiku-Chat
+            # (mit History, also ohne Verlust). Zusätzlich Retry per `nochmal`.
+            session.pending_final_review = False
+            session._review_retry_pending = True
+            try:
+                await channel.send(_err(
+                    "Die Zusammenfassung konnte gerade nicht angezeigt werden "
+                    "(Discord oder Script-Bild zickt). Deine Eingaben sind noch da.",
+                    "-# *Schreibe `nochmal`, um den Versuch zu wiederholen — oder "
+                    "`abbrechen` zum Beenden.*",
+                ))
+            except Exception:
+                pass
+            return
+
+        # Erst jetzt, nach erfolgreichem Send, ist der User offiziell im Final Review.
+        session.pending_final_review = True
+        session._review_retry_pending = False
 
     async def _show_version_choices(self, session, channel):
         """Sucht alle Versionen des aktuellen Scripts und zeigt sie zur Auswahl."""
@@ -1234,12 +1281,16 @@ class HostCommand(commands.Cog):
             # Labels: "casual ja", "academy nein", etc.
             if "casual" in tl:
                 session.fields["is_casual"] = any(w in tl for w in ("ja", "yes", "true", "an"))
+                # Casual aktiviert → Academy ausschalten (Konkurrenz-Labels)
+                if session.fields["is_casual"]:
+                    session.fields["is_academy"] = False
             elif "academy" in tl:
                 session.fields["is_academy"] = any(w in tl for w in ("ja", "yes", "true", "an"))
             else:
                 await ch.send(_err("Das habe ich nicht verstanden.", HINT_FIELD_EDIT_LABELS))
                 session.pending_field_edit = "_labels"
                 return
+            enforce_label_mutex(session.fields)
             await self._show_final_review(session, ch, regenerate_title=False)
             return
 
@@ -1278,6 +1329,11 @@ class HostCommand(commands.Cog):
             try: val = int(val)
             except ValueError: pass
         session.fields[key] = val
+        if key in ("is_casual", "is_academy"):
+            # Wenn casual auf true gesetzt wird → academy aus, und umgekehrt erzwingt der Mutex.
+            if key == "is_casual" and val:
+                session.fields["is_academy"] = False
+            enforce_label_mutex(session.fields)
 
         # Bei Skript-Änderung: Titel/Beschreibung neu generieren
         if key == "script" and val != old_script:
@@ -1375,6 +1431,30 @@ class HostCommand(commands.Cog):
             session._haiku_clarification_pending = False
 
         if not haiku_clarification:
+            # "preview N" / "vorschau N" / "vorschau 1, 2, 4" — deterministisch,
+            # damit Previews auch funktionieren, wenn die Haiku-API gerade hakt.
+            preview_match = re.match(r"^\s*(?:preview|vorschau)[\s,]+([\d\s,]+?)\s*$", tl)
+            if preview_match:
+                indices = []
+                for part in re.split(r"[\s,]+", preview_match.group(1).strip()):
+                    if not part:
+                        continue
+                    try:
+                        n = int(part)
+                    except ValueError:
+                        continue
+                    if 1 <= n <= len(choices) and n not in indices:
+                        indices.append(n)
+                if indices:
+                    preview_list = [choices[i - 1] for i in indices]
+                    await self._show_script_preview(session, ch, preview_list, indices)
+                    return
+                await ch.send(_err(
+                    f"Für `preview` brauche ich Nummern zwischen **1 und {len(choices)}**.",
+                    HINT_SCRIPT_CHOICE,
+                ))
+                return
+
             # Direkte Nummer
             try:
                 idx = int(tl) - 1
@@ -1391,7 +1471,37 @@ class HostCommand(commands.Cog):
                         "dritte": 2, "dritten": 2, "vierte": 3, "vierten": 3,
                         "fünfte": 4, "fünften": 4, "letzte": len(choices) - 1, "letzten": len(choices) - 1}
 
-            # Ordinalzahl-Match
+            # Preview-Intent erkennen (BEVOR Select-Ordinal feuert).
+            # „Zeig mir das erste" = Preview, nicht Select. Das Verb entscheidet.
+            preview_intent = re.search(
+                r"\b(zeig|anzeig|anschau|anseh|ansehen|ansicht|details?|mehr zu|näher|genauer|vorschau)",
+                tl,
+            )
+            if preview_intent:
+                preview_idx = None
+                for word, idx in ordinals.items():
+                    if word in tl and idx < len(choices):
+                        preview_idx = idx + 1
+                        break
+                if preview_idx is None:
+                    num_match = re.search(r"\b(\d+)\b", tl)
+                    if num_match:
+                        n = int(num_match.group(1))
+                        if 1 <= n <= len(choices):
+                            preview_idx = n
+                if preview_idx is not None:
+                    await self._show_script_preview(
+                        session, ch, [choices[preview_idx - 1]], [preview_idx]
+                    )
+                    return
+                # Preview-Intent ohne klare Nummer → Rückfrage statt falscher Select.
+                await ch.send(_err(
+                    "Welches Skript soll ich dir genauer zeigen?",
+                    HINT_SCRIPT_CHOICE,
+                ))
+                return
+
+            # Ordinalzahl-Match (Select)
             for word, idx in ordinals.items():
                 if word in tl and idx < len(choices):
                     await self._select_script(session, ch, choices[idx])
@@ -1706,6 +1816,7 @@ class HostCommand(commands.Cog):
                             pass
                     else:
                         session.fields[field_key] = field_val
+                enforce_label_mutex(session.fields)
                 # Recompute label after edits
                 session.label = compute_label(session.fields)
                 await self._show_final_review(session, ch, regenerate_title=False)
@@ -1828,6 +1939,17 @@ class HostCommand(commands.Cog):
     async def _process(self, session, message):
         ch = message.channel
         text = message.content.strip()
+
+        # ── Retry-Handler für fehlgeschlagenen Final-Review ─────────────
+        # Wenn der letzte _show_final_review-Versuch gescheitert ist, kann der
+        # User per `nochmal` neu anzeigen lassen, ohne die Daten zu verlieren.
+        if getattr(session, "_review_retry_pending", False):
+            if text.strip().lower() in ("nochmal", "erneut", "retry", "anzeigen", "zusammenfassung"):
+                session._review_retry_pending = False
+                await self._show_final_review(session, ch, regenerate_title=False)
+                return
+            # Bei anderer Eingabe: Retry-Flag NICHT zurücksetzen — der User könnte
+            # sich einfach gerade verschreiben. Weiter zur normalen Dispatch-Logik.
 
         # ── Manuelle Rating-Eingabe ────────────────────────────────────
         if getattr(session, "_pending_manual_rating", False):
