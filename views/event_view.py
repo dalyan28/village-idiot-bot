@@ -7,7 +7,7 @@ from logic.event_builder import build_event_embed
 logger = logging.getLogger(__name__)
 
 
-FILLER_EMOJI = "\U0001f607"  # 😇 — Engelicon für „Auffüller" (Academy)
+FILLER_EMOJI = "\U0001f47c"  # 👼 — Engelchen für „Auffüller" (Academy)
 
 
 def _toggle_rsvp(event_data: dict, user_id: int, category: str) -> str:
@@ -193,7 +193,7 @@ class EventView(discord.ui.View):
 
 
 class EventViewAcademy(discord.ui.View):
-    """RSVP-View für Academy-Runden: „Auffüller" (😇) statt „Vorläufig"."""
+    """RSVP-View für Academy-Runden: „Auffüller" (👼) statt „Vorläufig"."""
 
     def __init__(self):
         super().__init__(timeout=None)

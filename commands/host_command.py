@@ -1174,18 +1174,31 @@ class HostCommand(commands.Cog):
         embed.add_field(name="10 \u00b7 Termin", value=f"```{termin_val}```", inline=True)
 
         # 11 · Skriptbild / Thumbnail
+        # Thumbnail-Priorität identisch zum finalen Event-Post (SummaryView.confirm):
+        #   Academy > Base3 > kein Thumbnail
+        # Dadurch zeigt die Preview, was der User im Channel sehen wird. Wechselt er
+        # das Skript weg von Base3 oder schaltet Academy aus, evaluiert der nächste
+        # Aufruf dieser Funktion die Bedingungen frisch → altes Thumbnail ist weg.
         script_file = None
         thumbnail_file = None
-        if base3_key:
-            # Base3: lokales Thumbnail-File statt externer URL + Script-Bild.
-            # File wird gleich mitgeschickt, Embed referenziert es via attachment://
+
+        if session.fields.get("is_academy") and os.path.exists(ACADEMY_THUMBNAIL_PATH):
+            thumbnail_file = discord.File(
+                ACADEMY_THUMBNAIL_PATH, filename=ACADEMY_THUMBNAIL_FILENAME
+            )
+            embed.set_thumbnail(url=ACADEMY_THUMBNAIL_URL)
+        elif base3_key:
             b3_path = _base3_thumbnail_path(base3_key)
             if b3_path and os.path.exists(b3_path):
                 thumbnail_file = discord.File(
                     b3_path, filename=BASE3_THUMBNAIL_FILENAMES[base3_key]
                 )
                 embed.set_thumbnail(url=_base3_thumbnail_url(base3_key))
-        elif script_name and not is_free and sd_lookup:
+
+        # Script-Bild als Bottom-Image NUR bei Nicht-Base3 (Base3 zeigt Thumbnail-
+        # Logo, das generierte Script-Bild wäre dort redundant). Academy + Nicht-
+        # Base3 zeigt beides gleichzeitig (Thumbnail oben rechts, Bild unten).
+        if not base3_key and script_name and not is_free and sd_lookup:
             chars = sd_lookup.get("characters", [])
             if chars:
                 try:

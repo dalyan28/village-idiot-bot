@@ -20,7 +20,7 @@ EMOJI_ACCEPTED = "<:accept_rec:1484978213863161986>"
 EMOJI_DECLINED = "<:decline_rec:1484978231957524661>"
 EMOJI_TENTATIVE = "<:tent_rec:1484978258553471066>"
 EMOJI_WAITLIST = "<:warteliste:1484675744389927193>"
-EMOJI_FILLER = "\U0001f607"  # 😇 — Engelicon für „Auffüller" bei Academy-Runden
+EMOJI_FILLER = "\U0001f47c"  # 👼 — Engelchen für „Auffüller" bei Academy-Runden
 
 ACADEMY_MAX_ROUNDS = {
     "green": 100,
