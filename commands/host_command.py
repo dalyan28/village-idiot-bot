@@ -2032,8 +2032,24 @@ class HostCommand(commands.Cog):
             await ch.send(embed=embed)
 
         else:
-            # ask — Rückfrage ohne Beispiel-Hint: der User hat freie Sprache
-            # bereits in der vorherigen Nachricht benutzt, das Beispiel wäre redundant.
+            # ask / explain / unbekannte Action — Rückfrage zeigen.
+            # Fallback, falls Haiku message leer lässt: wir sagen dem User wenigstens was,
+            # sonst landet `ch.send("")` in discord.py's silently-logged HTTPException.
+            if not haiku_msg:
+                missing = [
+                    name for name in REQUIRED_FIELDS
+                    if session.fields.get(name) is None
+                ]
+                if missing:
+                    haiku_msg = (
+                        f"Ich brauche noch: {', '.join(f'**{m}**' for m in missing)}."
+                    )
+                else:
+                    haiku_msg = "Sag mir, was noch offen ist — oder `ok`, wenn alles passt."
+                logger.warning(
+                    "Leere Haiku-Message bei action=%s — Fallback angezeigt (missing=%s)",
+                    action, missing,
+                )
             m = f"{haiku_msg}\n-# {footer}" if footer else haiku_msg
             await ch.send(m)
 
