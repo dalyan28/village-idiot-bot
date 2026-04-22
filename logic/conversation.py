@@ -113,10 +113,11 @@ def start_session(
 ) -> EventSession:
     """Startet eine neue Event-Erstellungs-Session.
 
-    Verwirft eine evtl. vorhandene wiederaufnehmbare Session (User hat explizit
-    neu gestartet).
+    Eine evtl. vorhandene wiederaufnehmbare Session wird hier NICHT verworfen —
+    der Caller zeigt dem User erst ein Resume-Angebot. Wenn der User sich gegen
+    Resume entscheidet (schreibt was anderes als das Resume-Keyword), wird die
+    alte resumable erst in diesem Moment verworfen (siehe discard_resumable).
     """
-    _resumable_sessions.pop(user_id, None)
     session = EventSession(
         user_id=user_id,
         guild_id=guild_id,
@@ -185,6 +186,21 @@ def resume_session(user_id: int) -> EventSession | None:
     _sessions[user_id] = session
     logger.info("Session wiederaufgenommen: user=%s", user_id)
     return session
+
+
+def discard_resumable(user_id: int) -> None:
+    """Verwirft eine wiederaufnehmbare Session (User hat sich gegen Resume
+    entschieden oder hat ein neues Event ohne Wiederaufnahme gestartet)."""
+    removed = _resumable_sessions.pop(user_id, None)
+    if removed is not None:
+        logger.info("Wiederaufnahme verworfen: user=%s", user_id)
+
+
+def peek_resumable(user_id: int) -> EventSession | None:
+    """Liest die resumable Session ohne sie zu aktivieren — nur für UI-Infos
+    (z.B. Titel/Skript im Resume-Angebot). Gibt None zurück, wenn keine vorhanden."""
+    _cleanup_resumable()
+    return _resumable_sessions.get(user_id)
 
 
 def _build_system_prompt(session: EventSession) -> str:

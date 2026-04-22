@@ -23,6 +23,7 @@ from discord.ext import commands
 from config import get_guild_config
 from logic.conversation import (
     call_haiku,
+    discard_resumable,
     end_session,
     generate_title_and_description,
     get_session,
@@ -31,6 +32,7 @@ from logic.conversation import (
     interpret_final_review,
     interpret_script_choice,
     interpret_script_preview,
+    peek_resumable,
     resume_session,
     start_session,
 )
@@ -169,11 +171,6 @@ HINT_ALT_RESTORE = (
 HINT_ERROR_RETRY = (
     "-# *Versuch es nochmal." + _ABORT + "*"
 )
-# Wiederaufnahme: zeigt sich, wenn die Session pausiert ist.
-HINT_SESSION_PAUSED = (
-    "-# *Schreibe `wiederaufnehmen`, um dort weiterzumachen, wo du aufgehört hast "
-    "(bis zu 1 Stunde möglich). Oder starte mit `/botc` neu." + _ABORT + "*"
-)
 
 # ── Einheitliche Error-Messages ──────────────────────────────────────────────
 # Wir nutzen \u26a0\ufe0f als konsistentes Error-Prefix, damit User Fehler auf
@@ -289,6 +286,33 @@ def _fmt(key, value):
         return f"{h}h {m:02d}min" if h else f"{m}min"
     return str(value)
 
+
+
+def _build_resume_offer(resumable_session) -> str:
+    """Baut die Resume-Offer-Message für die Welcome-DM.
+
+    Zeigt den Titel und Skriptnamen der pausierten Session, damit der User sich
+    erinnert, was er zuletzt erstellt hat. `Wiederaufnahme` reaktiviert, alles
+    andere verwirft die Session und startet frisch.
+    """
+    fields = resumable_session.fields
+    title = (fields.get("title") or "").strip()
+    script = (fields.get("script") or "").strip()
+
+    # Anzeige-Info: Titel und/oder Skript. Mindestens eins sollte da sein.
+    display_parts = []
+    if title:
+        display_parts.append(f"**{title}**")
+    if script and script != title:
+        display_parts.append(f"Skript **{script}**")
+    info = " · ".join(display_parts) if display_parts else "deiner letzten Session"
+
+    return (
+        f"Bevor wir weitermachen: Ich sehe gerade, dass unsere letzte Session "
+        f"unterbrochen wurde, bevor du die Runde einstellen konntest. Wenn du "
+        f"die Erstellung von {info} fortführen möchtest, schreibe "
+        f"`Wiederaufnahme`."
+    )
 
 
 def _format_current_for_edit(session, key: str) -> str | None:
@@ -673,24 +697,39 @@ class HostCommand(commands.Cog):
             await interaction.response.send_message("Aktive Session läuft. Schreibe `abbrechen` in den DMs.", ephemeral=True)
             return
 
+        # Resumable vor start_session peeken — start_session verwirft sie
+        # absichtlich nicht mehr, damit wir die Infos für's Resume-Angebot haben.
+        resumable = peek_resumable(interaction.user.id)
+        resume_offer = _build_resume_offer(resumable) if resumable else None
+
         session = start_session(
             user_id=interaction.user.id, guild_id=guild.id, guild_name=guild.name,
             event_channel_id=eci, user_display_name=interaction.user.display_name,
             user_avatar_url=interaction.user.display_avatar.url,
         )
+        if resume_offer:
+            # Flag setzt die Weiche für den nächsten Message: Resume-Keyword
+            # reaktiviert die alte Session, alles andere verwirft sie und startet frisch.
+            session._has_resume_offer = True
 
         await interaction.response.send_message("Check deine DMs! 📩", ephemeral=True)
 
+        welcome_text = (
+            f"Hey {interaction.user.display_name}! 👋\n\n"
+            f"Schön, dass du bei uns eine Onlinerunde leiten willst! Ich helfe "
+            f"dir gerne beim Ausfüllen der Infos. Deine Runde landet dann im "
+            f"<#{eci}>. Von dort können sich Mitglieder der Community anmelden. 🎉"
+        )
+        if resume_offer:
+            welcome_text += f"\n\n{resume_offer}"
+        welcome_text += (
+            f"\n\n{HINT_HAIKU_CHAT}"
+            f"\n-# *Session läuft 5 Min. `abbrechen` um die Event-Erstellung abzubrechen.*"
+        )
+
         try:
             dm = await interaction.user.create_dm()
-            await dm.send(
-                f"Hey {interaction.user.display_name}! 👋\n\n"
-                f"Schön, dass du bei uns eine Onlinerunde leiten willst! Ich helfe "
-                f"dir gerne beim Ausfüllen der Infos. Deine Runde landet dann im "
-                f"<#{eci}>. Von dort können sich Mitglieder der Community anmelden. 🎉\n\n"
-                f"{HINT_HAIKU_CHAT}\n"
-                f"-# *Session läuft 5 Min. `abbrechen` um die Event-Erstellung abzubrechen.*"
-            )
+            await dm.send(welcome_text)
         except discord.Forbidden:
             await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
             end_session(interaction.user.id)
@@ -1125,25 +1164,39 @@ class HostCommand(commands.Cog):
 
         session = get_session(message.author.id)
         if session is None:
-            # Keine aktive Session. Prüfen ob eine pausierte wiederaufnehmbar ist.
-            user_id = message.author.id
-            if has_resumable_session(user_id):
-                text_lower = message.content.strip().lower()
-                if text_lower in RESUME_KEYWORDS:
-                    session = resume_session(user_id)
-                    if session:
-                        await message.channel.send(
-                            "✅ Session wiederaufgenommen. Mach einfach weiter, wo du aufgehört hast."
-                        )
-                        # Falls User im Final Review pausiert hat, Screen neu rendern.
-                        if getattr(session, "pending_final_review", False):
-                            await self._show_final_review(session, message.channel, regenerate_title=False)
-                        return
-                # Andere Eingabe → Resume-Angebot zeigen
-                await message.channel.send(
-                    f"\u23f0 Deine Session ist pausiert.\n{HINT_SESSION_PAUSED}"
-                )
+            # Keine aktive Session — Wiederaufnehmen wird nur nach /botc mit
+            # Welcome-Message angeboten, nicht hier. Hinweis, dass `/botc`
+            # gebraucht wird.
             return
+
+        # Resume-Offer aktiv? (User hat gerade /botc gemacht und eine alte
+        # Session lag im Wiederaufnahme-Cache.)
+        if getattr(session, "_has_resume_offer", False):
+            text_lower = message.content.strip().lower()
+            if text_lower in RESUME_KEYWORDS:
+                # Alte Session reaktivieren — überschreibt die gerade erstellte
+                # neue Session in _sessions.
+                session._has_resume_offer = False
+                resumed = resume_session(message.author.id)
+                if resumed is None:
+                    # Race: Wiederaufnahme-Fenster ist gerade abgelaufen.
+                    await message.channel.send(
+                        "Die Wiederaufnahme ist leider nicht mehr möglich "
+                        "(Fenster abgelaufen). Erzähl mir einfach, was du leiten willst."
+                    )
+                    return
+                await message.channel.send(
+                    "✅ Session wiederaufgenommen. Mach da weiter, wo du aufgehört hast."
+                )
+                # Falls User im Final Review pausiert hat, Screen neu rendern.
+                if getattr(resumed, "pending_final_review", False):
+                    await self._show_final_review(resumed, message.channel, regenerate_title=False)
+                return
+            # Andere Eingabe → alte Resumable verwerfen, neue Session nutzen,
+            # Message normal weiterverarbeiten.
+            session._has_resume_offer = False
+            discard_resumable(message.author.id)
+            # (Fall-through in die normale Verarbeitung unten)
         # Hinweis: Timeout/Max-Calls-Meldungen bleiben konsistent "⏰ …" — klar als
         # System-Ereignis erkennbar (nicht als User-Fehler).
 
