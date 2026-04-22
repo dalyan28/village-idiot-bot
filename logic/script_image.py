@@ -129,7 +129,7 @@ _F_ABILITY = os.path.join(FONT_DIR, "TradeGothic-Regular.otf")
 
 SZ_TITLE = 36 * SCALE
 SZ_AUTHOR = 14 * SCALE
-SZ_AUTHOR_NEON = 26 * SCALE
+SZ_AUTHOR_NEON = 32 * SCALE
 SZ_FABLED_TITLE = 13 * SCALE
 SZ_HEADER = 14 * SCALE
 SZ_NAME = 15 * SCALE
@@ -263,8 +263,15 @@ def _row_height(ability_text, icon_size=ICON_SIZE):
 
 
 def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts,
-              text_width, icon_size=ICON_SIZE, ability_color=None):
-    """Zeichnet eine Zeile (Icon + Name + Ability) vertikal zentriert. Gibt row_height zurück."""
+              text_width, icon_size=ICON_SIZE, ability_color=None,
+              name_glitch_color=None, name_glitch_offset=None):
+    """Zeichnet eine Zeile (Icon + Name + Ability) vertikal zentriert. Gibt row_height zurück.
+
+    name_glitch_color: optionale Komplementärfarbe für einen versetzten
+    "Shadow"-Druck hinter dem Namen (Chromatic-Aberration-Glitch).
+    """
+    if name_glitch_offset is None:
+        name_glitch_offset = GLITCH_NAME_OFFSET
     # Sichtbare Texthöhe berechnen (mit Font-Offset-Korrektur)
     name_bb = draw.textbbox((0, 0), name, font=fonts["name"])
     name_h = name_bb[3] - name_bb[1] + 4 * SCALE
@@ -281,6 +288,10 @@ def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts,
     # Text: vertikal zentriert (korrigiert um Font-Ascender-Offset)
     text_y = y + (row_h - text_h) // 2 - name_offset
     tx = x + icon_size + TEXT_PADDING
+    if name_glitch_color is not None:
+        gx, gy = name_glitch_offset
+        draw.text((tx + gx, text_y + gy), name,
+                  fill=name_glitch_color, font=fonts["name"])
     draw.text((tx, text_y), name, fill=name_color, font=fonts["name"])
     if ability:
         _draw_ability(draw, tx, text_y + name_offset + name_h, ability,
@@ -586,6 +597,12 @@ def _render_neon_line(line, font, fill, stroke, stroke_w, tracking_px):
     bb_ref = dummy.textbbox((0, 0), "H", font=font)
     ref_h = bb_ref[3] - bb_ref[1]
 
+    # Pair-Adjustments (Serif-Overlap, Cut-Paare). Uniforme Size in dieser Zeile.
+    size_uni = font.size
+    sizes = [size_uni] * len(chars)
+    advances, cut_indices = _apply_pair_adjustments(chars, advances, sizes)
+    cut_set = set(cut_indices)
+
     first_vis_w = bboxes[0][2] - bboxes[0][0]
     last_vis_w = bboxes[-1][2] - bboxes[-1][0]
     bar_len = int(max(first_vis_w, last_vis_w) * 0.80)
@@ -607,9 +624,10 @@ def _render_neon_line(line, font, fill, stroke, stroke_w, tracking_px):
         y = Y_top - bboxes[i][1]
         xi = int(round(x))
         x_positions.append(xi)
-        sd.text((xi, y), c, fill=stroke, font=font,
-                stroke_width=stroke_w, stroke_fill=stroke)
-        fd.text((xi, y), c, fill=fill, font=font)
+        if i not in cut_set:
+            sd.text((xi, y), c, fill=stroke, font=font,
+                    stroke_width=stroke_w, stroke_fill=stroke)
+            fd.text((xi, y), c, fill=fill, font=font)
         x += advances[i]
 
     first_vis_left = x_positions[0] + bboxes[0][0]
@@ -640,10 +658,28 @@ def _render_neon_line(line, font, fill, stroke, stroke_w, tracking_px):
         fill=fill,
     )
 
+    # Cut-Rendering (nach Bars, damit nichts den Cut übermalt)
+    for idx in cut_indices:
+        c = chars[idx]
+        prev_c = chars[idx - 1]
+        xi = x_positions[idx]
+        prev_xi = x_positions[idx - 1]
+        y = Y_top - bboxes[idx][1]
+        prev_y = Y_top - bboxes[idx - 1][1]
+        dilate_px = max(3, int(size_uni * 0.05))
+        fill_img = _draw_cut_char_on_layer(
+            fill_img, c, xi, y, font, fill,
+            prev_c, prev_xi, prev_y, font, dilate_px)
+        if stroke_w > 0:
+            stroke_img = _draw_cut_char_on_layer(
+                stroke_img, c, xi, y, font, stroke,
+                prev_c, prev_xi, prev_y, font, dilate_px,
+                stroke_w=stroke_w, stroke_color=stroke)
+
     return Image.alpha_composite(stroke_img, fill_img)
 
 
-def _fit_size_to_width(line, max_w, base_size, min_size, tracking_ratio=0.04):
+def _fit_size_to_width(line, max_w, base_size, min_size, tracking_ratio=0.005):
     """Skaliert font_size schrittweise herunter, bis die Zeile in max_w passt."""
     dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
     size = base_size
@@ -655,6 +691,90 @@ def _fit_size_to_width(line, max_w, base_size, min_size, tracking_ratio=0.04):
             break
         size = max(min_size, int(size * 0.94))
     return size
+
+
+# Serif-Overlap Sets:
+#   BOTH       — kann linker UND rechter Partner in einer Chain sein
+#   LEFT-only  — nur als RECHTER Partner (am Ende einer Chain; kann nach links
+#                overlappen, aber nicht nach rechts)
+#   RIGHT-only — nur als LINKER Partner (am Anfang einer Chain; kann nach
+#                rechts overlappen, aber nicht nach links)
+_OVERLAP_BOTH = "AHIKMNRX"
+_OVERLAP_LEFT_ONLY = "BDFLP"  # kann nach links (right partner)
+_OVERLAP_RIGHT_ONLY = "G"     # kann nach rechts (left partner)
+
+# Chars deren RECHTE Seite overlappen kann → darf LINKER Partner sein
+_OVERLAP_RIGHT = frozenset(_OVERLAP_BOTH + _OVERLAP_RIGHT_ONLY)
+# Chars deren LINKE Seite overlappen kann → darf RECHTER Partner sein
+_OVERLAP_LEFT = frozenset(_OVERLAP_BOTH + _OVERLAP_LEFT_ONLY)
+
+# Cut-Effekt-Paare: linker Char hat eine klare rechte Kante (vertikaler
+# Schaft), die sauber in die runde linke Seite des rechten Chars eingreifen
+# kann. Rechter Char wird ranggeschoben und verliert den Überschneidungs-
+# Teil seiner linken Seite (plus dilate_px „Virtual-Stroke"-Kerf).
+_CUT_PAIR_LEFT = frozenset("HIMN")
+_CUT_PAIR_RIGHT = frozenset("CGOQ")
+
+
+def _apply_pair_adjustments(chars, advances, sizes):
+    """Passt Char-Advances an für Serif-Overlap (zusammenschieben) und
+    Cut-Paare (stärker zusammenschieben + rechten Char mit prev-Char-Mask
+    cutten).
+
+    Returns: (new_advances, cut_indices)
+    cut_indices: Liste der Indizes die mit Cut-Rendering behandelt werden.
+    """
+    n = len(chars)
+    new_advances = list(advances)
+    cut_indices = []
+
+    for i in range(n - 1):
+        curr, nxt = chars[i], chars[i + 1]
+        size_curr, size_nxt = sizes[i], sizes[i + 1]
+        if size_curr != size_nxt:
+            continue
+
+        # Cut-Paar ({HIMN}x{CGOQ}): curr nicht erster, nxt nicht letzter Char
+        if (curr in _CUT_PAIR_LEFT and nxt in _CUT_PAIR_RIGHT
+                and i > 0 and i + 1 < n - 1):
+            closer = max(4, int(size_curr * 0.20))
+            new_advances[i] = max(1, new_advances[i] - closer)
+            cut_indices.append(i + 1)
+            continue
+
+        # Serif-Overlap: linke Seite muss rechts-serifen-fähig sein, rechte
+        # Seite links-serifen-fähig (P/F/L nur als rechter Partner erlaubt)
+        if curr in _OVERLAP_RIGHT and nxt in _OVERLAP_LEFT:
+            overlap = max(3, int(size_curr * 0.14))
+            new_advances[i] = max(1, new_advances[i] - overlap)
+
+    return new_advances, cut_indices
+
+
+def _draw_cut_char_on_layer(layer_img, char, x, y, font, color,
+                             prev_char, prev_x, prev_y, prev_font, dilate_px,
+                             stroke_w=0, stroke_color=None):
+    """Zeichnet `char` in eine neue Schicht, maskiert dort wo dilatiertes
+    `prev_char` liegt, und composited auf `layer_img`."""
+    W, H = layer_img.size
+    tmp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(tmp)
+    if stroke_w > 0:
+        d.text((x, y), char, fill=color, font=font,
+               stroke_width=stroke_w, stroke_fill=stroke_color or color)
+    else:
+        d.text((x, y), char, fill=color, font=font)
+
+    mask = Image.new("L", (W, H), 0)
+    md = ImageDraw.Draw(mask)
+    md.text((prev_x, prev_y), prev_char, fill=255, font=prev_font,
+            stroke_width=dilate_px + stroke_w, stroke_fill=255)
+
+    r, g, b, a = tmp.split()
+    inv_mask = ImageChops.invert(mask)
+    a_cut = ImageChops.multiply(a, inv_mask)
+    tmp_cut = Image.merge("RGBA", (r, g, b, a_cut))
+    return Image.alpha_composite(layer_img, tmp_cut)
 
 
 def _measure_line_mixed(chars, font_big, font_small, tr_big, tr_small):
@@ -744,6 +864,9 @@ def _render_neon_single_word(text, fill, stroke, stroke_w, tracking_ratio,
         chars = list(text)
         advances, bboxes, fonts = _measure_line_mixed(
             chars, f_big, f_small, tr_big, tr_small)
+        sizes = [size_big if (i == 0 or i == len(chars) - 1) else size_small
+                 for i in range(len(chars))]
+        advances, cut_indices = _apply_pair_adjustments(chars, advances, sizes)
         line_w = int(sum(advances))
         if line_w <= max_line_w or size_big <= min_big:
             break
@@ -770,7 +893,10 @@ def _render_neon_single_word(text, fill, stroke, stroke_w, tracking_ratio,
     sd = ImageDraw.Draw(stroke_img)
     fd = ImageDraw.Draw(fill_img)
 
+    cut_set = set(cut_indices)
     for i, c in enumerate(chars):
+        if i in cut_set:
+            continue
         f = fonts[i]
         y = Y_top - bboxes[i][1]
         sd.text((x_positions[i], y), c, fill=stroke, font=f,
@@ -800,6 +926,27 @@ def _render_neon_single_word(text, fill, stroke, stroke_w, tracking_ratio,
                 fill=fill,
             )
 
+    # Cut-Rendering am Ende (damit Bars/Nachbar-Buchstaben den Cut nicht übermalen)
+    for idx in cut_indices:
+        c = chars[idx]
+        prev_c = chars[idx - 1]
+        f = fonts[idx]
+        prev_f = fonts[idx - 1]
+        x = x_positions[idx]
+        prev_x = x_positions[idx - 1]
+        y = Y_top - bboxes[idx][1]
+        prev_y = Y_top - bboxes[idx - 1][1]
+        ref_size = size_small if (idx != 0 and idx != len(chars) - 1) else size_big
+        dilate_px = max(3, int(ref_size * 0.05))
+        fill_img = _draw_cut_char_on_layer(
+            fill_img, c, x, y, f, fill,
+            prev_c, prev_x, prev_y, prev_f, dilate_px)
+        if stroke_w > 0:
+            stroke_img = _draw_cut_char_on_layer(
+                stroke_img, c, x, y, f, stroke,
+                prev_c, prev_x, prev_y, prev_f, dilate_px,
+                stroke_w=stroke_w, stroke_color=stroke)
+
     return Image.alpha_composite(stroke_img, fill_img)
 
 
@@ -816,7 +963,7 @@ def _render_neon_composite(line1, line2, fill, stroke, stroke_w,
       Gap oberhalb der Bar zur Big-Letter-Baseline.
     """
     dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    small_mid_ratio = 0.55  # Middle 55% von Big → Band ≈ 45% für Line 2
+    small_mid_ratio = 2 / 3  # Middle ≈ 67% von Big → Band ≈ 33% für Line 2
 
     # Auto-Shrink Zeile 1, bis sie passt
     size_big = font_size or int(SZ_TITLE * 2.1)
@@ -830,6 +977,10 @@ def _render_neon_composite(line1, line2, fill, stroke, stroke_w,
         chars1 = list(line1)
         advances1, bboxes1, fonts1 = _measure_line_mixed(
             chars1, f_big, f_small, tr_big, tr_small)
+        sizes1 = [size_big if (i == 0 or i == len(chars1) - 1) else size_small
+                  for i in range(len(chars1))]
+        advances1, cut_indices_line1 = _apply_pair_adjustments(
+            chars1, advances1, sizes1)
         line1_w = int(sum(advances1))
         if line1_w <= max_line_w or size_big <= min_big:
             break
@@ -867,66 +1018,58 @@ def _render_neon_composite(line1, line2, fill, stroke, stroke_w,
     middle_zone_right = last_vis_left
     middle_zone_w = max(10, middle_zone_right - middle_zone_left)
 
-    # Zeile 2 Sizing: Höhe auf Band-Höhe, Breite ggf. kleiner wenn sonst zu breit
-    l2_pad_side = max(6, int(size_big * 0.02))
-    l2_avail_w = max(10, middle_zone_w - 2 * l2_pad_side)
+    # Bars zuerst positionieren (x-Position unabhängig von Line 2)
+    extra_px = max(6, int(size_big * 0.04))
+    bar_len = max(first_w_v, last_w_v) + extra_px
+    bar_thick = max(12, int(full_h * 0.10))
+    bh = bar_thick // 2
 
-    # Effektives Band für Line 2 (mit Stroke-Clearance zu Middle + Big Baseline)
-    effective_top_clearance = 2 * stroke_w  # über Middle-baseline
-    effective_bottom_clearance = stroke_w    # unter Big-baseline (darf knapp sein)
-    effective_band_h = max(
-        20, band_h - effective_top_clearance - effective_bottom_clearance
-    )
+    first_center = (first_vis_left + first_vis_right) // 2
+    last_center = (last_vis_left + last_vis_right) // 2
+    lb_x1 = first_center - bar_len // 2
+    lb_x2 = first_center + bar_len // 2
+    rb_x1 = last_center - bar_len // 2
+    rb_x2 = last_center + bar_len // 2
 
-    # Benguiat "H" ≈ 0.72 × font_size — Ziel l2_ref_h sitzt im effective band
-    target_h_l2 = int(effective_band_h * 0.95)
-    size_l2 = max(1, int(target_h_l2 / 0.72))
-    size_l2 = _fit_size_to_width(line2, l2_avail_w, size_l2,
-                                  int(SZ_TITLE * 0.45), tracking_ratio)
+    # Zeile 2 füllt den horizontalen Raum ZWISCHEN den Bars
+    inner_gap_w = max(10, rb_x1 - lb_x2)
+    l2_pad_side = max(4, int(size_big * 0.012))
+    l2_avail_w = max(10, inner_gap_w - 2 * l2_pad_side)
+
+    # Line 2 so groß wie möglich bis Breite l2_avail_w erreicht (kein harter Cap —
+    # lass Line 2 den Gap zwischen Bars voll ausfüllen)
+    size_l2_cap = int(size_big * 1.2)
+    size_l2 = _fit_size_to_width(line2, l2_avail_w, size_l2_cap,
+                                  int(SZ_TITLE * 0.35), tracking_ratio)
     f_l2 = _font(_F_TITLE_GOLD, size_l2)
     tr_l2 = int(size_l2 * tracking_ratio)
-    l2_advance = int(sum(f_l2.getlength(c) + tr_l2 for c in line2))
+    chars2 = list(line2)
+    l2_advances = [f_l2.getlength(c) + tr_l2 for c in chars2]
+    sizes2 = [size_l2] * len(chars2)
+    l2_advances, cut_indices_line2 = _apply_pair_adjustments(
+        chars2, l2_advances, sizes2)
+    l2_advance = int(sum(l2_advances))
 
     bb_l2_h = dummy.textbbox((0, 0), "H", font=f_l2)
     l2_ref_h = bb_l2_h[3] - bb_l2_h[1]
     bb_l2_full = dummy.textbbox((0, 0), line2, font=f_l2)
     l2_top_off = bb_l2_full[1]
 
-    # Zeile 2 im Band, mit Stroke-Clearance nach oben
-    band_top = Y_top + small_h
-    band_bottom = Y_top + full_h
-    effective_top = band_top + effective_top_clearance
-    effective_bottom = band_bottom - effective_bottom_clearance
-    # Zentriert im effective band
-    l2_y_top_logical = effective_top + (effective_band_h - l2_ref_h) // 2
+    # Line 2 Top: direkt unter Small-Middle-Letters mit garantiertem Gap
+    min_gap_top = max(14, int(full_h * 0.10))
+    l2_y_top_logical = Y_top + small_h + min_gap_top
     l2_y_draw = l2_y_top_logical - l2_top_off
-    l2_x_start = middle_zone_left + l2_pad_side + (l2_avail_w - l2_advance) // 2
+    l2_x_start = lb_x2 + l2_pad_side + (l2_avail_w - l2_advance) // 2
 
-    # Bars UNTER den big-Letters (außerhalb der Vertikal-Reichweite von line 1)
-    if n >= 3:
-        second_w_v = bboxes1[1][2] - bboxes1[1][0]
-        second_to_last_w_v = bboxes1[-2][2] - bboxes1[-2][0]
-    else:
-        second_w_v = 0
-        second_to_last_w_v = 0
-    ext_ratio = 0.40
-    left_needed = first_w_v + int(second_w_v * ext_ratio)
-    right_needed = last_w_v + int(second_to_last_w_v * ext_ratio)
-    bar_len = max(left_needed, right_needed)
-
-    gap_below_letters = max(12, int(size_big * 0.08))
+    # Bar-Y: UNTER den big-Buchstaben (gleicher Gap wie zwischen Line 1 und Line 2)
+    gap_below_letters = min_gap_top
     bar_y_top = Y_top + full_h + gap_below_letters
-    bar_thick = max(10, int(full_h * 0.10))
-    bar_y_center = bar_y_top + bar_thick // 2
-    bh = bar_thick // 2
+    bar_y_center = bar_y_top + bh
 
-    # Bars ankern an first-letter-LEFT bzw. last-letter-RIGHT
-    lb_x1 = first_vis_left
-    lb_x2 = first_vis_left + bar_len
-    rb_x1 = last_vis_right - bar_len
-    rb_x2 = last_vis_right
-
-    total_h = bar_y_top + bar_thick + margin
+    total_h = max(
+        bar_y_top + bar_thick,
+        l2_y_top_logical + l2_ref_h,
+    ) + margin
 
     # Render
     stroke_img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
@@ -934,22 +1077,32 @@ def _render_neon_composite(line1, line2, fill, stroke, stroke_w,
     sd = ImageDraw.Draw(stroke_img)
     fd = ImageDraw.Draw(fill_img)
 
-    # Zeile 1 (Orange + Blau)
+    cut_set_line1 = set(cut_indices_line1)
+    cut_set_line2 = set(cut_indices_line2)
+
+    # Zeile 1 (Orange + Blau) — cut chars werden später separat gerendert
     for i, c in enumerate(chars1):
+        if i in cut_set_line1:
+            continue
         f = fonts1[i]
         y = Y_top - bboxes1[i][1]
         sd.text((x_positions[i], y), c, fill=stroke, font=f,
                 stroke_width=stroke_w, stroke_fill=stroke)
         fd.text((x_positions[i], y), c, fill=fill, font=f)
 
-    # Zeile 2 (Rosa) — im Band
-    x_f = float(l2_x_start)
-    for c in line2:
-        xi = int(round(x_f))
+    # Zeile 2 (Rosa) — x-Positionen aus adjusted l2_advances
+    l2_x_positions = []
+    xf = float(l2_x_start)
+    for adv in l2_advances:
+        l2_x_positions.append(int(round(xf)))
+        xf += adv
+    for i, c in enumerate(chars2):
+        if i in cut_set_line2:
+            continue
+        xi = l2_x_positions[i]
         sd.text((xi, l2_y_draw), c, fill=stroke, font=f_l2,
                 stroke_width=stroke_w, stroke_fill=stroke)
         fd.text((xi, l2_y_draw), c, fill=fill, font=f_l2)
-        x_f += f_l2.getlength(c) + tr_l2
 
     # Bars (Grün) — unter den big-Letters, gleiche Länge
     for bx1, bx2 in [(lb_x1, lb_x2), (rb_x1, rb_x2)]:
@@ -964,10 +1117,47 @@ def _render_neon_composite(line1, line2, fill, stroke, stroke_w,
             fill=fill,
         )
 
+    # Cut-Rendering: rechter Char bekommt linken Char als Alpha-Mask abgezogen
+    # (NACH allen normalen fd/sd-Operationen, sonst übermalen wir den Cut)
+    for idx in cut_indices_line1:
+        c = chars1[idx]
+        prev_c = chars1[idx - 1]
+        f = fonts1[idx]
+        prev_f = fonts1[idx - 1]
+        x = x_positions[idx]
+        prev_x = x_positions[idx - 1]
+        y = Y_top - bboxes1[idx][1]
+        prev_y = Y_top - bboxes1[idx - 1][1]
+        ref_size = size_small if (idx != 0 and idx != len(chars1) - 1) else size_big
+        dilate_px = max(3, int(ref_size * 0.05))
+        fill_img = _draw_cut_char_on_layer(
+            fill_img, c, x, y, f, fill,
+            prev_c, prev_x, prev_y, prev_f, dilate_px)
+        if stroke_w > 0:
+            stroke_img = _draw_cut_char_on_layer(
+                stroke_img, c, x, y, f, stroke,
+                prev_c, prev_x, prev_y, prev_f, dilate_px,
+                stroke_w=stroke_w, stroke_color=stroke)
+
+    for idx in cut_indices_line2:
+        c = chars2[idx]
+        prev_c = chars2[idx - 1]
+        x = l2_x_positions[idx]
+        prev_x = l2_x_positions[idx - 1]
+        dilate_px = max(3, int(size_l2 * 0.05))
+        fill_img = _draw_cut_char_on_layer(
+            fill_img, c, x, l2_y_draw, f_l2, fill,
+            prev_c, prev_x, l2_y_draw, f_l2, dilate_px)
+        if stroke_w > 0:
+            stroke_img = _draw_cut_char_on_layer(
+                stroke_img, c, x, l2_y_draw, f_l2, stroke,
+                prev_c, prev_x, l2_y_draw, f_l2, dilate_px,
+                stroke_w=stroke_w, stroke_color=stroke)
+
     return Image.alpha_composite(stroke_img, fill_img)
 
 
-def _render_neon_title(text, font_size=None):
+def _render_neon_title(text, font_size=None, no_stroke=True):
     """Stranger-Things-Neon-Titel. Dispatcht nach Wortzahl + Breiten-Fit:
     - 1 Wort: einzelne uniforme Zeile mit externen Bars.
     - 2+ Wörter: Bindeglied-Stil (Zeile 1 mit First/Last-big-middle-top-aligned,
@@ -981,8 +1171,8 @@ def _render_neon_title(text, font_size=None):
 
     fill = (175, 30, 75)
     stroke = (35, 140, 165)
-    stroke_w = 3 * SCALE
-    tracking_ratio = 0.05
+    stroke_w = 0 if no_stroke else 3 * SCALE
+    tracking_ratio = 0.005
 
     img_width = PADDING * 2 + COLS * CHAR_WIDTH
     max_line_w = img_width - 120 * SCALE
@@ -1032,43 +1222,99 @@ def _render_neon_title(text, font_size=None):
     return result
 
 
+# ── Section-Header (Neon — Benguiat Bold, first/last big, middle ~3/4) ─────
+
+def _render_neon_header(text, fill, size_big=None, small_ratio=0.78,
+                        tracking_ratio=0.005):
+    """Neon-Section-Header (TOWNSFOLK etc.): Benguiat Bold, first/last big,
+    middle-Chars small, gleiche Pair-Adjustments wie der Titel. Fill-only.
+    Liefert RGBA-Bild mit transparentem Hintergrund."""
+    chars = list(text.upper())
+    size_big = size_big or int(SZ_HEADER * 1.8)
+    size_small = max(1, int(size_big * small_ratio))
+    f_big = _font(_F_TITLE_GOLD, size_big)
+    f_small = _font(_F_TITLE_GOLD, size_small)
+    tr_big = max(1, int(size_big * tracking_ratio))
+    tr_small = max(1, int(size_small * tracking_ratio))
+
+    advances, bboxes, fonts = _measure_line_mixed(
+        chars, f_big, f_small, tr_big, tr_small)
+    sizes = [size_big if (i == 0 or i == len(chars) - 1) else size_small
+             for i in range(len(chars))]
+    advances, cut_indices = _apply_pair_adjustments(chars, advances, sizes)
+    cut_set = set(cut_indices)
+    line_w = int(sum(advances))
+
+    dummy = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
+    bb_big = dummy.textbbox((0, 0), "H", font=f_big)
+    full_h = bb_big[3] - bb_big[1]
+
+    margin = 4 * SCALE
+    total_w = line_w + margin * 2
+    total_h = full_h + margin * 2
+    Y_top = margin
+
+    x_cursor = float(margin)
+    x_positions = []
+    for adv in advances:
+        x_positions.append(int(round(x_cursor)))
+        x_cursor += adv
+
+    img = Image.new("RGBA", (total_w, total_h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    for i, c in enumerate(chars):
+        if i in cut_set:
+            continue
+        f = fonts[i]
+        y = Y_top - bboxes[i][1]
+        d.text((x_positions[i], y), c, fill=fill, font=f)
+
+    for idx in cut_indices:
+        c = chars[idx]
+        prev_c = chars[idx - 1]
+        f = fonts[idx]
+        prev_f = fonts[idx - 1]
+        x = x_positions[idx]
+        prev_x = x_positions[idx - 1]
+        y = Y_top - bboxes[idx][1]
+        prev_y = Y_top - bboxes[idx - 1][1]
+        ref_size = size_small if (idx != 0 and idx != len(chars) - 1) else size_big
+        dilate_px = max(3, int(ref_size * 0.05))
+        img = _draw_cut_char_on_layer(
+            img, c, x, y, f, fill,
+            prev_c, prev_x, prev_y, prev_f, dilate_px)
+
+    return img
+
+
 # ── Sticker Author (Neon — weißer Cream-Cake-Bold) ─────────────────────────
 
 def _render_sticker_author(text, font_size=None):
-    """Rendert den Autor als weißen Sticker in Cream Cake Bold.
-
-    Designed um den Titel leicht von unten zu überlappen (Unterschrift-Feel).
-    Soft Drop-Shadow für Sticker-Tiefe auf dunklem BG.
-    """
+    """Rendert den Autor in Cream Cake Bold: weiße Schrift mit schwarzem
+    Stroke. Designed um den Titel leicht von unten zu überlappen."""
     size = font_size or SZ_AUTHOR_NEON
     font = _font(_F_CREAM_CAKE, size)
+    stroke_w = max(2, int(size * 0.08))
 
     dummy = Image.new("RGBA", (1, 1))
     dd = ImageDraw.Draw(dummy)
-    bb = dd.textbbox((0, 0), text, font=font)
+    bb = dd.textbbox((0, 0), text, font=font, stroke_width=stroke_w)
     tw, th = bb[2] - bb[0], bb[3] - bb[1]
     ox, oy = bb[0], bb[1]
 
-    pad = 14 * SCALE
+    pad = 6 * SCALE
     w = tw + pad * 2
     h = th + pad * 2
     tx = pad - ox
     ty = pad - oy
 
-    # Soft Drop Shadow (dunkel, weich)
-    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).text((tx + 2 * SCALE, ty + 3 * SCALE), text,
-                                 fill=(0, 0, 0, 170), font=font)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(3 * SCALE))
-
-    # Weißer Text
-    white_text = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(white_text).text((tx, ty), text,
-                                     fill=(255, 255, 255, 255), font=font)
-
     result = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    result = Image.alpha_composite(result, shadow)
-    result = Image.alpha_composite(result, white_text)
+    ImageDraw.Draw(result).text(
+        (tx, ty), text,
+        fill=(255, 255, 255, 255), font=font,
+        stroke_width=stroke_w, stroke_fill=(0, 0, 0, 255),
+    )
     return result
 
 
@@ -1133,6 +1379,25 @@ def _teal_icon(icon):
     return _y_gradient_icon(
         icon, (8, 35, 55), (35, 140, 165), (195, 245, 250), mid_alpha=0.6,
     )
+
+
+# Glitch/Chromatic-Aberration-Shift für Starfield-Neon:
+#   Haupt-Icon wird über ein komplementär gefärbtes Duplikat gelegt, das
+#   horizontal/vertikal leicht versetzt ist. So bleibt der zentrale Körper
+#   in der Team-Farbe und der Glitch-Ton "blitzt" nur am Rand durch.
+GLITCH_ICON_OFFSET = (-5 * SCALE, 3 * SCALE)
+GLITCH_NAME_OFFSET = (-3, 2)
+
+
+def _glitch_icon(main_icon, glitch_icon, offset=GLITCH_ICON_OFFSET):
+    """Composited ein komplementär gefärbtes Icon versetzt hinter das
+    Haupt-Icon (RGB-Split-artiger Glitch). Rückgabe hat die Größe von
+    main_icon — der Versatz ragt nicht über den Icon-Rahmen hinaus."""
+    w, h = main_icon.size
+    result = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    result.paste(glitch_icon, (offset[0], offset[1]), glitch_icon)
+    result.alpha_composite(main_icon)
+    return result
 
 
 def _darkcopper_icon(icon):
@@ -1458,18 +1723,39 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
         height += 40 * SCALE  # fabled row
     height += SECTION_GAP
 
+    # Für Neon-Theme: Section-Header sind größer → dynamische Höhe
+    is_neon = design == DESIGN_STARFIELD_NEON
+    neon_headers = {}
+    neon_hdr_gap = 8 * SCALE  # Gap nach dem Header vor den Char-Rows
+    if is_neon:
+        for team in TEAM_ORDER:
+            if cats.get(team):
+                team_color = STARFIELD_NEON_COLORS["names"].get(
+                    team, STARFIELD_NEON_COLORS["header"])
+                neon_headers[team] = _render_neon_header(team, team_color)
+        if show_fabled and (fabled_loric or jinxes or bootlegger_rules):
+            neon_headers["_fabled"] = _render_neon_header(
+                "Fabled & Loric",
+                STARFIELD_NEON_COLORS["names"]["Fabled"])
+
     for team in TEAM_ORDER:
         chars = cats.get(team, [])
         if not chars:
             continue
-        height += HEADER_HEIGHT
+        if is_neon:
+            height += neon_headers[team].height + neon_hdr_gap
+        else:
+            height += HEADER_HEIGHT
         for i in range(0, len(chars), COLS):
             row = chars[i:i + COLS]
             height += max(_row_height(c["ability"]) for c in row)
         height += SECTION_GAP
 
     if show_fabled and (fabled_loric or jinxes or bootlegger_rules):
-        height += HEADER_HEIGHT + SECTION_GAP
+        if is_neon:
+            height += neon_headers["_fabled"].height + neon_hdr_gap + SECTION_GAP
+        else:
+            height += HEADER_HEIGHT + SECTION_GAP
         for fl in fabled_loric:
             height += _row_height(fl["ability"])
             if fl["id"] == DJINN_ID and jinxes:
@@ -1608,22 +1894,53 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     y += SECTION_GAP
 
     # ── Character Sektionen ───────────────────────────────────────────
+    neon_bar_pad = 18 * SCALE
+    neon_bar_thick = 4 * SCALE
     for team in TEAM_ORDER:
         chars = cats.get(team, [])
         if not chars:
             continue
 
         # Header
-        header_text = team.upper()
-        draw.text((PADDING, y + 4 * SCALE), header_text, fill=theme_header, font=f_header)
-        hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
-        text_mid_y = (hb[1] + hb[3]) // 2
-        draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
-                  fill=theme_line, width=DIVIDER_THICKNESS)
-        y += HEADER_HEIGHT
+        if is_neon:
+            hdr_img = neon_headers[team]
+            team_color = theme_names.get(team, theme_header)
+            hx = (img_width - hdr_img.width) // 2
+            _paste(img, hdr_img, hx, y)
+            bar_y = y + hdr_img.height // 2
+            left_end = hx - neon_bar_pad
+            right_start = hx + hdr_img.width + neon_bar_pad
+            if left_end > PADDING:
+                draw.rectangle(
+                    [PADDING, bar_y - neon_bar_thick // 2,
+                     left_end, bar_y + neon_bar_thick // 2],
+                    fill=team_color)
+            if right_start < img_width - PADDING:
+                draw.rectangle(
+                    [right_start, bar_y - neon_bar_thick // 2,
+                     img_width - PADDING, bar_y + neon_bar_thick // 2],
+                    fill=team_color)
+            y += hdr_img.height + neon_hdr_gap
+        else:
+            header_text = team.upper()
+            draw.text((PADDING, y + 4 * SCALE), header_text, fill=theme_header, font=f_header)
+            hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
+            text_mid_y = (hb[1] + hb[3]) // 2
+            draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
+                      fill=theme_line, width=DIVIDER_THICKNESS)
+            y += HEADER_HEIGHT
 
         name_color = theme_names.get(team, theme_subtitle)
         is_evil = team in ("Minion", "Demon")
+
+        # Glitch-Komplementärfarbe nur für Starfield-Neon Good/Evil Teams.
+        # Regel: Haupt-Teal ↔ Glitch-Magenta und umgekehrt.
+        name_glitch_color = None
+        if is_starfield_neon:
+            if team in ("Townsfolk", "Outsider"):
+                name_glitch_color = theme_names["Minion"]
+            elif team in ("Minion", "Demon"):
+                name_glitch_color = theme_names["Townsfolk"]
 
         for i in range(0, len(chars), COLS):
             row = chars[i:i + COLS]
@@ -1645,26 +1962,47 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
                 elif is_starfield_gold and team in ("Minion", "Demon"):
                     icon = _winered_icon(icon)
                 elif is_starfield_neon and team in ("Townsfolk", "Outsider"):
-                    icon = _teal_icon(icon)
+                    icon = _glitch_icon(_teal_icon(icon), _magenta_icon(icon))
                 elif is_starfield_neon and team in ("Minion", "Demon"):
-                    icon = _magenta_icon(icon)
+                    icon = _glitch_icon(_magenta_icon(icon), _teal_icon(icon))
 
                 _draw_row(draw, img, x, y, icon, char["name"], char["ability"],
                           name_color, fonts, text_area_width,
                           icon_size=icon.size[0] if is_mystic else ICON_SIZE,
-                          ability_color=theme_ability)
+                          ability_color=theme_ability,
+                          name_glitch_color=name_glitch_color)
             y += row_h
         y += SECTION_GAP
 
     # ── Fabled & Loric Sektion ────────────────────────────────────────
     if show_fabled and (fabled_loric or jinxes or bootlegger_rules):
-        header_text = "FABLED & LORIC"
-        draw.text((PADDING, y + 4 * SCALE), header_text, fill=theme_header, font=f_header)
-        hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
-        text_mid_y = (hb[1] + hb[3]) // 2
-        draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
-                  fill=theme_line, width=DIVIDER_THICKNESS)
-        y += HEADER_HEIGHT
+        if is_neon:
+            hdr_img = neon_headers["_fabled"]
+            fabled_color = theme_names.get("Fabled", theme_header)
+            hx = (img_width - hdr_img.width) // 2
+            _paste(img, hdr_img, hx, y)
+            bar_y = y + hdr_img.height // 2
+            left_end = hx - neon_bar_pad
+            right_start = hx + hdr_img.width + neon_bar_pad
+            if left_end > PADDING:
+                draw.rectangle(
+                    [PADDING, bar_y - neon_bar_thick // 2,
+                     left_end, bar_y + neon_bar_thick // 2],
+                    fill=fabled_color)
+            if right_start < img_width - PADDING:
+                draw.rectangle(
+                    [right_start, bar_y - neon_bar_thick // 2,
+                     img_width - PADDING, bar_y + neon_bar_thick // 2],
+                    fill=fabled_color)
+            y += hdr_img.height + neon_hdr_gap
+        else:
+            header_text = "FABLED & LORIC"
+            draw.text((PADDING, y + 4 * SCALE), header_text, fill=theme_header, font=f_header)
+            hb = draw.textbbox((PADDING, y + 4 * SCALE), header_text, font=f_header)
+            text_mid_y = (hb[1] + hb[3]) // 2
+            draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
+                      fill=theme_line, width=DIVIDER_THICKNESS)
+            y += HEADER_HEIGHT
 
         for fl in fabled_loric:
             color = theme_names.get(fl["team"], theme_header)
@@ -1739,8 +2077,6 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     if not transparent:
         if is_starfield_gold:
             img = _apply_finishing_filter_gold(img)
-        elif is_starfield_neon:
-            img = _apply_finishing_filter(img)
 
     # ── Export ────────────────────────────────────────────────────────
     buf = io.BytesIO()

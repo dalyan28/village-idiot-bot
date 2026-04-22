@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from event_storage import save_event
 from logic.event_builder import build_event_embed
-from views.event_view import EventView
+from views.event_view import view_for_event
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,7 @@ class EventCommands(commands.Cog):
         channel: discord.TextChannel,
         event_data: dict,
         script_image: discord.File | None = None,
+        thumbnail_file: discord.File | None = None,
     ) -> discord.Message:
         """Postet ein Event-Embed mit RSVP-Buttons und speichert es.
 
@@ -27,6 +28,7 @@ class EventCommands(commands.Cog):
             channel: Der Ziel-Channel für das Event.
             event_data: Dict mit allen Event-Feldern (siehe event_storage.py Datenmodell).
             script_image: Optionales Script-Bild als discord.File.
+            thumbnail_file: Optionales Thumbnail (z.B. Academy-Logo) als discord.File.
 
         Returns:
             Die gesendete Discord-Message.
@@ -44,10 +46,15 @@ class EventCommands(commands.Cog):
         if script_image:
             embed.set_image(url="attachment://script.png")
 
-        view = EventView()
+        view = view_for_event(event_data)
         kwargs = {"embed": embed, "view": view}
+        files = []
         if script_image:
-            kwargs["file"] = script_image
+            files.append(script_image)
+        if thumbnail_file:
+            files.append(thumbnail_file)
+        if files:
+            kwargs["files"] = files
 
         msg = await channel.send(**kwargs)
 

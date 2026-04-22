@@ -30,12 +30,13 @@ TITLES = [
 TILE_W = 1780
 
 
-def main():
-    os.makedirs("test_output", exist_ok=True)
+OUT_DIR = "test_output/neon"
 
+
+def _render_gallery(no_stroke: bool, raw: bool = False):
     tiles = []
     for title, author in TITLES:
-        title_img = _render_neon_title(title)
+        title_img = _render_neon_title(title, no_stroke=no_stroke)
         author_img = _render_sticker_author(f"by {author}")
         overlap = 20 * 2
         gap_top = 40
@@ -50,7 +51,6 @@ def main():
         bg.paste(author_img, (ax, ay), author_img)
         tiles.append((title, bg))
 
-    # Stack vertically
     sep = 6
     total_h = sum(t.height for _, t in tiles) + sep * (len(tiles) - 1)
     gallery = Image.new("RGBA", (TILE_W, total_h), (0, 0, 0, 255))
@@ -59,12 +59,23 @@ def main():
         gallery.paste(t, (0, y))
         y += t.height + sep
 
-    gallery = _apply_finishing_filter(gallery)
-    path = "test_output/_neon_gallery.png"
-    gallery.convert("RGB").save(path)
-    print(f"Gallery: {path} ({os.path.getsize(path) // 1024} KB)")
-    for title, t in tiles:
-        print(f"  {title!r}: {t.width}x{t.height}")
+    if not raw:
+        gallery = _apply_finishing_filter(gallery)
+    return gallery
+
+
+def main():
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+    for suffix, no_stroke, raw in [
+        ("_nostroke", True, False),
+        ("_nostroke_raw", True, True),
+        ("_stroke", False, False),
+    ]:
+        gallery = _render_gallery(no_stroke=no_stroke, raw=raw)
+        path = f"{OUT_DIR}/_neon_gallery{suffix}.png"
+        gallery.convert("RGB").save(path)
+        print(f"Gallery: {path} ({os.path.getsize(path) // 1024} KB)")
 
 
 if __name__ == "__main__":

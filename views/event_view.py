@@ -7,6 +7,9 @@ from logic.event_builder import build_event_embed
 logger = logging.getLogger(__name__)
 
 
+FILLER_EMOJI = "\U0001f607"  # 😇 — Engelicon für „Auffüller" (Academy)
+
+
 def _toggle_rsvp(event_data: dict, user_id: int, category: str) -> str:
     """Toggle RSVP für einen User. Gibt die Aktion zurück: 'added', 'removed', 'switched'."""
     categories = ("accepted", "declined", "tentative")
@@ -88,6 +91,70 @@ class DeleteConfirmView(discord.ui.View):
         await interaction.response.edit_message(content="Löschen abgebrochen.", view=None)
 
 
+async def _handle_edit(interaction: discord.Interaction):
+    event_data = get_event(interaction.message.id)
+    if event_data is None:
+        await interaction.response.send_message("Event nicht gefunden.", ephemeral=True)
+        return
+
+    if not _has_manage_permission(interaction, event_data):
+        await interaction.response.send_message(
+            "Nur der Ersteller oder Server-Admins können Events bearbeiten.",
+            ephemeral=True,
+        )
+        return
+
+    host_cog = interaction.client.cogs.get("HostCommand")
+    if not host_cog:
+        await interaction.response.send_message("Event-System nicht verfügbar.", ephemeral=True)
+        return
+
+    from logic.conversation import has_active_session
+    if has_active_session(interaction.user.id):
+        await interaction.response.send_message(
+            "Du hast bereits eine aktive Session. Beende sie zuerst.",
+            ephemeral=True,
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    session = host_cog.create_edit_session(interaction, event_data, interaction.message.id)
+
+    try:
+        dm = await interaction.user.create_dm()
+        await dm.send(f"📝 **Event bearbeiten:** {event_data.get('title', 'Event')}")
+        await host_cog._show_final_review(session, dm, regenerate_title=False)
+        await interaction.followup.send("Schau in deine DMs — dort kannst du das Event bearbeiten.", ephemeral=True)
+    except discord.Forbidden:
+        from logic.conversation import end_session
+        end_session(interaction.user.id)
+        await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
+
+
+async def _handle_delete(interaction: discord.Interaction):
+    event_data = get_event(interaction.message.id)
+    if event_data is None:
+        await interaction.response.send_message("Event nicht gefunden.", ephemeral=True)
+        return
+
+    if not _has_manage_permission(interaction, event_data):
+        await interaction.response.send_message(
+            "Nur der Ersteller oder Server-Admins können Events löschen.",
+            ephemeral=True,
+        )
+        return
+
+    logger.debug("Lösch-Bestätigung angefragt von %s für msg_id=%s", interaction.user, interaction.message.id)
+
+    confirm_view = DeleteConfirmView(interaction.message, event_data)
+    await interaction.response.send_message(
+        f"Event **{event_data.get('title')}** wirklich löschen?",
+        view=confirm_view,
+        ephemeral=True,
+    )
+
+
 class EventView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -118,64 +185,56 @@ class EventView(discord.ui.View):
 
     @discord.ui.button(label="Bearbeiten", style=discord.ButtonStyle.primary, custom_id="event_edit")
     async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
-        event_data = get_event(interaction.message.id)
-        if event_data is None:
-            await interaction.response.send_message("Event nicht gefunden.", ephemeral=True)
-            return
-
-        if not _has_manage_permission(interaction, event_data):
-            await interaction.response.send_message(
-                "Nur der Ersteller oder Server-Admins können Events bearbeiten.",
-                ephemeral=True,
-            )
-            return
-
-        host_cog = interaction.client.cogs.get("HostCommand")
-        if not host_cog:
-            await interaction.response.send_message("Event-System nicht verfügbar.", ephemeral=True)
-            return
-
-        from logic.conversation import has_active_session
-        if has_active_session(interaction.user.id):
-            await interaction.response.send_message(
-                "Du hast bereits eine aktive Session. Beende sie zuerst.",
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        session = host_cog.create_edit_session(interaction, event_data, interaction.message.id)
-
-        try:
-            dm = await interaction.user.create_dm()
-            await dm.send(f"📝 **Event bearbeiten:** {event_data.get('title', 'Event')}")
-            await host_cog._show_final_review(session, dm, regenerate_title=False)
-            await interaction.followup.send("Schau in deine DMs — dort kannst du das Event bearbeiten.", ephemeral=True)
-        except discord.Forbidden:
-            from logic.conversation import end_session
-            end_session(interaction.user.id)
-            await interaction.followup.send("Kann keine DM senden.", ephemeral=True)
+        await _handle_edit(interaction)
 
     @discord.ui.button(label="Löschen", style=discord.ButtonStyle.danger, custom_id="event_delete")
     async def delete(self, interaction: discord.Interaction, button: discord.ui.Button):
-        event_data = get_event(interaction.message.id)
-        if event_data is None:
-            await interaction.response.send_message("Event nicht gefunden.", ephemeral=True)
-            return
+        await _handle_delete(interaction)
 
-        if not _has_manage_permission(interaction, event_data):
-            await interaction.response.send_message(
-                "Nur der Ersteller oder Server-Admins können Events löschen.",
-                ephemeral=True,
-            )
-            return
 
-        logger.debug("Lösch-Bestätigung angefragt von %s für msg_id=%s", interaction.user, interaction.message.id)
+class EventViewAcademy(discord.ui.View):
+    """RSVP-View für Academy-Runden: „Auffüller" (😇) statt „Vorläufig"."""
 
-        confirm_view = DeleteConfirmView(interaction.message, event_data)
-        await interaction.response.send_message(
-            f"Event **{event_data.get('title')}** wirklich löschen?",
-            view=confirm_view,
-            ephemeral=True,
-        )
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(
+        emoji=discord.PartialEmoji(name="accept_rec", id=1484978213863161986),
+        style=discord.ButtonStyle.secondary,
+        custom_id="event_accept_academy",
+    )
+    async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _handle_rsvp(interaction, "accepted")
+
+    @discord.ui.button(
+        emoji=discord.PartialEmoji(name="decline_rec", id=1484978231957524661),
+        style=discord.ButtonStyle.secondary,
+        custom_id="event_decline_academy",
+    )
+    async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _handle_rsvp(interaction, "declined")
+
+    @discord.ui.button(
+        emoji=FILLER_EMOJI,
+        style=discord.ButtonStyle.secondary,
+        custom_id="event_filler",
+    )
+    async def filler(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Wiederverwendung des „tentative"-Slots im Storage — semantisch
+        # bei Academy: Auffüller, sonst: Vorläufig. Spart einen separaten Datentopf.
+        await _handle_rsvp(interaction, "tentative")
+
+    @discord.ui.button(label="Bearbeiten", style=discord.ButtonStyle.primary, custom_id="event_edit_academy")
+    async def edit(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _handle_edit(interaction)
+
+    @discord.ui.button(label="Löschen", style=discord.ButtonStyle.danger, custom_id="event_delete_academy")
+    async def delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await _handle_delete(interaction)
+
+
+def view_for_event(event_data: dict) -> discord.ui.View:
+    """Liefert die passende RSVP-View je nach Event-Typ."""
+    if event_data.get("is_academy"):
+        return EventViewAcademy()
+    return EventView()

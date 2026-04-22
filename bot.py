@@ -27,11 +27,12 @@ async def on_ready():
     print(f"Bot ist online als {bot.user}")
     from config import cleanup_config
     from event_storage import cleanup_old_events
-    from views.event_view import EventView
+    from views.event_view import EventView, EventViewAcademy
 
     cleanup_config()
     cleanup_old_events()
     bot.add_view(EventView())
+    bot.add_view(EventViewAcademy())
 
     await asyncio.sleep(3)
     await restore_auto_tasks()

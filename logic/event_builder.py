@@ -20,6 +20,63 @@ EMOJI_ACCEPTED = "<:accept_rec:1484978213863161986>"
 EMOJI_DECLINED = "<:decline_rec:1484978231957524661>"
 EMOJI_TENTATIVE = "<:tent_rec:1484978258553471066>"
 EMOJI_WAITLIST = "<:warteliste:1484675744389927193>"
+EMOJI_FILLER = "\U0001f607"  # 😇 — Engelicon für „Auffüller" bei Academy-Runden
+
+ACADEMY_MAX_ROUNDS = {
+    "green": 100,
+    "yellow": 200,
+    "red": 300,
+}
+
+
+def build_academy_description(rating: str | None) -> str:
+    """Liefert den festen Academy-Beschreibungstext.
+
+    Die Zeile zur passenden Komplexitätsstufe (rating) wird **fett** markiert.
+    Ohne Rating bleiben alle Zeilen normal.
+    """
+    rounds_lines_raw = [
+        ("green", "💚-Angebote: maximal 100 Runden gespielt"),
+        ("yellow", "🟡-Angebote: maximal 200 Runden gespielt"),
+        ("red", "🟥-Angebote: maximal 300 Runden gespielt"),
+    ]
+    rounds_lines = [
+        f"**{text}**" if key == rating else text
+        for key, text in rounds_lines_raw
+    ]
+
+    max_rounds = ACADEMY_MAX_ROUNDS.get(rating)
+    rounds_suffix = f"(hier {max_rounds})" if max_rounds else "(s. oben)"
+
+    return (
+        "Dies ist ein Angebot der Clocktower Academy!\n"
+        "\n"
+        "Das heißt, hier dreht sich alles rund ums Erlernen des Spiels. "
+        "Hier findet ihr einen geschützten Rahmen, in dem ihr mit anderen "
+        "Spieler:innen das Spiel entdecken könnt, die ebenfalls noch frisch sind.\n"
+        "\n"
+        "**Was ist der Unterschied zu einer regulären Runde?**\n"
+        "\n"
+        "In Academy-Runden nehmen wir besonders Rücksicht auf neue Spieler:innen. "
+        "Unsere Storyteller erklären an passenden Stellen Interaktionen und "
+        "mechanische Zusammenhänge mit etwas mehr Ruhe und ohne Zeitdruck. "
+        "Generell geben unsere Storyteller etwas mehr Zeit. "
+        "Auch ein leichtes „Unter-die-Arme-Greifen\" ist möglich, wenn ihr mal "
+        "ratlos seid und einen Tipp braucht bzgl. Strategie und Taktik.\n"
+        "\n"
+        "**Wer kann sich anmelden?**\n"
+        "\n"
+        "Prinzipiell haben wir eine maximale Anzahl gespielter Runden für jede Komplexitätsstufe:\n"
+        f"{rounds_lines[0]}\n"
+        f"{rounds_lines[1]}\n"
+        f"{rounds_lines[2]}\n"
+        "\n"
+        f"Leute über der Stufe {rounds_suffix} können sich gerne unter "
+        "„Auffüller\" anmelden. Wenn nicht ausreichend Spieler:innen "
+        "angemeldet sind, freuen wir uns immer über „Auffüller\", da sonst "
+        "die Runde teilweise nicht stattfinden kann. In diesem Fall gilt "
+        "aber: Rücksicht (und bisweilen etwas Zurückhaltung) ist geboten!"
+    )
 
 # Character-Rating-Datei
 PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
@@ -251,8 +308,12 @@ def build_event_embed(event_data: dict) -> discord.Embed:
         value=_format_user_list_quoted(declined),
         inline=True,
     )
+    if event_data.get("is_academy"):
+        tentative_label = f"{EMOJI_FILLER} Auffüller ({len(tentative)})"
+    else:
+        tentative_label = f"{EMOJI_TENTATIVE} Vorläufig ({len(tentative)})"
     embed.add_field(
-        name=f"{EMOJI_TENTATIVE} Vorläufig ({len(tentative)})",
+        name=tentative_label,
         value=_format_user_list_quoted(tentative),
         inline=True,
     )

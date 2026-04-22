@@ -50,7 +50,7 @@ from logic.script_cache import (
     lookup_script,
     validate_script_json,
 )
-from logic.event_builder import build_event_embed
+from logic.event_builder import build_academy_description, build_event_embed
 from logic.script_image import generate_script_image
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,14 @@ BASE3_FULL_NAMES = {
     "bad_moon_rising": "Bad Moon Rising",
     "sects_and_violets": "Sects and Violets",
 }
+
+# Academy: Logo wird als Thumbnail eingehängt (lokale Datei → attachment-URL)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))
+ACADEMY_THUMBNAIL_PATH = os.path.join(
+    _PROJECT_ROOT, "images", "embedPictures", "academy_transparent.png"
+)
+ACADEMY_THUMBNAIL_FILENAME = "academy.png"
+ACADEMY_THUMBNAIL_URL = f"attachment://{ACADEMY_THUMBNAIL_FILENAME}"
 
 GERMAN_DAYS = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 
@@ -435,6 +443,10 @@ class SummaryView(discord.ui.View):
         if b3key and not script_url:
             script_url = BASE3_SCRIPT_URLS.get(b3key, "")
 
+        # Academy: eigenes Logo als Thumbnail (überschreibt Base3-Logo)
+        if f.get("is_academy"):
+            thumbnail_url = ACADEMY_THUMBNAIL_URL
+
         event_data = {
             "title": title, "description": f.get("description"),
             "storyteller": f.get("storyteller") or "-",
@@ -452,6 +464,10 @@ class SummaryView(discord.ui.View):
             "creator_avatar_url": self.session.user_avatar_url,
             "label": self.session.label,
             "thumbnail_url": thumbnail_url,
+            "is_academy": bool(f.get("is_academy")),
+            "is_casual": bool(f.get("is_casual")),
+            "is_recorded": bool(f.get("is_recorded")),
+            "is_free_choice": bool(f.get("is_free_choice")),
         }
         if script_content:
             event_data["script_content"] = script_content
@@ -488,6 +504,13 @@ class SummaryView(discord.ui.View):
             except Exception as e:
                 logger.warning("Script-Bild Fehler: %s", e)
 
+        # Academy: Logo-Datei für Thumbnail mit-attached (jeder Post/Edit)
+        thumbnail_file = None
+        if f.get("is_academy") and os.path.exists(ACADEMY_THUMBNAIL_PATH):
+            thumbnail_file = discord.File(
+                ACADEMY_THUMBNAIL_PATH, filename=ACADEMY_THUMBNAIL_FILENAME
+            )
+
         # Edit-Modus: bestehendes Event updaten
         editing_msg_id = getattr(self.session, "editing_message_id", None)
         editing_ch_id = getattr(self.session, "editing_channel_id", None)
@@ -514,9 +537,15 @@ class SummaryView(discord.ui.View):
 
                 # Embed + Bild updaten
                 new_embed = build_event_embed(event_data)
-                kwargs = {"embed": new_embed}
+                from views.event_view import view_for_event
+                kwargs = {"embed": new_embed, "view": view_for_event(event_data)}
+                attachments = []
                 if script_file:
-                    kwargs["attachments"] = [script_file]
+                    attachments.append(script_file)
+                if thumbnail_file:
+                    attachments.append(thumbnail_file)
+                if attachments:
+                    kwargs["attachments"] = attachments
                 await edit_msg.edit(**kwargs)
 
                 # Storage updaten
@@ -530,7 +559,10 @@ class SummaryView(discord.ui.View):
         else:
             # Neues Event erstellen
             try:
-                msg = await event_cog.post_event(event_channel, event_data, script_image=script_file)
+                msg = await event_cog.post_event(
+                    event_channel, event_data,
+                    script_image=script_file, thumbnail_file=thumbnail_file,
+                )
                 await _reply(f"Event erstellt! 🎉\n{msg.jump_url}")
             except Exception as e:
                 logger.error("Fehler: %s", e)
@@ -807,6 +839,13 @@ class HostCommand(commands.Cog):
                     session.fields["title"] = f"{script} mit {st}" + (f" und {co}" if co else "")
                     session.fields["description"] = f"Wir spielen eine Runde {script}!"
                     session._last_reasoning = ""
+
+        # Academy: feste Beschreibung erzwingen (Titel bleibt LLM-/Base3-generiert).
+        # Auch beim Edit ohne Title-Regenerate, damit ein nachträgliches Aktivieren
+        # von „academy" oder ein Wechsel des Komplexitäts-Ratings sofort greift.
+        if session.fields.get("is_academy"):
+            rating = (session.fields.get("complexity_analysis") or {}).get("rating")
+            session.fields["description"] = build_academy_description(rating)
 
         if is_retrigger:
             session._old_title = old_title
