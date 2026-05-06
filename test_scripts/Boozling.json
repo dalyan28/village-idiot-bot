@@ -1,0 +1,90 @@
+{
+  "pk": 8952,
+  "script_id": 173,
+  "name": "Boozling",
+  "version": "9.0.0",
+  "script_type": "Full",
+  "author": "Lau",
+  "content": [
+    {
+      "id": "_meta",
+      "name": "Boozling",
+      "author": "Lau"
+    },
+    {
+      "id": "noble"
+    },
+    {
+      "id": "pixie"
+    },
+    {
+      "id": "highpriestess"
+    },
+    {
+      "id": "balloonist"
+    },
+    {
+      "id": "fortuneteller"
+    },
+    {
+      "id": "oracle"
+    },
+    {
+      "id": "savant"
+    },
+    {
+      "id": "philosopher"
+    },
+    {
+      "id": "huntsman"
+    },
+    {
+      "id": "fisherman"
+    },
+    {
+      "id": "slayer"
+    },
+    {
+      "id": "sage"
+    },
+    {
+      "id": "cannibal"
+    },
+    {
+      "id": "drunk"
+    },
+    {
+      "id": "mutant"
+    },
+    {
+      "id": "damsel"
+    },
+    {
+      "id": "klutz"
+    },
+    {
+      "id": "golem"
+    },
+    {
+      "id": "baron"
+    },
+    {
+      "id": "cerenovus"
+    },
+    {
+      "id": "scarletwoman"
+    },
+    {
+      "id": "marionette"
+    },
+    {
+      "id": "nodashii"
+    },
+    {
+      "id": "fanggu"
+    },
+    {
+      "id": "imp"
+    }
+  ]
+}

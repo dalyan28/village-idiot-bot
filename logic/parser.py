@@ -19,7 +19,7 @@ def embed_char_count(embed: discord.Embed) -> int:
 
 
 def new_embed() -> discord.Embed:
-    return discord.Embed(title="Kommende Events", color=0x5865F2)
+    return discord.Embed(title="Kommende Events", color=0x0083C2)
 
 
 def parse_events(messages: list[discord.Message]) -> list[dict]:

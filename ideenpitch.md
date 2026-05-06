@@ -1,0 +1,27 @@
+Ich spiele mit der Idee, Apollo durch eine Eigenentwicklung abzulösen. Dazu gehören Eventerstellung, Event-Management und das komplette Reminder-System (Threads, Benachrichtigungen vor dem Event). Die Eventerstellung habe ich schon vor einer Weile (aus Neugier) als Prototyp gebaut. Bevor ihr euch alles weitere unten durchlest, schaut euch einfach die Videos hier an. Das erklärt schon sehr viel:
+
+## Videos
+1. Normales rotes Event - https://drive.google.com/file/d/1vN_ALo7tRJI6U16K9ezO15BExMXxU4m9/view?usp=sharing
+2. Academy-Event - https://drive.google.com/file/d/19xiqn5bsiaBqVP1msHzRF1qRLHwuQreb/view?usp=sharing
+3. User lädt eigene JSON mit einem Homebrew hoch - https://drive.google.com/file/d/1u0CkMl6U18_31ztbxDPf6Pg0vU4pocNe/view?usp=sharing
+
+## Was würde unser Bot (anders als Apollo) machen?
+Der Plan wäre, zunächst alles zu replizieren was Apollo kann, und drumrum ein paar Features aufzuhängen die auf unsere Community zugeschnitten sind.
+
+**Event-Erstellung mit natürlicher Sprache.** Statt jedes Feld einzeln durchklicken zu müssen, beschreibt man das Event in einem Satz und der Bot zieht sich die Infos raus. Nur wenn was fehlt, wird gezielt nachgefragt. Das ist deutlich schneller.
+**Klassische Variante bleibt.** Für Leute denen Neuerungen suspekt sind gibt es weiter die Option alle Felder einzeln auszufüllen.
+**Feste Werte für Pflichtfelder.** Erfahrungslevel, Kamera, Co-ST stehen nicht mehr in der Beschreibung sondern sind Teil des Workflows. Man kann keine Werte mehr auslassen oder von den Vorgaben abweichen.
+**Defaults für Community-Standards.** Bei Feldern die fast immer denselben Wert haben (Dauer, Spielerzahl, Kamera-Pflicht, kein Co-ST) setzt der Bot den Default. In der Zusammenfassung kann jeder nochmal anpassen, aber wer nichts ändert bekommt die Standard-Werte ohne jede Einzelfrage.
+**Skript-Bewertung automatisch.** Grün / Gelb / Rot wird aus den Charakteren berechnet, nicht vom ST selbst eingetragen.
+**Titel-Emojis automatisch** je nach Labels wie Casual, Academy, und Komplexitätsrating.
+**Skript-Auswahl über botcscripts.com** mit automatischer Generierung des Skript-Bildes für das Embed. Custom-JSONs lassen sich natürlich auch hochladen.
+**Reminder für den ST.** Vor dem Event bekommt der ST eine Nachricht mit der Teilnehmerliste zum Abhaken und die Skript-JSON als Anhang. Spart das Rauskopieren der Namen in den Editor und die Suche nach dem Skript.
+**Academy mit eigenem Workflow.** Feste Beschreibung, eigene RSVP-Buttons mit Auffüller statt Vorläufig, :angel: als Emoji für die Auffüller-Liste.
+
+Das Projekt wäre auch die Gelegenheit für euch bisherigen Vorgaben an Events ggf. neu zu denken. Zum Beispiel: Sind Neuling, Erfahren und Profi als Level wirklich sinnvoll oder soll das anders strukturiert werden? Wozu ist der Abgelehnt-Button eigentlich da? Und was macht Vorläufig für euch konkret? Nutzt ihr das? Welche Features fehlen euch die euch das Leben leichter machen würden? (Die Anwesenheitsliste und das automatische Verschicken des Skripts finde ich zum Beispiel super.) Gibt es Features die ihr auf gar keinen Fall wollt? Die automatische Beschreibung ist mir selbst ein leichter Dorn im Auge, weil die Gefahr besteht dass in Zukunft nur noch AI-Slop-Beschreibungen existieren die stumpf die Charaktere aufzählen. Gleichzeitig, was ist eigentlich wichtig in so einer Beschreibung? Vielleicht macht es Sinn zu überlegen welche konkreten Angaben reingehören, und die Formulierung daraus dann generieren zu lassen ohne dass es generisch wird. ... Nur um mal ein paar Punkte zu nennen, die man sich hier überlegen könnte.
+
+## Was zu bedenken ist:
+**Bugs und Testphase.** Viele der Features sind technisch anspruchsvoll und haben eine Menge Permutationen was der User alles machen kann. Das produziert Bugs.  Speziell die Eventerstellung mit natürlicher Sprache braucht eine ordentliche Testphase bis sie einwandfrei läuft. Dafür müssten wir klar kommunizieren wie man mir Bugs meldet damit ich sie schnell fixen kann. Eine Option wäre, das Feature mit natürlicher Sprache und die Skript-Suche aus der Datenbank erstmal auf einen kleinen Kreis Testuser zu beschränken, und alle anderen erstellen ihre Events über die klassische Variante. Die ist ziemlich stabil und wird kaum Bugs produzieren.
+**LLM-Kosten.** Falls ihr euch fragt was in den Videos die ganze Zeit mit Tokens in / out und Kosten angezeigt wird, das sind die Kosten (stets angeben in Gesamtkosten für die Konvo). Das ist auch nur für mich für Testzwecke sichtbar und wird später natürlich nicht angezeigt. Aktuell sind die Kosten sehr überschaubar, zwischen 0,05 und 2 Cent pro erstelltes Event (und 2 Cent auch nur wenn sich der User richtig blöd anstellt xd). Bei unserem Event-Volumen ist das für mich gerade keine Summe über die man reden muss. Ob das dauerhaft so bleibt, weiß keiner.
+
+Allerdings können wir auch jederzeit zur  klassischen Eventerstellung ohne natürliche Sprache zurück und ebenfalls können wir Apollo einfach weiter parallel nutzen. Das Ganze ist komplett kompatibel, beides kann gleichzeitig auf dem Server laufen ohne dass irgendwas stört. Es kommt eigentlich nur zusätzlich was auf das bereits Bestehende drauf, was temporär für Unruhe Sorgen könnte (weil Neuerung und weil Bugs).

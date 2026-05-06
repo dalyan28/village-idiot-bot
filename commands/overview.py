@@ -12,6 +12,9 @@ from logic.parser import parse_events, build_overviews
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
+EASTER_EGG_UNTIL = datetime(2026, 5, 20, tzinfo=timezone.utc)
+EASTER_EGG_TEXT = "\n-# ||Ich muss leiser mit meinen Infos werden... sonst denkt das Dorf noch, ich wäre der Town Crier.||"
+
 DEFAULT_SMART_SCHEDULE: list[list[int]] = [
     [5, 0], [8, 0], [12, 0], [16, 0], [18, 0], [19, 0], [19, 30], [20, 0], [22, 0]
 ]
@@ -20,10 +23,12 @@ DEFAULT_SMART_SCHEDULE: list[list[int]] = [
 class Overview(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.auto_tasks: dict[int, tasks.Loop | asyncio.Task] = {}
+        self.auto_tasks: dict[int, tasks.Loop | asyncio.Task | str] = {}
         self.smart_dynamic_times: dict[int, set[tuple[int, int]]] = {}
         self.last_smart_run: dict[int, datetime] = {}
         self._fetch_locks: dict[int, asyncio.Lock] = {}
+        self._edit_debounce_tasks: dict[int, asyncio.Task] = {}
+        self._edit_debounce_start: dict[int, float] = {}
 
     async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
         lock = self._fetch_locks.setdefault(guild_id, asyncio.Lock())
@@ -41,9 +46,10 @@ class Overview(commands.Cog):
         self._update_smart_dynamic_times(guild_id, events, cfg.get("smart_dynamic", True))
         embeds = build_overviews(events)
 
-        # Zuletzt-aktualisiert-Field ans letzte Embed anhängen
-        now_ts = int(datetime.now(tz=timezone.utc).timestamp())
-        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*", inline=False)
+        now_utc = datetime.now(tz=timezone.utc)
+        now_ts = int(now_utc.timestamp())
+        egg = EASTER_EGG_TEXT if now_utc < EASTER_EGG_UNTIL else ""
+        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*{egg}", inline=False)
 
         # debug
         for embed in embeds:
@@ -72,6 +78,81 @@ class Overview(commands.Cog):
 
         cfg["last_overview_message_ids"] = new_ids
         save_guild_config(guild_id, cfg)
+
+    async def edit_overview(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
+        lock = self._fetch_locks.setdefault(guild_id, asyncio.Lock())
+        if lock.locked():
+            print(f"[edit_overview] Guild {guild_id}: Update bereits aktiv, überspringe")
+            return
+        async with lock:
+            await self._edit_overview_locked(guild_id, event_channel, target_channel)
+
+    async def _edit_overview_locked(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
+        messages = [msg async for msg in event_channel.history(limit=100)]
+        cfg = get_guild_config(guild_id)
+
+        events = parse_events(messages)
+        embeds = build_overviews(events)
+
+        now_utc = datetime.now(tz=timezone.utc)
+        now_ts = int(now_utc.timestamp())
+        egg = EASTER_EGG_TEXT if now_utc < EASTER_EGG_UNTIL else ""
+        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*{egg}", inline=False)
+
+        old_ids = cfg.get("last_overview_message_ids", [])
+        new_count = len(embeds)
+        old_count = len(old_ids)
+
+        new_ids = []
+
+        for i in range(min(old_count, new_count)):
+            try:
+                msg = await target_channel.fetch_message(old_ids[i])
+                await msg.edit(embed=embeds[i])
+                new_ids.append(msg.id)
+            except discord.NotFound:
+                new_msg = await target_channel.send(embed=embeds[i])
+                new_ids.append(new_msg.id)
+            except discord.HTTPException as e:
+                print(f"[edit_overview] Fehler beim Editieren {old_ids[i]}: {e}")
+                new_msg = await target_channel.send(embed=embeds[i])
+                new_ids.append(new_msg.id)
+
+        for i in range(old_count, new_count):
+            new_msg = await target_channel.send(embed=embeds[i])
+            new_ids.append(new_msg.id)
+
+        for i in range(new_count, old_count):
+            try:
+                old_msg = await target_channel.fetch_message(old_ids[i])
+                await old_msg.delete()
+            except discord.NotFound:
+                pass
+            except discord.HTTPException as e:
+                print(f"[edit_overview] Fehler beim Löschen {old_ids[i]}: {e}")
+
+        cfg["last_overview_message_ids"] = new_ids
+        save_guild_config(guild_id, cfg)
+
+    async def _schedule_edit(self, guild_id: int, event_channel: discord.TextChannel, overview_channel: discord.TextChannel):
+        now = asyncio.get_event_loop().time()
+
+        if guild_id not in self._edit_debounce_start:
+            self._edit_debounce_start[guild_id] = now
+
+        old = self._edit_debounce_tasks.get(guild_id)
+        if old and not old.done():
+            old.cancel()
+
+        elapsed = now - self._edit_debounce_start[guild_id]
+        wait = max(0, min(5, 15 - elapsed))
+
+        async def _debounced():
+            await asyncio.sleep(wait)
+            self._edit_debounce_start.pop(guild_id, None)
+            await self.edit_overview(guild_id, event_channel, overview_channel)
+
+        self._edit_debounce_tasks[guild_id] = asyncio.create_task(_debounced())
 
     def _update_smart_dynamic_times(self, guild_id: int, events: list[dict], enabled: bool) -> None:
         if not enabled:
@@ -197,8 +278,10 @@ class Overview(commands.Cog):
 
         await self.fetch_and_post(message.guild.id, message.channel, overview_channel)
 
-        if cfg.get("auto_interval_hours") == -1:
-            # Smart Mode: alten Sleep canceln, Zeitplan mit neuen Events neu berechnen
+        frequenz = cfg.get("auto_interval_hours")
+        if frequenz == -2:
+            pass
+        elif frequenz == -1:
             old = self.auto_tasks.get(message.guild.id)
             if isinstance(old, asyncio.Task) and not old.done():
                 old.cancel()
@@ -209,7 +292,6 @@ class Overview(commands.Cog):
             )
             self.auto_tasks[message.guild.id] = new_task
         else:
-            # Intervall-Modus: Timer neu starten
             existing = self.auto_tasks.get(message.guild.id)
             if isinstance(existing, tasks.Loop) and existing.is_running():
                 existing.restart()
@@ -233,10 +315,14 @@ class Overview(commands.Cog):
         if not event_channel or not overview_channel:
             return
 
-        print(f"[Delete] Nachricht in Event-Channel gelöscht, aktualisiere Übersicht...")
-        await self.fetch_and_post(payload.guild_id, event_channel, overview_channel)
+        frequenz = cfg.get("auto_interval_hours")
 
-        if cfg.get("auto_interval_hours") == -1:
+        if frequenz == -2:
+            print(f"[Delete] Nachricht in Event-Channel gelöscht, aktualisiere Übersicht (Listen Mode)...")
+            await self._schedule_edit(payload.guild_id, event_channel, overview_channel)
+        elif frequenz == -1:
+            print(f"[Delete] Nachricht in Event-Channel gelöscht, aktualisiere Übersicht...")
+            await self.fetch_and_post(payload.guild_id, event_channel, overview_channel)
             old = self.auto_tasks.get(payload.guild_id)
             if isinstance(old, asyncio.Task) and not old.done():
                 old.cancel()
@@ -246,6 +332,59 @@ class Overview(commands.Cog):
             )
             self.auto_tasks[payload.guild_id] = new_task
         else:
+            print(f"[Delete] Nachricht in Event-Channel gelöscht, aktualisiere Übersicht...")
+            await self.fetch_and_post(payload.guild_id, event_channel, overview_channel)
+            existing = self.auto_tasks.get(payload.guild_id)
+            if isinstance(existing, tasks.Loop) and existing.is_running():
+                existing.restart()
+
+    @commands.Cog.listener()
+    async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent):
+        if not payload.guild_id:
+            return
+
+        cfg = get_guild_config(payload.guild_id)
+
+        if payload.channel_id != cfg.get("event_channel_id"):
+            return
+        if payload.guild_id not in self.auto_tasks:
+            return
+
+        embeds_data = payload.data.get("embeds", [])
+        if not embeds_data:
+            return
+
+        fields = embeds_data[0].get("fields", [])
+        if not fields:
+            return
+        if not any(f.get("name") in ("Time", "Termin") for f in fields):
+            return
+
+        event_channel = self.bot.get_channel(payload.channel_id)
+        overview_id = cfg.get("overview_channel_id")
+        overview_channel = self.bot.get_channel(overview_id) if overview_id else None
+
+        if not event_channel or not overview_channel:
+            return
+
+        frequenz = cfg.get("auto_interval_hours")
+
+        if frequenz == -2:
+            print(f"[Edit] Event in Event-Channel editiert, aktualisiere Übersicht (Listen Mode)...")
+            await self._schedule_edit(payload.guild_id, event_channel, overview_channel)
+        elif frequenz == -1:
+            print(f"[Edit] Event in Event-Channel editiert, aktualisiere Übersicht...")
+            await self.fetch_and_post(payload.guild_id, event_channel, overview_channel)
+            old = self.auto_tasks.get(payload.guild_id)
+            if isinstance(old, asyncio.Task) and not old.done():
+                old.cancel()
+            self.last_smart_run[payload.guild_id] = datetime.now(tz=timezone.utc)
+            new_task = asyncio.create_task(
+                self._run_smart_scheduler(payload.guild_id, event_channel, overview_channel)
+            )
+            self.auto_tasks[payload.guild_id] = new_task
+        else:
+            await self.fetch_and_post(payload.guild_id, event_channel, overview_channel)
             existing = self.auto_tasks.get(payload.guild_id)
             if isinstance(existing, tasks.Loop) and existing.is_running():
                 existing.restart()
@@ -272,13 +411,14 @@ class Overview(commands.Cog):
 
     @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
     @app_commands.choices(frequenz=[
-        app_commands.Choice(name="Smart (automatisch)", value=-1),
-        app_commands.Choice(name="1 Stunde",          value=1),
-        app_commands.Choice(name="2 Stunden",         value=2),
-        app_commands.Choice(name="4 Stunden",         value=4),
-        app_commands.Choice(name="8 Stunden",         value=8),
-        app_commands.Choice(name="12 Stunden",        value=12),
-        app_commands.Choice(name="24 Stunden",        value=24),
+        app_commands.Choice(name="Listen (nur bei Events)", value=-2),
+        app_commands.Choice(name="Smart (automatisch)",     value=-1),
+        app_commands.Choice(name="1 Stunde",                value=1),
+        app_commands.Choice(name="2 Stunden",               value=2),
+        app_commands.Choice(name="4 Stunden",               value=4),
+        app_commands.Choice(name="8 Stunden",               value=8),
+        app_commands.Choice(name="12 Stunden",              value=12),
+        app_commands.Choice(name="24 Stunden",              value=24),
     ])
     async def automate_overview(
         self,
@@ -312,12 +452,26 @@ class Overview(commands.Cog):
             existing.cancel()
         elif isinstance(existing, tasks.Loop) and existing.is_running():
             existing.stop()
+        debounce = self._edit_debounce_tasks.get(guild_id)
+        if debounce and not debounce.done():
+            debounce.cancel()
 
         cfg["auto_interval_hours"] = frequenz
         cfg["on_new_event"] = on_new_event
         cfg["auto_active"] = True
 
-        if frequenz == -1:
+        if frequenz == -2:
+            save_guild_config(guild_id, cfg)
+            self.auto_tasks[guild_id] = "listen_mode"
+            await interaction.response.send_message(
+                f"Automatische Übersicht: Listen Mode.\n"
+                f"Events aus: {resolved_event.mention} -> Übersicht in: {resolved_overview.mention}\n"
+                f"Aktualisierung bei neuem Event: {'aktiv' if on_new_event else 'inaktiv'}",
+                ephemeral=True
+            )
+            await self.fetch_and_post(guild_id, resolved_event, resolved_overview)
+            return
+        elif frequenz == -1:
             cfg["smart_dynamic"] = dynamic
             save_guild_config(guild_id, cfg)
             task = asyncio.create_task(
@@ -348,18 +502,24 @@ class Overview(commands.Cog):
         existing = self.auto_tasks.get(guild_id)
 
         is_running = (
-            (isinstance(existing, asyncio.Task) and not existing.done())
+            existing == "listen_mode"
+            or (isinstance(existing, asyncio.Task) and not existing.done())
             or (isinstance(existing, tasks.Loop) and existing.is_running())
         )
 
         if is_running:
             if isinstance(existing, asyncio.Task):
                 existing.cancel()
-            else:
+            elif isinstance(existing, tasks.Loop):
                 existing.stop()
             del self.auto_tasks[guild_id]
             self.smart_dynamic_times.pop(guild_id, None)
             self.last_smart_run.pop(guild_id, None)
+
+            debounce = self._edit_debounce_tasks.pop(guild_id, None)
+            if debounce and not debounce.done():
+                debounce.cancel()
+            self._edit_debounce_start.pop(guild_id, None)
 
             cfg = get_guild_config(guild_id)
             cfg["auto_active"] = False

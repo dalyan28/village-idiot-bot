@@ -51,7 +51,11 @@ async def restore_auto_tasks():
             print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
             continue
 
-        if frequenz == -1:
+        if frequenz == -2:
+            overview_cog.auto_tasks[guild_id] = "listen_mode"
+            await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
+            label = "Listen Mode"
+        elif frequenz == -1:
             task = asyncio.create_task(
                 overview_cog._run_smart_scheduler(guild_id, event_channel, overview_channel)
             )

@@ -1,0 +1,97 @@
+{
+  "pk": 18764,
+  "script_id": 10799,
+  "name": "Kill - Suffer - Return",
+  "version": "1.0.0",
+  "script_type": "Full",
+  "author": "Robby",
+  "content": [
+    {
+      "id": "_meta",
+      "name": "Kill - Suffer - Return",
+      "author": "Robby",
+      "bootlegger": [
+        "The Shabaloth can't pick dead players. If the night ends with 2 alive players left but 2 died in the night due to the Shabaloth, one of them might get regurgitated and their death is not announced.",
+        "If the Shabaloth kills themselves with a ober and healthy Mastermind in play, the Mastermind ability will activate. If nobody is executed, the Shabaloth will be regurgitated and the Mastermind turns into a not-in-play Minion."
+      ]
+    },
+    {
+      "id": "king"
+    },
+    {
+      "id": "innkeeper"
+    },
+    {
+      "id": "professor"
+    },
+    {
+      "id": "soldier"
+    },
+    {
+      "id": "amnesiac"
+    },
+    {
+      "id": "farmer"
+    },
+    {
+      "id": "ravenkeeper"
+    },
+    {
+      "id": "sage"
+    },
+    {
+      "id": "choirboy"
+    },
+    {
+      "id": "banshee"
+    },
+    {
+      "id": "tealady"
+    },
+    {
+      "id": "fool"
+    },
+    {
+      "id": "poppygrower"
+    },
+    {
+      "id": "butler"
+    },
+    {
+      "id": "tinker"
+    },
+    {
+      "id": "klutz"
+    },
+    {
+      "id": "saint"
+    },
+    {
+      "id": "damsel"
+    },
+    {
+      "id": "spy"
+    },
+    {
+      "id": "wraith"
+    },
+    {
+      "id": "eviltwin"
+    },
+    {
+      "id": "mastermind"
+    },
+    {
+      "id": "organgrinder"
+    },
+    {
+      "id": "shabaloth"
+    },
+    {
+      "id": "leviathan"
+    },
+    {
+      "id": "bootlegger"
+    }
+  ]
+}

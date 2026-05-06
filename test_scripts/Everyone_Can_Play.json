@@ -1,0 +1,87 @@
+{
+  "pk": 6670,
+  "script_id": 1945,
+  "name": "Everyone Can Play",
+  "version": "1.0.2",
+  "script_type": "Full",
+  "author": "Ben Burns",
+  "content": [
+    {
+      "id": "_meta",
+      "name": "Everyone Can Play",
+      "author": "Ben Burns"
+    },
+    {
+      "id": "librarian"
+    },
+    {
+      "id": "clockmaker"
+    },
+    {
+      "id": "grandmother"
+    },
+    {
+      "id": "fortuneteller"
+    },
+    {
+      "id": "empath"
+    },
+    {
+      "id": "monk"
+    },
+    {
+      "id": "undertaker"
+    },
+    {
+      "id": "gambler"
+    },
+    {
+      "id": "artist"
+    },
+    {
+      "id": "slayer"
+    },
+    {
+      "id": "fool"
+    },
+    {
+      "id": "ravenkeeper"
+    },
+    {
+      "id": "mayor"
+    },
+    {
+      "id": "drunk"
+    },
+    {
+      "id": "recluse"
+    },
+    {
+      "id": "saint"
+    },
+    {
+      "id": "moonchild"
+    },
+    {
+      "id": "baron"
+    },
+    {
+      "id": "poisoner"
+    },
+    {
+      "id": "assassin"
+    },
+    {
+      "id": "devilsadvocate"
+    },
+    {
+      "id": "spy"
+    },
+    {
+      "id": "scarletwoman"
+    },
+    {
+      "id": "imp"
+    }
+  ]
+}

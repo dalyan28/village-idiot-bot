@@ -1,0 +1,37 @@
+[
+  {
+    "id": "_meta",
+    "author": "Elbar",
+    "name": "To tell the truth",
+    "bootlegger": [
+      "Players choose which Storyteller to obtain their information from.",
+      "Drunk or poisoned Townsfolk players learn arbitrary information. ",
+      "The Mathematician learns how many Townsfilk players picked the lying Storyteller in addition to how many players abilities worked abnormaly."
+    ]
+  },
+  "chef",
+  "noble",
+  "investigator",
+  "mathematician",
+  "flowergirl",
+  "towncrier",
+  "monk",
+  "savant",
+  "alsaahir",
+  "cannibal",
+  "farmer",
+  "virgin",
+  "recluse",
+  "hatter",
+  "mutant",
+  "puzzlemaster",
+  "harpy",
+  "cerenovus",
+  "wraith",
+  "scarletwoman",
+  "pukka",
+  "imp",
+  "vigormortis",
+  "fanggu",
+  "bootlegger"
+]
