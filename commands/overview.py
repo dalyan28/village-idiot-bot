@@ -12,9 +12,6 @@ from logic.parser import parse_events, build_overviews
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 
-EASTER_EGG_UNTIL = datetime(2026, 5, 20, tzinfo=timezone.utc)
-EASTER_EGG_TEXT = "\n-# ||Ich muss leiser mit meinen Infos werden... sonst denkt das Dorf noch, ich wäre der Town Crier.||"
-
 DEFAULT_SMART_SCHEDULE: list[list[int]] = [
     [5, 0], [8, 0], [12, 0], [16, 0], [18, 0], [19, 0], [19, 30], [20, 0], [22, 0]
 ]
@@ -46,10 +43,8 @@ class Overview(commands.Cog):
         self._update_smart_dynamic_times(guild_id, events, cfg.get("smart_dynamic", True))
         embeds = build_overviews(events)
 
-        now_utc = datetime.now(tz=timezone.utc)
-        now_ts = int(now_utc.timestamp())
-        egg = EASTER_EGG_TEXT if now_utc < EASTER_EGG_UNTIL else ""
-        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*{egg}", inline=False)
+        now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*", inline=False)
 
         # debug
         for embed in embeds:
@@ -94,10 +89,8 @@ class Overview(commands.Cog):
         events = parse_events(messages)
         embeds = build_overviews(events)
 
-        now_utc = datetime.now(tz=timezone.utc)
-        now_ts = int(now_utc.timestamp())
-        egg = EASTER_EGG_TEXT if now_utc < EASTER_EGG_UNTIL else ""
-        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*{egg}", inline=False)
+        now_ts = int(datetime.now(tz=timezone.utc).timestamp())
+        embeds[-1].add_field(name="", value=f"-# *Zuletzt aktualisiert <t:{now_ts}:R>*", inline=False)
 
         old_ids = cfg.get("last_overview_message_ids", [])
         new_count = len(embeds)
