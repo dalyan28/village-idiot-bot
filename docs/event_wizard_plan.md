@@ -359,7 +359,7 @@ Railway-Projekt, geht es auch über das private Netzwerk).
    `event-creation` übernehmen. Server-Lock (`ALLOWED_GUILD_IDS`, Guild-Sync, `interaction_check`, `on_guild_join`).
    Tests ohne Discord. ✅ (19.10.2026, siehe „Stand Phase 1“)
 2. **Rollen und Modal**: `/set_event_roles`, `/see_event_roles`, `/set_academy_access`, Rechteprüfung in `/botc`, Modal
-   und Start des Wizards.
+   und Start des Wizards. ✅ (19.10.2026, siehe „Stand Phase 2“)
 3. **Wizard** Schritte 1–6, Veröffentlichen, Bearbeiten über den Button am Event, Entwürfe, `events/permissions.py`.
    Reminder neu auf der Datenbank, mit `/set_reminders`, `/see_reminders` und Anpassung je Event.
 4. **Einschätzung** über den ScriptRater, Fallback manuell.
@@ -392,6 +392,27 @@ Gebaut:
 Noch nicht verdrahtet (Phase 2/3): Der Store wird in `bot.py` noch nicht erzeugt, `/botc` gibt es noch nicht.
 Für Phase 3 merken: Die Charakter-Icons lädt `update_characters_from_tpi()` aufs Volume; in `event-creation` hing das an
 einem Command in `commands/settings.py`, der noch übernommen werden muss.
+
+## Stand Phase 2 (19.10.2026)
+
+Gebaut:
+- `commands/event_settings.py`: `/set_event_roles` (Storyteller- und Event-Team-Rolle, `entfernen`),
+  `/set_academy_access` (Rollen und Mitglieder hinzufügen/entfernen), `/see_event_roles`. Nutzen dürfen sie Event-Team
+  und Admins; **die Event-Team-Rolle selbst ändern nur Admins** (sonst könnte das Team die Rolle beliebig umhängen).
+- `commands/botc.py`: `/botc` prüft Storyteller-Recht und Event-Channel, bietet bei offenem Entwurf „Weitermachen“ oder
+  „Neu beginnen“ an und öffnet sonst das Modal.
+- `discord_ui/botc_modal.py`: Modal mit fünf Feldern; die Academy-Checkbox sehen nur Berechtigte. Bei einem
+  Eingabefehler kommt die Meldung mit Button „Nochmal“, der das Modal mit den alten Eingaben öffnet. Nach dem Absenden
+  zeigt eine ephemere Antwort den erkannten Termin, der Wizard kommt per DM. Sind DMs zu, bleibt der Entwurf gespeichert.
+- `discord_ui/wizard.py`: Gerüst des DM-Wizards. Buttons sind `DynamicItem`s (`wiz:<draft_id>:<aktion>[:<arg>]`) und
+  funktionieren nach einem Neustart weiter; neue Schritte registrieren Aktionen mit `@action`. Bisher: Zusammenfassung
+  und „Abbrechen“, die Schritte 1–6 folgen in Phase 3.
+- `events/intake.py`: Modal-Eingaben → EventData (testbar ohne Discord).
+- Pro User und Server gibt es höchstens einen Entwurf für ein neues Event; ein neuer ersetzt den alten.
+- `bot.py` erzeugt den Store (`bot.store`) und registriert die Wizard-Buttons.
+- Tests: `tests/test_intake.py`, `tests/test_discord_wiring.py` (Cogs laden, Modal bauen, custom_id), insgesamt 189 grün.
+
+Nicht getestet: ein echter Durchlauf in Discord. Dafür braucht es den Bot mit `ALLOWED_GUILD_IDS` auf einem Test-Server.
 
 ## Offene Fragen
 

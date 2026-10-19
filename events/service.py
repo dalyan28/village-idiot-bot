@@ -68,7 +68,10 @@ def _require(actor: Actor, action: str, access: AccessSettings, creator_id: int 
 
 def start_draft(store: Store, guild_id: int, actor: Actor, user_name: str, data: EventData,
                 now: datetime) -> Draft:
-    """Neuer Entwurf aus den Modal-Daten. Storyteller ist per Default der User selbst."""
+    """Neuer Entwurf aus den Modal-Daten. Storyteller ist per Default der User selbst.
+
+    Ein älterer Entwurf für ein neues Event wird dabei ersetzt.
+    """
     access = get_access(store, guild_id)
     _require(actor, permissions.CREATE, access)
     if data.is_academy:
@@ -79,6 +82,10 @@ def start_draft(store: Store, guild_id: int, actor: Actor, user_name: str, data:
     errors = validate(data, now)
     if errors:
         raise ServiceError(" ".join(errors))
+    # Pro User und Server gibt es höchstens einen Entwurf für ein neues Event
+    for old in store.list_drafts(actor.user_id, guild_id):
+        if old.event_id is None:
+            store.delete_draft(old.id)
     return store.create_draft(guild_id, actor.user_id, data, STEP_SCRIPT, int(now.timestamp()))
 
 

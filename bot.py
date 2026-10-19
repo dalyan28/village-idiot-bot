@@ -146,9 +146,16 @@ async def restore_auto_tasks():
 
 
 async def main():
+    from discord_ui.wizard import WizardButton
+    from events.store import Store
+
+    bot.store = Store()  # SQLite: Events, Entwürfe, Anmeldungen, Server-Einstellungen
+    bot.add_dynamic_items(WizardButton)  # Wizard-Buttons überleben Neustarts
     async with bot:
         await bot.load_extension("commands.settings")
         await bot.load_extension("commands.overview")
+        await bot.load_extension("commands.event_settings")
+        await bot.load_extension("commands.botc")
         if os.getenv("ENV") == "dev":
             await bot.load_extension("commands.test_commands")
             print("Dev-Modus: Test-Commands geladen")

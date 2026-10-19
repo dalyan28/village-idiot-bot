@@ -89,6 +89,12 @@ class TestDrafts:
         assert service.open_draft(store, GUILD, st.user_id, NOW + timedelta(hours=25)) is None
         assert service.open_draft(store, GUILD, other_st.user_id, NOW) is None
 
+    def test_new_draft_replaces_old_one(self, store):
+        old = service.start_draft(store, GUILD, st, "Dalyan", modal_data(), NOW)
+        new = service.start_draft(store, GUILD, st, "Dalyan", modal_data(max_players=5), NOW)
+        assert store.get_draft(old.id) is None
+        assert [d.id for d in store.list_drafts(st.user_id)] == [new.id]
+
     def test_only_owner_updates(self, store):
         draft = service.start_draft(store, GUILD, st, "Dalyan", modal_data(), NOW)
         with pytest.raises(PermissionDenied):
