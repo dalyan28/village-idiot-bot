@@ -15,7 +15,7 @@ def data(**kw) -> EventData:
         storyteller=Person("Dalyan", 1),
         script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="Boozling", author="Lau", version="9.0.0",
                          botcscripts_id="173", characters=["noble", "pixie", "imp", "fanggu", "djinn", "bootlegger"]),
-        title="Boozling mit Dalyan",
+        description="Wir spielen Boozling.",
         rating="red",
     )
     base.update(kw)

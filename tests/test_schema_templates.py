@@ -20,8 +20,8 @@ from events.schema import (
 )
 from events.templates import (
     academy_description,
-    default_description,
-    default_title,
+    base_title,
+    full_description,
     full_title,
     title_prefix,
 )
@@ -35,7 +35,7 @@ def make(**kw) -> EventData:
         storyteller=Person("Dalyan", 1),
         script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="Boozling", author="Lau", version="9.0.0",
                          botcscripts_id="173", characters=["noble", "imp"]),
-        title="Boozling mit Dalyan",
+        description="Wir spielen Boozling.",
     )
     base.update(kw)
     return EventData(**base)
@@ -63,7 +63,7 @@ class TestSerialization:
     def test_unknown_keys_are_ignored(self):
         d = make().to_dict()
         d["old_field"] = 1
-        assert EventData.from_dict(d).title == "Boozling mit Dalyan"
+        assert EventData.from_dict(d).description == "Wir spielen Boozling."
 
 
 class TestValidate:
@@ -96,22 +96,22 @@ class TestValidate:
 
     def test_missing_for_publish(self):
         assert missing_for_publish(make()) == []
-        assert missing_for_publish(EventData()) == ["Termin", "Skript", "Storyteller", "Titel"]
+        assert missing_for_publish(EventData()) == ["Termin", "Skript", "Storyteller", "Beschreibung"]
+        assert "Beschreibung" not in missing_for_publish(EventData(is_academy=True))
 
 
 class TestTemplates:
     def test_title_with_co_st(self):
         d = make(co_storyteller=Person("Rosanna"))
-        assert default_title(d) == "Boozling mit Dalyan und Rosanna"
+        assert base_title(d) == "Boozling mit Dalyan und Rosanna"
 
     def test_title_base_script_full_name(self):
         d = make(script=ScriptRef(kind=SCRIPT_BASE, name="tb", base_key="trouble_brewing"))
-        assert default_title(d) == "Trouble Brewing mit Dalyan"
+        assert base_title(d) == "Trouble Brewing mit Dalyan"
 
     def test_free_choice(self):
         d = make(script=ScriptRef(kind=SCRIPT_FREE))
-        assert default_title(d) == "Freie Skriptwahl mit Dalyan"
-        assert "Freie Skriptwahl" in default_description(d)
+        assert base_title(d) == "Freie Skriptwahl mit Dalyan"
         assert title_prefix(d) == "💚/🟡/🟥"
 
     def test_prefix_order(self):
@@ -131,9 +131,16 @@ class TestTemplates:
         assert "(hier 200)" in text
         assert "**💚" not in text
 
-    def test_academy_uses_fixed_description(self):
+    def test_academy_appends_fixed_text(self):
         d = make(is_academy=True, rating="green")
-        assert default_description(d) == academy_description("green")
+        assert full_description(d) == "Wir spielen Boozling.\n\n" + academy_description("green")
+        assert full_description(make(is_academy=True, description="")) == academy_description(None)
+
+    def test_description_without_academy_is_own_text(self):
+        assert full_description(make(description="  Hallo  ")) == "Hallo"
+
+    def test_long_description_rejected(self):
+        assert validate(make(description="x" * 1001), NOW)
 
     def test_camera_off_is_valid(self):
         assert validate(make(camera=CAMERA_OFF), NOW) == []

@@ -112,9 +112,8 @@ class BotcModal(discord.ui.Modal):
 
 async def deliver_wizard(interaction: discord.Interaction, draft, intro: str | None = None):
     """Wizard per DM schicken. Bei geschlossenen DMs bleibt der Entwurf erhalten."""
-    guild_name = interaction.guild.name if interaction.guild else None
     try:
-        await wizard.send_wizard(interaction.user, draft, guild_name, intro)
+        await wizard.send_wizard(interaction.client, interaction.user, draft, intro)
     except discord.Forbidden:
         await interaction.followup.send(
             "Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "

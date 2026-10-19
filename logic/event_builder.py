@@ -26,7 +26,7 @@ from events.schema import (
     Person,
 )
 from events.service import RsvpLists
-from events.templates import BASE3_SCRIPT_URLS, full_title
+from events.templates import BASE3_SCRIPT_URLS, full_description, full_title
 from logic.script_cache import STATIC_DIR, load_characters
 
 logger = logging.getLogger(__name__)
@@ -189,8 +189,9 @@ def build_event_embed(
     co = _name(data.co_storyteller, name_for) if data.co_storyteller else "Nicht möglich"
     embed.add_field(name="Co-Storytelling", value=co, inline=True)
 
-    if data.description:
-        for field_name, value, inline in _split_field("Beschreibung", data.description):
+    description = full_description(data)
+    if description:
+        for field_name, value, inline in _split_field("Beschreibung", description):
             embed.add_field(name=field_name, value=value, inline=inline)
 
     embed.add_field(name="Skript", value=_script_value(data), inline=True)

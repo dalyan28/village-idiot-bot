@@ -72,14 +72,8 @@ def title_prefix(data: EventData) -> str:
     return " ".join(parts)
 
 
-def full_title(data: EventData) -> str:
-    """Titel, wie er im Event-Post steht (mit Emoji-Präfix)."""
-    prefix = title_prefix(data)
-    return f"{prefix} {data.title}" if prefix else data.title
-
-
-def default_title(data: EventData) -> str:
-    """„{Skript} mit {ST}“ bzw. „… mit {ST} und {Co-ST}“."""
+def base_title(data: EventData) -> str:
+    """„{Skript} mit {ST}“ bzw. „… mit {ST} und {Co-ST}“ (ohne Symbole)."""
     script = data.script.display_name if data.script else "BotC"
     if data.script and data.script.kind == SCRIPT_BASE:
         script = BASE3_FULL_NAMES.get(data.script.base_key, script)
@@ -91,18 +85,19 @@ def default_title(data: EventData) -> str:
     return title
 
 
-def default_description(data: EventData) -> str:
-    """Beschreibung ohne KI. Academy hat einen festen Text."""
+def full_title(data: EventData) -> str:
+    """Titel des Events: Symbole, dann „{Skript} mit {ST}“. Wird immer gebaut, nie eingegeben."""
+    prefix = title_prefix(data)
+    title = base_title(data)
+    return f"{prefix} {title}" if prefix else title
+
+
+def full_description(data: EventData) -> str:
+    """Eigener Text des Erstellers; bei Academy folgt der feste Academy-Text."""
+    parts = [data.description.strip()] if data.description.strip() else []
     if data.is_academy:
-        return academy_description(data.rating)
-    if data.script is None:
-        return ""
-    if data.script.kind == SCRIPT_FREE:
-        return "Freie Skriptwahl: Welches Skript wir spielen, entscheiden wir gemeinsam. Meldet euch an!"
-    if data.script.kind == SCRIPT_BASE:
-        name = BASE3_FULL_NAMES.get(data.script.base_key, data.script.name)
-        return f"Wir spielen klassisches {name} 😌 Meldet euch an!"
-    return f"Wir spielen {data.script.name}. Meldet euch an!"
+        parts.append(academy_description(data.rating))
+    return "\n\n".join(parts)
 
 
 def academy_description(rating: str | None) -> str:

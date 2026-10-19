@@ -146,11 +146,13 @@ async def restore_auto_tasks():
 
 
 async def main():
-    from discord_ui.wizard import WizardButton
+    from discord_ui.event_post import EventButton
+    from discord_ui.wizard import WizardButton, WizardSelect
     from events.store import Store
 
     bot.store = Store()  # SQLite: Events, Entwürfe, Anmeldungen, Server-Einstellungen
-    bot.add_dynamic_items(WizardButton)  # Wizard-Buttons überleben Neustarts
+    # Buttons und Selects mit ID im custom_id: funktionieren auch nach einem Neustart
+    bot.add_dynamic_items(WizardButton, WizardSelect, EventButton)
     async with bot:
         await bot.load_extension("commands.settings")
         await bot.load_extension("commands.overview")

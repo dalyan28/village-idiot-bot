@@ -1,0 +1,240 @@
+"""Der Event-Post im Event-Channel: Embed, Bilder und Buttons (RSVP, Bearbeiten, Löschen).
+
+Buttons sind DynamicItems mit der Event-ID (`evt:<event_id>:<aktion>`) und funktionieren
+nach einem Neustart weiter. Bilder hängen mit festen Dateinamen an der Nachricht; beim
+Neuaufbau des Embeds (z. B. nach einer Anmeldung) zeigt es per attachment:// auf sie.
+"""
+
+from __future__ import annotations
+
+import io
+import logging
+import re
+from datetime import datetime
+
+import discord
+
+from config import get_guild_config
+from discord_ui.members import actor_from_member
+from events import guild_lock, service
+from events.schema import BERLIN_TZ, Person
+from events.store import RSVP_ACCEPTED, RSVP_DECLINED, RSVP_TENTATIVE, EventRecord, Store
+from logic.event_builder import EMOJI_FILLER, build_event_embed
+from logic.event_images import IMAGE_FILENAME, THUMB_FILENAME, image_signature, render_image, thumbnail_path
+
+logger = logging.getLogger(__name__)
+
+EMOJI_ACCEPT_BUTTON = discord.PartialEmoji(name="accept_wht", id=1484978864131407902)
+EMOJI_DECLINE_BUTTON = discord.PartialEmoji(name="decline_wht", id=1484978932708020504)
+EMOJI_TENTATIVE_BUTTON = discord.PartialEmoji(name="tent_wht", id=1484978888928137327)
+
+RSVP_ACTIONS = {"accept": RSVP_ACCEPTED, "decline": RSVP_DECLINED, "tentative": RSVP_TENTATIVE}
+
+
+def now() -> datetime:
+    return datetime.now(BERLIN_TZ)
+
+
+# ── Embed und Anhänge ────────────────────────────────────────────────────────
+
+
+def _name_resolver(guild: discord.Guild | None):
+    """Aktueller Anzeigename aus dem Member-Cache, sonst der gespeicherte."""
+    def name_for(person: Person) -> str | None:
+        if guild is None or person.user_id is None:
+            return None
+        member = guild.get_member(person.user_id)
+        return member.display_name if member else None
+    return name_for
+
+
+def build_embed(bot: discord.Client, store: Store, event: EventRecord,
+                has_image: bool, has_thumbnail: bool) -> discord.Embed:
+    guild = bot.get_guild(event.guild_id)
+    creator = guild.get_member(event.creator_id) if guild else None
+    embed = build_event_embed(
+        event.data,
+        creator.display_name if creator else event.creator_name,
+        service.rsvp_lists(store, event),
+        creator_avatar_url=creator.display_avatar.url if creator else None,
+        thumbnail_url=f"attachment://{THUMB_FILENAME}" if has_thumbnail else None,
+        name_for=_name_resolver(guild),
+    )
+    if has_image:
+        embed.set_image(url=f"attachment://{IMAGE_FILENAME}")
+    return embed
+
+
+async def build_files(event_data) -> list[discord.File]:
+    files = []
+    image = await render_image(event_data)
+    if image:
+        files.append(discord.File(io.BytesIO(image), filename=IMAGE_FILENAME))
+    thumb = thumbnail_path(event_data)
+    if thumb:
+        files.append(discord.File(thumb, filename=THUMB_FILENAME))
+    return files
+
+
+def _has(files_or_attachments, filename: str) -> bool:
+    return any(f.filename == filename for f in files_or_attachments)
+
+
+def event_view(event: EventRecord) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(EventButton(event.id, "accept", emoji=EMOJI_ACCEPT_BUTTON, style=discord.ButtonStyle.success))
+    view.add_item(EventButton(event.id, "decline", emoji=EMOJI_DECLINE_BUTTON, style=discord.ButtonStyle.danger))
+    tentative_emoji = EMOJI_FILLER if event.data.is_academy else EMOJI_TENTATIVE_BUTTON
+    view.add_item(EventButton(event.id, "tentative", emoji=tentative_emoji, style=discord.ButtonStyle.secondary))
+    view.add_item(EventButton(event.id, "edit", label="Bearbeiten", style=discord.ButtonStyle.primary))
+    view.add_item(EventButton(event.id, "delete", label="Löschen", style=discord.ButtonStyle.danger))
+    return view
+
+
+def event_channel(bot: discord.Client, guild_id: int) -> discord.abc.Messageable | None:
+    channel_id = get_guild_config(guild_id).get("event_channel_id")
+    return bot.get_channel(channel_id) if channel_id else None
+
+
+async def post_event(bot: discord.Client, store: Store, event: EventRecord) -> discord.Message:
+    """Postet ein neues Event in den Event-Channel und merkt sich die Nachricht."""
+    channel = event_channel(bot, event.guild_id)
+    if channel is None:
+        raise service.ServiceError("Es ist kein Event-Channel eingerichtet (`/set_event_channel`).")
+    files = await build_files(event.data)
+    embed = build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+    msg = await channel.send(embed=embed, files=files, view=event_view(event))
+    store.set_event_message(event.id, msg.channel.id, msg.id)
+    logger.info("Event %s gepostet (msg %s)", event.id, msg.id)
+    return msg
+
+
+async def fetch_event_message(bot: discord.Client, event: EventRecord) -> discord.Message | None:
+    if not event.channel_id or not event.message_id:
+        return None
+    channel = bot.get_channel(event.channel_id)
+    try:
+        if channel is None:
+            channel = await bot.fetch_channel(event.channel_id)
+        return await channel.fetch_message(event.message_id)
+    except (discord.NotFound, discord.Forbidden):
+        return None
+
+
+async def update_event_message(bot: discord.Client, store: Store, event: EventRecord,
+                               images_changed: bool) -> discord.Message | None:
+    """Bringt den Event-Post auf den Stand der Datenbank. Fehlt die Nachricht, wird neu gepostet."""
+    msg = await fetch_event_message(bot, event)
+    if msg is None:
+        return await post_event(bot, store, event)
+    if images_changed:
+        files = await build_files(event.data)
+        embed = build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+        await msg.edit(embed=embed, attachments=files, view=event_view(event))
+    else:
+        embed = build_embed(bot, store, event, _has(msg.attachments, IMAGE_FILENAME),
+                            _has(msg.attachments, THUMB_FILENAME))
+        await msg.edit(embed=embed, view=event_view(event))
+    return msg
+
+
+def images_changed(old_data, new_data) -> bool:
+    return image_signature(old_data) != image_signature(new_data)
+
+
+# ── Buttons ──────────────────────────────────────────────────────────────────
+
+
+class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<event_id>\d+):(?P<name>[a-z]+)"):
+    def __init__(self, event_id: int, name: str, label: str | None = None,
+                 emoji=None, style=discord.ButtonStyle.secondary):
+        super().__init__(discord.ui.Button(label=label, emoji=emoji, style=style,
+                                           custom_id=f"evt:{event_id}:{name}"))
+        self.event_id, self.name = event_id, name
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match: re.Match[str], /):
+        return cls(int(match["event_id"]), match["name"], item.label, item.emoji, item.style)
+
+    async def callback(self, interaction: discord.Interaction):
+        if not guild_lock.is_allowed(interaction.guild_id):
+            await interaction.response.send_message("Dieser Bot ist auf diesem Server nicht freigeschaltet.",
+                                                    ephemeral=True)
+            return
+        store: Store = interaction.client.store
+        event = store.get_event(self.event_id)
+        if event is None:
+            await interaction.response.send_message("Dieses Event gibt es nicht mehr.", ephemeral=True)
+            return
+        if self.name in RSVP_ACTIONS:
+            await handle_rsvp(interaction, store, event, RSVP_ACTIONS[self.name])
+        elif self.name == "edit":
+            await handle_edit(interaction, store, event)
+        elif self.name == "delete":
+            await handle_delete(interaction, store, event)
+
+
+async def handle_rsvp(interaction: discord.Interaction, store: Store, event: EventRecord, status: str):
+    service.toggle_rsvp(store, event, interaction.user.id, interaction.user.display_name, status, now())
+    embed = build_embed(interaction.client, store, event, _has(interaction.message.attachments, IMAGE_FILENAME),
+                        _has(interaction.message.attachments, THUMB_FILENAME))
+    await interaction.response.edit_message(embed=embed)
+
+
+async def handle_edit(interaction: discord.Interaction, store: Store, event: EventRecord):
+    from discord_ui import wizard  # zirkulären Import vermeiden
+
+    actor = actor_from_member(interaction.user)
+    try:
+        draft = service.draft_for_edit(store, event, actor, now())
+    except service.PermissionDenied:
+        await interaction.response.send_message("Bearbeiten dürfen nur der Ersteller und das Event-Team.",
+                                                ephemeral=True)
+        return
+    await interaction.response.send_message("Check deine DMs, dort kannst du das Event bearbeiten. 📩",
+                                            ephemeral=True)
+    try:
+        await wizard.send_wizard(interaction.client, interaction.user, draft)
+    except discord.Forbidden:
+        store.delete_draft(draft.id)
+        await interaction.followup.send("Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "
+                                        "und versuch es nochmal.", ephemeral=True)
+
+
+async def handle_delete(interaction: discord.Interaction, store: Store, event: EventRecord):
+    from events import permissions
+
+    actor = actor_from_member(interaction.user)
+    if not permissions.can(actor, permissions.DELETE, service.get_access(store, event.guild_id), event.creator_id):
+        await interaction.response.send_message("Löschen dürfen nur der Ersteller und das Event-Team.",
+                                                ephemeral=True)
+        return
+    await interaction.response.send_message("Soll dieses Event wirklich gelöscht werden?",
+                                            view=DeleteConfirmView(store, event.id, interaction.message), ephemeral=True)
+
+
+class DeleteConfirmView(discord.ui.View):
+    def __init__(self, store: Store, event_id: int, message: discord.Message):
+        super().__init__(timeout=120)
+        self.store, self.event_id, self.message = store, event_id, message
+
+    @discord.ui.button(label="Ja, löschen", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        event = self.store.get_event(self.event_id)
+        if event is None:
+            await interaction.response.edit_message(content="Das Event ist schon gelöscht.", view=None)
+            return
+        try:
+            service.delete_event(self.store, event, actor_from_member(interaction.user), now())
+        except service.PermissionDenied:
+            await interaction.response.edit_message(content="Dafür fehlt dir die Berechtigung.", view=None)
+            return
+        try:
+            await self.message.delete()
+        except discord.HTTPException:
+            logger.warning("Event-Nachricht %s konnte nicht gelöscht werden", self.message.id)
+        await interaction.response.edit_message(content="Event gelöscht. 🗑️", view=None)
+
+    @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Nicht gelöscht.", view=None)

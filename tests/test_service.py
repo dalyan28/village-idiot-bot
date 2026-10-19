@@ -38,7 +38,7 @@ def modal_data(**kw) -> EventData:
 
 def complete(data: EventData) -> EventData:
     data.script = ScriptRef(kind=SCRIPT_BASE, name="Trouble Brewing", base_key="trouble_brewing")
-    data.title = "Trouble Brewing mit Dalyan"
+    data.description = "Klassische Runde."
     return data
 
 
@@ -104,13 +104,13 @@ class TestDrafts:
 class TestPublish:
     def test_incomplete_draft(self, store):
         draft = service.start_draft(store, GUILD, st, "Dalyan", modal_data(), NOW)
-        with pytest.raises(ServiceError, match="Skript, Titel"):
+        with pytest.raises(ServiceError, match="Skript, Beschreibung"):
             service.publish_draft(store, draft, st, "Dalyan", NOW)
 
     def test_creates_event_and_removes_draft(self, store):
         event = published(store)
         assert event.creator_id == st.user_id
-        assert event.data.title == "Trouble Brewing mit Dalyan"
+        assert event.data.description == "Klassische Runde."
         assert store.list_drafts(st.user_id) == []
         assert store.list_log(event.id)[0]["action"] == "create"
 
@@ -126,12 +126,12 @@ class TestEdit:
         service.toggle_rsvp(store, event, 50, "Anna", RSVP_ACCEPTED, NOW)
         draft = service.draft_for_edit(store, event, st, NOW)
         data = draft.data
-        data.title = "Neu"
+        data.description = "Neu"
         draft = service.update_draft(store, draft, st, data, "preview", NOW)
         result = service.publish_draft(store, draft, st, "Dalyan", NOW)
         assert not result.created and not result.start_changed
-        assert result.event.data.title == "Neu"
-        assert result.changes["title"] == ["Trouble Brewing mit Dalyan", "Neu"]
+        assert result.event.data.description == "Neu"
+        assert result.changes["description"] == ["Klassische Runde.", "Neu"]
         assert [p.name for p in service.rsvp_lists(store, result.event).players] == ["Anna"]
 
     def test_start_change_resets_reminders(self, store):

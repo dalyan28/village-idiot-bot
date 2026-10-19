@@ -79,6 +79,11 @@ def _load_base_scripts() -> dict:
     return _base_scripts
 
 
+def get_base_script(key: str) -> dict | None:
+    """Basis-Skript über seinen Schlüssel (trouble_brewing, bad_moon_rising, sects_and_violets)."""
+    return _load_base_scripts().get(key)
+
+
 def is_base_script(query: str) -> bool:
     """Prüft ob eine Query ein Base Script matcht."""
     return lookup_base_script(query) is not None

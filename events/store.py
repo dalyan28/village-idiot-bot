@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS drafts (
     event_id    INTEGER REFERENCES events (id) ON DELETE CASCADE,
     step        TEXT NOT NULL,
     data        TEXT NOT NULL,
+    ui          TEXT NOT NULL DEFAULT '{}',
     created_at  INTEGER NOT NULL,
     updated_at  INTEGER NOT NULL
 );
@@ -105,6 +106,7 @@ class Draft:
     data: EventData
     created_at: int
     updated_at: int
+    ui: dict = None  # Zwischenstand der Oberfläche (z. B. Suchergebnisse), kein Event-Feld
 
 
 @dataclass
@@ -242,7 +244,7 @@ class Store:
         return Draft(
             id=row["id"], guild_id=row["guild_id"], user_id=row["user_id"], event_id=row["event_id"],
             step=row["step"], data=EventData.from_dict(json.loads(row["data"])),
-            created_at=row["created_at"], updated_at=row["updated_at"],
+            created_at=row["created_at"], updated_at=row["updated_at"], ui=json.loads(row["ui"]),
         )
 
     def create_draft(self, guild_id: int, user_id: int, data: EventData, step: str, now: int,
@@ -275,6 +277,10 @@ class Store:
                 "UPDATE drafts SET data = ?, step = ?, updated_at = ? WHERE id = ?",
                 (json.dumps(data.to_dict()), step, now, draft_id),
             )
+
+    def set_draft_ui(self, draft_id: int, ui: dict):
+        with self.conn:
+            self.conn.execute("UPDATE drafts SET ui = ? WHERE id = ?", (json.dumps(ui), draft_id))
 
     def delete_draft(self, draft_id: int):
         with self.conn:

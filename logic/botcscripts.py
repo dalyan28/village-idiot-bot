@@ -229,6 +229,28 @@ async def search_scripts(query: str, limit: int = 5) -> list[dict]:
     return await asyncio.to_thread(_search_sync, query, limit)
 
 
+def _download_script_json_sync(script_id: str, version: str) -> list | None:
+    """Komplettes Skript-JSON (inkl. _meta) einer bestimmten Version."""
+    r = _get(DOWNLOAD_URL.format(id=script_id, version=version))
+    if r is None or r.status_code != 200:
+        return None
+    try:
+        data = r.json()
+    except (json.JSONDecodeError, ValueError):
+        return None
+    items = data if isinstance(data, list) else data.get("roles")
+    return items if isinstance(items, list) else None
+
+
+async def download_script(script_id: str, version: str) -> list | None:
+    """Async: Skript-JSON über Skript-ID und Version.
+
+    Eindeutig im Gegensatz zu /api/scripts/<id>/, das den internen pk erwartet und mit der
+    Skript-ID ein anderes Skript liefert.
+    """
+    return await asyncio.to_thread(_download_script_json_sync, script_id, version)
+
+
 async def download_script_characters(script_id: str, version: str) -> list[str]:
     """Lädt Character-IDs eines Scripts.
 

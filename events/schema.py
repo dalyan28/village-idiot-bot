@@ -52,8 +52,7 @@ MAX_PLAYERS = 200
 DURATION_CHOICES = (90, 120, 150, 180, 210, 240)
 MAX_DAYS_AHEAD = 365
 
-TITLE_MAX_LENGTH = 256    # Discord-Limit für Embed-Titel (inkl. Emoji-Präfix)
-DESCRIPTION_MAX_LENGTH = 1024 * 3  # wird im Embed auf mehrere Felder verteilt
+DESCRIPTION_MAX_LENGTH = 1000  # eigener Text des Erstellers, passt in ein Embed-Feld
 
 # ── Defaults (unverändert aus Branch event-creation) ─────────────────────────
 
@@ -120,10 +119,9 @@ class EventData:
     rating: str | None = None
     rating_source: str | None = None
     is_homebrew: bool = False      # unbekannte Charaktere (Homebrew/Amnesiac), zusätzlich zum Rating
-    title: str = ""
-    description: str = ""
+    description: str = ""          # schreibt der Ersteller selbst; der Titel wird gebaut (templates.full_title)
     image_mode: str = IMAGE_AUTO
-    custom_image_url: str = ""
+    custom_image: str = ""         # Dateiname des hochgeladenen Bildes im Upload-Ordner
     reminder_overrides: dict = field(default_factory=dict)
 
     @property
@@ -205,17 +203,18 @@ def validate(data: EventData, now: datetime | None = None, check_start: bool = T
         errors.append(f"Unbekannte Herkunft der Einschätzung: {data.rating_source}.")
     if data.image_mode not in IMAGE_MODES:
         errors.append(f"Unbekannter Bild-Modus: {data.image_mode}.")
-    if data.image_mode == IMAGE_CUSTOM and not data.custom_image_url:
+    if data.image_mode == IMAGE_CUSTOM and not data.custom_image:
         errors.append("Für ein eigenes Bild fehlt die Datei.")
-    if len(data.title) > TITLE_MAX_LENGTH:
-        errors.append(f"Der Titel ist länger als {TITLE_MAX_LENGTH} Zeichen.")
     if len(data.description) > DESCRIPTION_MAX_LENGTH:
         errors.append(f"Die Beschreibung ist länger als {DESCRIPTION_MAX_LENGTH} Zeichen.")
     return errors
 
 
 def missing_for_publish(data: EventData) -> list[str]:
-    """Felder, ohne die ein Event nicht veröffentlicht werden kann (deutsche Namen)."""
+    """Felder, ohne die ein Event nicht veröffentlicht werden kann (deutsche Namen).
+
+    Bei Academy ist die Beschreibung freiwillig, weil der feste Academy-Text dazukommt.
+    """
     missing = []
     if data.start is None:
         missing.append("Termin")
@@ -223,6 +222,6 @@ def missing_for_publish(data: EventData) -> list[str]:
         missing.append("Skript")
     if data.storyteller is None or not data.storyteller.name.strip():
         missing.append("Storyteller")
-    if not data.title.strip():
-        missing.append("Titel")
+    if not data.description.strip() and not data.is_academy:
+        missing.append("Beschreibung")
     return missing
