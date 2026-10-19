@@ -8,6 +8,14 @@ MOD_DOKU.md
 
 # Assets (werden lokal generiert / von API heruntergeladen)
 data/icons/
-images/
+/images/
 test_output/
 custom_emojis/
+# Laufzeitdaten (lokal; auf Railway im Volume)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+data/script_cache.json
+data/characters.json
+data/jinxes.json

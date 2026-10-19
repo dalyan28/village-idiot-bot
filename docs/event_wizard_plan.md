@@ -357,7 +357,7 @@ Railway-Projekt, geht es auch über das private Netzwerk).
 0. **Branch und Plan** (diese Datei). ✅
 1. **Kern**: Schema, Parser, Vorlagen, SQLite-Store (events, drafts, rsvps, event_log), Service. Module ohne KI aus
    `event-creation` übernehmen. Server-Lock (`ALLOWED_GUILD_IDS`, Guild-Sync, `interaction_check`, `on_guild_join`).
-   Tests ohne Discord.
+   Tests ohne Discord. ✅ (19.10.2026, siehe „Stand Phase 1“)
 2. **Rollen und Modal**: `/set_event_roles`, `/see_event_roles`, `/set_academy_access`, Rechteprüfung in `/botc`, Modal
    und Start des Wizards.
 3. **Wizard** Schritte 1–6, Veröffentlichen, Bearbeiten über den Button am Event, Entwürfe, `events/permissions.py`.
@@ -367,6 +367,31 @@ Railway-Projekt, geht es auch über das private Netzwerk).
 6. **Betrieb und Feedback**: Wizard im Alltag nutzen und nachschärfen, bevor die Website darauf aufbaut.
 7. **Website** (zuletzt): Rechtemodell umsetzen und testen, Login, Seiten, Sync nach Discord. Deploy als `web`-Prozess
    (`$PORT`, Healthcheck `/health`), Subdomain in Cloudflare (CNAME) und Railway, OAuth-Redirect, `SESSION_SECRET`.
+
+## Stand Phase 1 (19.10.2026)
+
+Gebaut:
+- `events/schema.py` (Felder, Defaults, Validierung), `events/parse.py` (Datum/Uhrzeit), `events/templates.py`
+  (Titel, Beschreibung, Emoji-Präfix, Academy-Text), `events/permissions.py` (`can()`), `events/guild_lock.py`,
+  `events/store.py` (SQLite), `events/service.py` (Entwürfe, Veröffentlichen, Bearbeiten, Löschen, RSVP, Aufräumen).
+- Aus `event-creation` übernommen: `logic/botcscripts.py`, `logic/script_cache.py`, `logic/script_image.py`,
+  `logic/event_builder.py`, `static/` (Charaktere, Jinxes, Basis-Skripte, Fonts, Thumbnails, `character_rating.json`).
+- `script_image.py` kann nur noch das Papier-Design (vorher war Plain White der Default). Die Papier-Textur liegt jetzt
+  unter `static/images/paper_texture.jpg`, weil `images/` per `.gitignore` nie deployt wurde. Behoben: Version und
+  Autor überlappten im Kopf des Bildes.
+- `event_builder.py` auf das neue Schema umgebaut: Namen als Text (Markdown-escaped, optional aktueller Name über
+  `name_for`), NPCs und Highlights wieder aktiv, lange Teilnehmerlisten enden mit „… und N weitere“.
+- `static/base_scripts.json`: `pithaag` → `pithag`, `eviltwins` → `eviltwin` (Fehler, den der ScriptRater gefunden hatte).
+- Homebrew ist ein eigenes Merkmal (`is_homebrew`) zusätzlich zum Rating, wie im alten Code und im ScriptRater.
+- Server-Lock in `bot.py` und in den Listenern von `commands/overview.py`.
+- Neue Server-Einstellungen (Rollen, später Reminder) liegen in SQLite (`guild_settings`), nicht in `config.json`:
+  `cleanup_config()` löscht dort beim Start jeden unbekannten Key.
+- 98 neue Tests (`tests/test_parse.py`, `test_schema_templates.py`, `test_permissions.py`, `test_service.py`,
+  `test_event_builder.py`), alle grün.
+
+Noch nicht verdrahtet (Phase 2/3): Der Store wird in `bot.py` noch nicht erzeugt, `/botc` gibt es noch nicht.
+Für Phase 3 merken: Die Charakter-Icons lädt `update_characters_from_tpi()` aufs Volume; in `event-creation` hing das an
+einem Command in `commands/settings.py`, der noch übernommen werden muss.
 
 ## Offene Fragen
 

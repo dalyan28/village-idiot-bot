@@ -1,0 +1,722 @@
+"""Script-Bild-Generierung mit Pillow.
+
+Erzeugt ein PNG im Stil der botcscripts.com PDFs, im Papier-Design
+(Textur, Sticker-Titel und Sticker-Icons). Andere Designs gibt es nicht mehr.
+Layout-Zentrierung über _draw_row() Helper — kein manuelles Pixel-Shifting.
+"""
+
+import asyncio
+import io
+import logging
+import math
+import os
+import re
+import textwrap
+
+import requests
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+
+from logic.script_cache import (
+    get_character_icon_path,
+    get_jinxes_for_script,
+    load_characters,
+    STATIC_DIR,
+)
+
+logger = logging.getLogger(__name__)
+
+# ── Layout ───────────────────────────────────────────────────────────────────
+
+SCALE = 2  # Retina-Faktor: 2x für scharfe Darstellung auf Mobile
+
+COLS = 2
+ICON_SIZE = 120 * SCALE
+ICON_SMALL = 54 * SCALE
+ICON_JINX = 72 * SCALE
+CHAR_WIDTH = 420 * SCALE
+PADDING = 25 * SCALE
+SECTION_GAP = 8 * SCALE
+HEADER_HEIGHT = 28 * SCALE
+ABILITY_LINE_HEIGHT = 13 * SCALE
+JINX_LINE_HEIGHT = 14 * SCALE
+FOOTER_HEIGHT = 22 * SCALE
+VERSION_LINE_HEIGHT = 16 * SCALE  # eigene Zeile für die Version zwischen Titel und Autor
+TEXT_PADDING = 0 * SCALE
+DIVIDER_THICKNESS = 1 * SCALE
+DJINN_ID = "djinn"
+
+# ── Papier-Hintergrund ───────────────────────────────────────────────────────
+
+PAPER_TEXTURE_PATH = os.path.join(STATIC_DIR, "images", "paper_texture.jpg")  # Texturelabs_Paper_331S
+PAPER_CROP_MARGIN = 0.20  # 20% oben/unten abschneiden (dunkle Ränder)
+PAPER_BLEND_HEIGHT = 100  # Pixel für Überblendung an Tile-Nähten
+
+# ── Farben ───────────────────────────────────────────────────────────────────
+
+SUBTITLE_COLOR = (100, 100, 100)
+HEADER_COLOR = (4, 4, 4)
+ABILITY_COLOR = (4, 4, 4)
+LINE_COLOR = (4, 4, 4)
+FOOTER_COLOR = (150, 150, 150)
+
+NAME_COLORS = {
+    "Townsfolk": (0, 100, 172),
+    "Outsider":  (0, 100, 172),
+    "Minion":    (180, 40, 40),
+    "Demon":     (180, 40, 40),
+    "Traveller": (150, 120, 200),
+    "Fabled":    (107, 99, 60),
+    "Loric":     (117, 138, 84),
+}
+
+
+# ── Fonts ────────────────────────────────────────────────────────────────────
+
+FONT_DIR = os.path.join(STATIC_DIR, "fonts")
+_F_TITLE_STYLED = os.path.join(FONT_DIR, "Thesead.ttf")
+_F_AUTHOR = os.path.join(FONT_DIR, "Inter.ttf")
+_F_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")
+_F_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")
+_F_ABILITY = os.path.join(FONT_DIR, "TradeGothic-Regular.otf")
+
+SZ_TITLE = 36 * SCALE
+SZ_AUTHOR = 14 * SCALE
+SZ_FABLED_TITLE = 13 * SCALE
+SZ_HEADER = 14 * SCALE
+SZ_NAME = 15 * SCALE
+SZ_ABILITY = 13 * SCALE
+SZ_JINX = 12 * SCALE
+SZ_FOOTER = 9 * SCALE
+
+TEAM_ORDER = ["Townsfolk", "Outsider", "Minion", "Demon"]
+TEAM_ORDER_ALL = ["Townsfolk", "Outsider", "Minion", "Demon", "Traveller", "Fabled", "Loric"]
+
+
+def _font(path, size):
+    try:
+        return ImageFont.truetype(path, size)
+    except (OSError, IOError):
+        return ImageFont.load_default()
+
+
+# ── Icon Loading ─────────────────────────────────────────────────────────────
+
+def _load_icon(char_id, evil=False, size=ICON_SIZE, icon_urls=None):
+    """Lädt ein Icon: lokal zuerst, dann URL-Fallback für Homebrew."""
+    icon_path = get_character_icon_path(char_id, evil=evil)
+    if icon_path:
+        try:
+            img = Image.open(icon_path).convert("RGBA")
+            return img.resize((size, size), Image.Resampling.LANCZOS)
+        except Exception:
+            pass
+
+    if icon_urls:
+        url = None
+        if isinstance(icon_urls, list) and len(icon_urls) >= 2:
+            url = icon_urls[1] if evil else icon_urls[0]
+        elif isinstance(icon_urls, list) and len(icon_urls) == 1:
+            url = icon_urls[0]
+        elif isinstance(icon_urls, str):
+            url = icon_urls
+        if url:
+            try:
+                r = requests.get(url, timeout=10)
+                if r.status_code == 200:
+                    img = Image.open(io.BytesIO(r.content)).convert("RGBA")
+                    return img.resize((size, size), Image.Resampling.LANCZOS)
+            except Exception as e:
+                logger.debug("Homebrew-Icon download failed for %s: %s", char_id, e)
+
+    return None
+
+
+def _placeholder(size=ICON_SIZE):
+    img = Image.new("RGBA", (size, size), (220, 220, 230, 200))
+    draw = ImageDraw.Draw(img)
+    f = _font(_F_NAME, size // 3)
+    draw.text((size // 2, size // 2), "?", fill=(100, 100, 100), font=f, anchor="mm")
+    return img
+
+
+def _paste(canvas, icon, x, y):
+    if icon.mode == "RGBA":
+        canvas.paste(icon, (x, y), icon)
+    else:
+        canvas.paste(icon, (x, y))
+
+
+# ── Text Helpers ─────────────────────────────────────────────────────────────
+
+def _wrap(text, max_chars=42):
+    return textwrap.wrap(text, width=max_chars) if text else []
+
+
+def _text_height(text, max_chars=42):
+    lines = len(_wrap(text, max_chars)) if text else 1
+    return lines * ABILITY_LINE_HEIGHT
+
+
+def _draw_ability(draw, x, y, text, font_r, font_b, max_width=300, color=None):
+    """Zeichnet Ability mit [bracket]-Fettdruck."""
+    if color is None:
+        color = ABILITY_COLOR
+    segments = re.split(r'(\[[^\]]*\])', text)
+    words = []
+    for seg in segments:
+        if not seg:
+            continue
+        if seg.startswith('[') and seg.endswith(']'):
+            words.append((seg, True))
+        else:
+            for w in seg.split():
+                words.append((w, False))
+
+    curr_x = x
+    for word, bold in words:
+        f = font_b if bold else font_r
+        space = " " if curr_x > x else ""
+        bbox = draw.textbbox((0, 0), space + word, font=f)
+        w = bbox[2] - bbox[0]
+        if curr_x + w > x + max_width and curr_x > x:
+            y += ABILITY_LINE_HEIGHT
+            curr_x = x
+            space = ""
+        t = space + word if curr_x > x else word
+        draw.text((curr_x, y), t, fill=color, font=f)
+        bbox = draw.textbbox((curr_x, y), t, font=f)
+        curr_x = bbox[2]
+
+
+# ── Layout Helper ────────────────────────────────────────────────────────────
+
+def _visible_text_height(draw, text, font):
+    """Gibt die sichtbare Texthöhe zurück (ohne unsichtbaren Ascender-Offset)."""
+    bb = draw.textbbox((0, 0), text, font=font)
+    return bb[3] - bb[1]
+
+
+def _text_y_centered(draw, text, font, y, container_h):
+    """Berechnet die y-Position für vertikal zentrierten Text, korrigiert um Font-Offset."""
+    bb = draw.textbbox((0, 0), text, font=font)
+    text_h = bb[3] - bb[1]
+    offset_y = bb[1]  # Ascender-Offset
+    return y + (container_h - text_h) // 2 - offset_y
+
+
+ICON_OVERLAP_ALLOW = 20 * SCALE  # Icons dürfen so viele Pixel über die Textzeile hinausragen
+
+def _row_height(ability_text, icon_size=ICON_SIZE):
+    """Berechnet die Höhe einer Zeile. Icons dürfen überlappen."""
+    text_h = SZ_NAME + 4 * SCALE + _text_height(ability_text)
+    # Icon darf über die Zeile hinausragen (Overlap erlaubt)
+    return max(icon_size - ICON_OVERLAP_ALLOW, text_h)
+
+
+def _draw_row(draw, img, x, y, icon, name, ability, name_color, fonts,
+              text_width, icon_size=ICON_SIZE, ability_color=None):
+    """Zeichnet eine Zeile (Icon + Name + Ability) vertikal zentriert. Gibt row_height zurück."""
+    # Sichtbare Texthöhe berechnen (mit Font-Offset-Korrektur)
+    name_bb = draw.textbbox((0, 0), name, font=fonts["name"])
+    name_h = name_bb[3] - name_bb[1] + 4 * SCALE
+    name_offset = name_bb[1]
+    ability_h = _text_height(ability)
+    text_h = name_h + ability_h
+    # row_h muss mit _row_height() übereinstimmen (Overlap erlaubt)
+    row_h = _row_height(ability, icon_size)
+
+    # Icon: vertikal zentriert in der Zeile (darf oben/unten überlappen)
+    icon_y = y + (row_h - icon_size) // 2
+    _paste(img, icon, x, icon_y)
+
+    # Text: vertikal zentriert (korrigiert um Font-Ascender-Offset)
+    text_y = y + (row_h - text_h) // 2 - name_offset
+    tx = x + icon_size + TEXT_PADDING
+    draw.text((tx, text_y), name, fill=name_color, font=fonts["name"])
+    if ability:
+        _draw_ability(draw, tx, text_y + name_offset + name_h, ability,
+                      fonts["ability"], fonts["ability_b"], max_width=text_width,
+                      color=ability_color)
+
+    return row_h
+
+
+# ── Character Categorization ─────────────────────────────────────────────────
+
+def _team_from_content(team_str):
+    if not team_str:
+        return None
+    mapping = {
+        "townsfolk": "Townsfolk", "outsider": "Outsider",
+        "minion": "Minion", "demon": "Demon",
+        "traveller": "Traveller", "traveler": "Traveller",
+        "fabled": "Fabled", "loric": "Loric",
+    }
+    return mapping.get(team_str.lower())
+
+
+def _categorize(char_ids, chars_db, content_data=None):
+    content_data = content_data or {}
+    cats = {t: [] for t in TEAM_ORDER_ALL}
+    for cid in char_ids:
+        info = chars_db.get(cid, {})
+        hw = content_data.get(cid, {})
+        team = info.get("character_type") or _team_from_content(hw.get("team")) or "Townsfolk"
+        if team not in cats:
+            team = "Townsfolk"
+        cats[team].append({
+            "id": cid,
+            "name": info.get("character_name") or hw.get("name") or cid,
+            "ability": info.get("ability") or hw.get("ability") or "",
+            "team": team,
+            "icon_urls": hw.get("image"),
+        })
+    return cats
+
+
+# ── Icon Color Manipulation ──────────────────────────────────────────────────
+
+def _colorize_icon(icon, target_hue):
+    """Färbt farbige Pixel eines Icons um (Hue-Shift). Weiß bleibt erhalten."""
+    import colorsys
+    result = icon.copy()
+    pixels = result.load()
+    w, h = result.size
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = pixels[x, y]
+            if a == 0:
+                continue
+            hue, sat, val = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+            if sat > 0.1:
+                nr, ng, nb = colorsys.hsv_to_rgb(target_hue, sat, val)
+                pixels[x, y] = (int(nr * 255), int(ng * 255), int(nb * 255), a)
+    return result
+
+
+# ── Sticker-Style Effects (Mystic Paper) ─────────────────────────────────────
+
+def _offset_alpha(alpha, x, y, cw, ch):
+    """Hilfsfunktion: Alpha-Kanal an Position (x, y) auf Canvas (cw, ch) platzieren."""
+    canvas = Image.new("L", (cw, ch), 0)
+    canvas.paste(alpha, (x, y))
+    return canvas
+
+
+def _stylize_icon(icon, outline_color=(60, 20, 100)):
+    """Sticker-Style: Shadow + weiße Outline + dunkle Outline + Original Icon."""
+    w, h = icon.size
+    pad = 12 * SCALE
+    cw, ch = w + pad * 2, h + pad * 2
+    ox, oy = pad, pad
+
+    _, _, _, alpha = icon.split()
+
+    # Shadow
+    shadow_a = Image.new("L", (cw, ch), 0)
+    shadow_a.paste(alpha, (ox + 3 * SCALE, oy + 3 * SCALE))
+    shadow = Image.new("RGBA", (cw, ch), (0, 0, 0, 80))
+    shadow.putalpha(shadow_a)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(4 * SCALE))
+
+    # White outline (outer)
+    white_a = Image.new("L", (cw, ch), 0)
+    r_outer = 5 * SCALE
+    for angle in range(0, 360, 15):
+        dx = int(r_outer * math.cos(math.radians(angle)))
+        dy = int(r_outer * math.sin(math.radians(angle)))
+        white_a = ImageChops.lighter(white_a, _offset_alpha(alpha, ox + dx, oy + dy, cw, ch))
+    white_ol = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
+    white_ol.putalpha(white_a)
+
+    # Dark outline (inner)
+    dark_a = Image.new("L", (cw, ch), 0)
+    r_inner = 3 * SCALE
+    for angle in range(0, 360, 15):
+        dx = int(r_inner * math.cos(math.radians(angle)))
+        dy = int(r_inner * math.sin(math.radians(angle)))
+        dark_a = ImageChops.lighter(dark_a, _offset_alpha(alpha, ox + dx, oy + dy, cw, ch))
+    dark_ol = Image.new("RGBA", (cw, ch), outline_color + (255,))
+    dark_ol.putalpha(dark_a)
+
+    # Composite
+    result = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    result = Image.alpha_composite(result, shadow)
+    result = Image.alpha_composite(result, white_ol)
+    result = Image.alpha_composite(result, dark_ol)
+    icon_layer = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    icon_layer.paste(icon, (ox, oy), icon)
+    result = Image.alpha_composite(result, icon_layer)
+    return result
+
+
+# ── Styled Title (Mystic Paper) ──────────────────────────────────────────────
+
+def _render_styled_title(text, font_size=SZ_TITLE):
+    """Rendert einen Sticker-Style Titel: Shadow + weiße Outline + dunkle Outline + Gradient Fill."""
+    font = _font(_F_TITLE_STYLED, font_size)
+
+    dummy = Image.new("RGBA", (1, 1))
+    dd = ImageDraw.Draw(dummy)
+    bb = dd.textbbox((0, 0), text, font=font)
+    tw, th = bb[2] - bb[0], bb[3] - bb[1]
+    ox, oy = bb[0], bb[1]
+
+    pad = 20 * SCALE
+    w, h = tw + pad * 2, th + pad * 2
+    tx, ty = pad - ox, pad - oy
+
+    # Shadow
+    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).text((tx + 3 * SCALE, ty + 3 * SCALE), text, fill=(0, 0, 0, 100), font=font)
+    shadow = shadow.filter(ImageFilter.GaussianBlur(4 * SCALE))
+
+    # White outline (outer)
+    white_ol = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    wd = ImageDraw.Draw(white_ol)
+    for angle in range(0, 360, 10):
+        dx = int(4 * SCALE * math.cos(math.radians(angle)))
+        dy = int(4 * SCALE * math.sin(math.radians(angle)))
+        wd.text((tx + dx, ty + dy), text, fill=(255, 255, 255, 255), font=font)
+
+    # Dark outline (inner)
+    dark_ol = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dkd = ImageDraw.Draw(dark_ol)
+    for angle in range(0, 360, 10):
+        dx = int(2 * SCALE * math.cos(math.radians(angle)))
+        dy = int(2 * SCALE * math.sin(math.radians(angle)))
+        dkd.text((tx + dx, ty + dy), text, fill=(60, 20, 100, 255), font=font)
+
+    # Gradient fill
+    gradient = Image.new("RGBA", (w, h))
+    for row in range(h):
+        t = row / h
+        r = int(220 + (140 - 220) * t)
+        g = int(80 + (40 - 80) * t)
+        b = int(180 + (120 - 180) * t)
+        ImageDraw.Draw(gradient).line([(0, row), (w, row)], fill=(r, g, b, 255))
+
+    text_mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(text_mask).text((tx, ty), text, fill=255, font=font)
+    gradient.putalpha(text_mask)
+
+    result = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    result = Image.alpha_composite(result, shadow)
+    result = Image.alpha_composite(result, white_ol)
+    result = Image.alpha_composite(result, dark_ol)
+    result = Image.alpha_composite(result, gradient)
+    return result
+
+
+# ── Paper Background ─────────────────────────────────────────────────────────
+
+def _tile_paper_background(width, height):
+    """Erzeugt einen gekachelten Pergament-Hintergrund (Mystic Paper Design)."""
+    paper = Image.open(PAPER_TEXTURE_PATH).convert("RGB")
+    pw, ph = paper.size
+    scale = width / pw
+    new_ph = int(ph * scale)
+    paper_scaled = paper.resize((width, new_ph), Image.Resampling.LANCZOS)
+
+    crop_px = int(new_ph * PAPER_CROP_MARGIN)
+    middle = paper_scaled.crop((0, crop_px, width, new_ph - crop_px))
+    mid_h = middle.size[1]
+    blend_h = PAPER_BLEND_HEIGHT
+
+    bg = Image.new("RGB", (width, height))
+    bg.paste(paper_scaled, (0, 0))
+
+    y = new_ph
+    flip = False
+    while y < height:
+        tile = middle.copy()
+        if flip:
+            tile = tile.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+
+        for row in range(min(blend_h, height - y + blend_h)):
+            a = row / blend_h
+            src_y = y - blend_h + row
+            if src_y < 0 or src_y >= height:
+                continue
+            row_old = bg.crop((0, src_y, width, src_y + 1))
+            row_new = tile.crop((0, row, width, row + 1))
+            bg.paste(Image.blend(row_old, row_new, a), (0, src_y))
+
+        rest_top = blend_h
+        remaining = min(mid_h - rest_top, height - y)
+        if remaining > 0:
+            bg.paste(tile.crop((0, rest_top, width, rest_top + remaining)), (0, y))
+
+        y += mid_h - blend_h
+        flip = not flip
+
+    return bg
+
+
+# ── Main Generation ──────────────────────────────────────────────────────────
+
+def _generate_sync(script_name, author, char_ids, version="", meta=None, content=None, show_fabled=True):
+    chars_db = load_characters()
+
+    content_data = {}
+    if content:
+        for item in content:
+            if isinstance(item, dict) and item.get("id") and item["id"] != "_meta":
+                content_data[item["id"]] = {
+                    "name": item.get("name"),
+                    "team": item.get("team"),
+                    "ability": item.get("ability"),
+                    "image": item.get("image"),
+                }
+
+    cats = _categorize(char_ids, chars_db, content_data)
+    jinxes = get_jinxes_for_script(char_ids)
+    bootlegger_rules = (meta or {}).get("bootlegger", [])
+    ph = _placeholder()
+    ph_sm = _placeholder(ICON_SMALL)
+    ph_jinx = _placeholder(ICON_JINX)
+
+    fabled_loric = cats.get("Fabled", []) + cats.get("Loric", [])
+
+    # Auto-insert Djinn
+    if jinxes and not any(fl["id"] == DJINN_ID for fl in fabled_loric):
+        djinn_info = chars_db.get(DJINN_ID, {})
+        fabled_loric.insert(0, {
+            "id": DJINN_ID,
+            "name": djinn_info.get("character_name", "Djinn"),
+            "ability": djinn_info.get("ability", "Use the Djinn's special rule. All players know what it is."),
+            "team": "Fabled",
+        })
+    fabled_loric.sort(key=lambda x: (0 if x["id"] == DJINN_ID else 1))
+
+    # Fonts dict für _draw_row
+    f_name = _font(_F_NAME, SZ_NAME)
+    f_ability = _font(_F_ABILITY, SZ_ABILITY)
+    f_ability_b = _font(_F_NAME, SZ_ABILITY)
+    fonts = {"name": f_name, "ability": f_ability, "ability_b": f_ability_b, "name_size": SZ_NAME}
+
+    f_author = _font(_F_AUTHOR, SZ_AUTHOR)
+    f_fabled_t = _font(_F_AUTHOR, SZ_FABLED_TITLE)
+    f_header = _font(_F_HEADER, SZ_HEADER)
+    f_jinx = _font(_F_ABILITY, SZ_JINX)
+    f_footer = _font(_F_AUTHOR, SZ_FOOTER)
+
+    img_width = PADDING * 2 + COLS * CHAR_WIDTH
+    text_area_width = CHAR_WIDTH - ICON_SIZE - TEXT_PADDING - 5 * SCALE
+    fl_text_width = img_width - PADDING * 2 - ICON_SIZE - TEXT_PADDING - 10 * SCALE
+
+    # Jinx/Bootlegger text area
+    jinx_x = PADDING + ICON_SIZE + TEXT_PADDING
+    jinx_text_w = img_width - jinx_x - PADDING - 5 * SCALE
+    jinx_icon_text_w = jinx_text_w - ICON_JINX * 2 + 4 * SCALE - 6 * SCALE
+    jinx_wrap_chars = max(40, jinx_icon_text_w // (7 * SCALE))
+    boot_wrap_chars = max(40, (jinx_text_w - 12 * SCALE) // (7 * SCALE))
+
+    title_img = _render_styled_title(script_name)
+
+    # ── Höhe berechnen ────────────────────────────────────────────────
+    height = PADDING + title_img.height + 8 * SCALE + 18 * SCALE  # styled title + author
+    if version:
+        height += VERSION_LINE_HEIGHT
+    if fabled_loric:
+        height += 40 * SCALE  # fabled row
+    height += SECTION_GAP
+
+    for team in TEAM_ORDER:
+        chars = cats.get(team, [])
+        if not chars:
+            continue
+        height += HEADER_HEIGHT
+        for i in range(0, len(chars), COLS):
+            row = chars[i:i + COLS]
+            height += max(_row_height(c["ability"]) for c in row)
+        height += SECTION_GAP
+
+    if show_fabled and (fabled_loric or jinxes or bootlegger_rules):
+        height += HEADER_HEIGHT + SECTION_GAP
+        for fl in fabled_loric:
+            height += _row_height(fl["ability"])
+            if fl["id"] == DJINN_ID and jinxes:
+                for jnx in jinxes:
+                    jh = SZ_NAME + 4 * SCALE + len(_wrap(jnx["reason"], jinx_wrap_chars)) * JINX_LINE_HEIGHT
+                    height += max(ICON_JINX, jh)
+            if fl["id"] == "bootlegger" and bootlegger_rules:
+                for rule in bootlegger_rules:
+                    height += len(_wrap(rule, boot_wrap_chars)) * JINX_LINE_HEIGHT + 2 * SCALE
+        height += SECTION_GAP
+
+    height += FOOTER_HEIGHT + PADDING
+
+    # ── Zeichnen ──────────────────────────────────────────────────────
+    img = _tile_paper_background(img_width, height).convert("RGBA")
+    draw = ImageDraw.Draw(img)
+    y = PADDING
+
+    # Titel + Version (zentriert)
+    _paste(img, title_img, (img_width - title_img.width) // 2, y)
+    if version:
+        vt = f"v{version}"
+        vb = draw.textbbox((0, 0), vt, font=f_author)
+        draw.text(((img_width - (vb[2] - vb[0])) // 2, y + title_img.height), vt,
+                  fill=SUBTITLE_COLOR, font=f_author)
+        y += VERSION_LINE_HEIGHT
+    y += title_img.height + 8 * SCALE
+
+    # Autor (zentriert)
+    if author:
+        at = f"by {author}"
+        ab = draw.textbbox((0, 0), at, font=f_author)
+        draw.text(((img_width - (ab[2] - ab[0])) // 2, y), at, fill=SUBTITLE_COLOR, font=f_author)
+    y += 18 * SCALE
+
+    # Fabled/Loric Icons unter Autor (zentriert)
+    if fabled_loric:
+        fabled_h = 40 * SCALE
+        total_w = 0
+        for i, fl in enumerate(fabled_loric):
+            total_w += ICON_SMALL + 5 * SCALE
+            nb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
+            total_w += nb[2] - nb[0]
+            if i < len(fabled_loric) - 1:
+                total_w += 15 * SCALE
+        fx = (img_width - total_w) // 2
+        for fl in fabled_loric:
+            icon = _load_icon(fl["id"], size=ICON_SMALL, icon_urls=fl.get("icon_urls")) or ph_sm
+            icon_y = y + (fabled_h - ICON_SMALL) // 2
+            _paste(img, icon, fx, icon_y)
+            fx += ICON_SMALL + 5 * SCALE
+            color = NAME_COLORS.get(fl["team"], HEADER_COLOR)
+            text_bb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
+            text_h = text_bb[3] - text_bb[1]
+            text_y = y + (fabled_h - text_h) // 2 - text_bb[1]
+            draw.text((fx, text_y), fl["name"], fill=color, font=f_fabled_t)
+            nb = draw.textbbox((fx, text_y), fl["name"], font=f_fabled_t)
+            fx = nb[2] + 15 * SCALE
+        y += fabled_h
+
+    y += SECTION_GAP
+
+    # ── Character Sektionen ───────────────────────────────────────────
+    for team in TEAM_ORDER:
+        chars = cats.get(team, [])
+        if not chars:
+            continue
+
+        _draw_section_header(draw, team.upper(), y, img_width, f_header)
+        y += HEADER_HEIGHT
+
+        name_color = NAME_COLORS.get(team, SUBTITLE_COLOR)
+        is_evil = team in ("Minion", "Demon")
+
+        for i in range(0, len(chars), COLS):
+            row = chars[i:i + COLS]
+            row_h = max(_row_height(c["ability"]) for c in row)
+
+            for col, char in enumerate(row):
+                x = PADDING + col * CHAR_WIDTH
+                icon = _load_icon(char["id"], evil=is_evil, icon_urls=char.get("icon_urls")) or ph
+                if is_evil:
+                    icon = _stylize_icon(icon, outline_color=(120, 20, 20))
+                else:
+                    icon = _colorize_icon(icon, 0.92)
+                    icon = _stylize_icon(icon, outline_color=(120, 20, 80))
+
+                _draw_row(draw, img, x, y, icon, char["name"], char["ability"],
+                          name_color, fonts, text_area_width,
+                          icon_size=icon.size[0], ability_color=ABILITY_COLOR)
+            y += row_h
+        y += SECTION_GAP
+
+    # ── Fabled & Loric Sektion ────────────────────────────────────────
+    if show_fabled and (fabled_loric or jinxes or bootlegger_rules):
+        _draw_section_header(draw, "FABLED & LORIC", y, img_width, f_header)
+        y += HEADER_HEIGHT
+
+        for fl in fabled_loric:
+            color = NAME_COLORS.get(fl["team"], HEADER_COLOR)
+            icon = _load_icon(fl["id"], icon_urls=fl.get("icon_urls")) or ph
+
+            row_h = _draw_row(draw, img, PADDING, y, icon, fl["name"], fl["ability"],
+                              color, fonts, fl_text_width, ability_color=ABILITY_COLOR)
+            y += row_h
+
+            # Jinxes unter Djinn
+            if fl["id"] == DJINN_ID and jinxes:
+                for jnx in jinxes:
+                    a_info = chars_db.get(jnx["char_a"], {})
+                    b_info = chars_db.get(jnx["char_b"], {})
+                    hw_a = content_data.get(jnx["char_a"], {})
+                    hw_b = content_data.get(jnx["char_b"], {})
+                    name_a = a_info.get("character_name") or hw_a.get("name") or jnx["char_a"]
+                    name_b = b_info.get("character_name") or hw_b.get("name") or jnx["char_b"]
+                    team_a = a_info.get("character_type") or _team_from_content(hw_a.get("team")) or "Townsfolk"
+                    team_b = b_info.get("character_type") or _team_from_content(hw_b.get("team")) or "Townsfolk"
+                    icon_a = _load_icon(jnx["char_a"], evil=team_a in ("Minion", "Demon"), size=ICON_JINX,
+                                        icon_urls=hw_a.get("image")) or ph_jinx
+                    icon_b = _load_icon(jnx["char_b"], evil=team_b in ("Minion", "Demon"), size=ICON_JINX,
+                                        icon_urls=hw_b.get("image")) or ph_jinx
+
+                    reason_lines = _wrap(jnx["reason"], jinx_wrap_chars)
+                    header_h = SZ_NAME + 4 * SCALE
+                    content_h = header_h + len(reason_lines) * JINX_LINE_HEIGHT
+                    jh = max(ICON_JINX, content_h)
+
+                    # Icons + Text zentriert
+                    icon_y = y + (jh - ICON_JINX) // 2
+                    _paste(img, icon_a, jinx_x, icon_y)
+                    _paste(img, icon_b, jinx_x + ICON_JINX - 8 * SCALE, icon_y)
+                    text_x = jinx_x + ICON_JINX * 2 - 4 * SCALE
+
+                    content_y = y + (jh - content_h) // 2
+                    draw.text((text_x, content_y), f"{name_a} & {name_b}",
+                              fill=ABILITY_COLOR, font=f_name)
+
+                    jt_y = content_y + header_h
+                    for li, line in enumerate(reason_lines):
+                        draw.text((text_x, jt_y + li * JINX_LINE_HEIGHT),
+                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                    y += jh
+
+            # Bootlegger-Regeln
+            if fl["id"] == "bootlegger" and bootlegger_rules:
+                for rule in bootlegger_rules:
+                    lines = _wrap(rule, boot_wrap_chars)
+                    draw.text((jinx_x, y), "•", fill=ABILITY_COLOR, font=f_jinx)
+                    for li, line in enumerate(lines):
+                        draw.text((jinx_x + 12 * SCALE, y + li * JINX_LINE_HEIGHT),
+                                  line, fill=ABILITY_COLOR, font=f_jinx)
+                    y += len(lines) * JINX_LINE_HEIGHT + 2 * SCALE
+
+        y += SECTION_GAP
+
+    # ── Footer ────────────────────────────────────────────────────────
+    y = height - FOOTER_HEIGHT
+    draw.text((PADDING, y + 4 * SCALE), "© Steven Medway  bloodontheclocktower.com",
+              fill=FOOTER_COLOR, font=f_footer)
+    nfn = "*not the first night"
+    nb = draw.textbbox((0, 0), nfn, font=f_footer)
+    draw.text((img_width - PADDING - (nb[2] - nb[0]), y + 4 * SCALE), nfn,
+              fill=FOOTER_COLOR, font=f_footer)
+
+    # ── Export ────────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    buf.seek(0)
+    logger.info("Script-Bild: '%s' (%dx%d, %d chars, %d jinxes)",
+                script_name, img_width, height, len(char_ids), len(jinxes))
+    return buf
+
+
+def _draw_section_header(draw, text, y, img_width, font):
+    """Team-Überschrift links, daneben eine Trennlinie bis zum rechten Rand."""
+    draw.text((PADDING, y + 4 * SCALE), text, fill=HEADER_COLOR, font=font)
+    hb = draw.textbbox((PADDING, y + 4 * SCALE), text, font=font)
+    text_mid_y = (hb[1] + hb[3]) // 2
+    draw.line([(hb[2] + 10 * SCALE, text_mid_y), (img_width - PADDING, text_mid_y)],
+              fill=LINE_COLOR, width=DIVIDER_THICKNESS)
+
+
+async def generate_script_image(script_name, author, char_ids,
+                                version="", meta=None, content=None, show_fabled=True):
+    """Generiert ein Script-Bild (Papier-Design) als PNG."""
+    return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, version, meta, content, show_fabled)

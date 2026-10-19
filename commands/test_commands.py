@@ -22,6 +22,8 @@ TEST_MARKER = "[TEST]"  # Marker im Embed-Titel für Test-Events
 
 
 class TestCommands(commands.Cog):
+    __test__ = False  # Discord-Cog, kein pytest-Testfall
+
     def __init__(self, bot):
         self.bot = bot
 

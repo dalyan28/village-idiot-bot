@@ -8,6 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 from config import get_guild_config, save_guild_config
+from events import guild_lock
 from logic.parser import parse_events, build_overviews
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
@@ -243,7 +244,7 @@ class Overview(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
-        if not message.author.bot or not message.guild:
+        if not message.author.bot or not message.guild or not guild_lock.is_allowed(message.guild.id):
             return
 
         cfg = get_guild_config(message.guild.id)
@@ -291,7 +292,7 @@ class Overview(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
-        if not payload.guild_id:
+        if not payload.guild_id or not guild_lock.is_allowed(payload.guild_id):
             return
 
         cfg = get_guild_config(payload.guild_id)
@@ -333,7 +334,7 @@ class Overview(commands.Cog):
 
     @commands.Cog.listener()
     async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent):
-        if not payload.guild_id:
+        if not payload.guild_id or not guild_lock.is_allowed(payload.guild_id):
             return
 
         cfg = get_guild_config(payload.guild_id)

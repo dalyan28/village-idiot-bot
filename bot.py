@@ -1,27 +1,97 @@
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
+import logging
 import os
 import asyncio
 
+from events import guild_lock
+
 load_dotenv()
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("bot")
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.messages = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+class LockedCommandTree(app_commands.CommandTree):
+    """Slash-Commands nur auf erlaubten Servern (siehe events/guild_lock.py)."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if guild_lock.is_allowed(interaction.guild_id):
+            return True
+        await interaction.response.send_message(
+            "Dieser Bot ist auf diesem Server nicht freigeschaltet.", ephemeral=True
+        )
+        return False
+
+
+bot = commands.Bot(command_prefix="!", intents=intents, tree_cls=LockedCommandTree)
+
+
+async def leave_if_not_allowed(guild: discord.Guild):
+    if guild_lock.should_leave(guild.id):
+        logger.warning(
+            "Server nicht in %s, verlasse ihn: %s (ID %s)", guild_lock.ENV_VAR, guild.name, guild.id
+        )
+        await guild.leave()
+
+
+async def sync_commands():
+    """Commands nur je erlaubtem Server registrieren, globale Commands leeren.
+
+    Ohne ALLOWED_GUILD_IDS wird nichts synchronisiert (der Bot verweigert dann ohnehin alles).
+    """
+    allowed = guild_lock.allowed_guild_ids()
+    if not allowed:
+        logger.warning(
+            "%s ist nicht gesetzt: Der Bot verweigert alle Interaktionen, Commands werden nicht synchronisiert.",
+            guild_lock.ENV_VAR,
+        )
+        return
+    guilds = [discord.Object(id=gid) for gid in allowed]
+    for g in guilds:
+        bot.tree.copy_global_to(guild=g)
+    bot.tree.clear_commands(guild=None)
+    await bot.tree.sync()
+    for g in guilds:
+        try:
+            synced = await bot.tree.sync(guild=g)
+        except discord.Forbidden:
+            # Server steht in der Liste, der Bot ist dort aber (noch) nicht eingeladen
+            logger.warning("Commands für Guild %s nicht synchronisiert: Bot ist dort nicht Mitglied", g.id)
+            continue
+        print(f"Synced commands für Guild {g.id}: {[c.name for c in synced]}")
+
+
+_synced = False
 
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
-    print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
+    global _synced
+    for guild in list(bot.guilds):
+        await leave_if_not_allowed(guild)
+    if not _synced:  # on_ready kommt bei jedem Reconnect, synchronisiert wird nur einmal
+        await sync_commands()
+        _synced = True
     print(f"Bot ist online als {bot.user}")
     from config import cleanup_config
     cleanup_config()
     await asyncio.sleep(3)
     await restore_auto_tasks()
+
+
+@bot.event
+async def on_guild_join(guild: discord.Guild):
+    await leave_if_not_allowed(guild)
 
 
 async def restore_auto_tasks():
@@ -43,6 +113,9 @@ async def restore_auto_tasks():
             continue
 
         guild_id = int(guild_id_str)
+        if not guild_lock.is_allowed(guild_id):
+            print(f"Guild {guild_id} ist nicht freigeschaltet, überspringe Automatisierung")
+            continue
         event_channel = bot.get_channel(guild_cfg.get("event_channel_id"))
         overview_channel = bot.get_channel(guild_cfg.get("overview_channel_id"))
         frequenz = guild_cfg.get("auto_interval_hours", 2)
