@@ -85,7 +85,7 @@ def render(store, draft):
     return asyncio.run(wizard.build_screen(FakeBot(store=store), store, draft))
 
 
-@pytest.mark.parametrize("step", wizard.STEPS)
+@pytest.mark.parametrize("step", [*wizard.STEPS, wizard.STEP_REMINDERS])
 def test_every_step_renders_within_discord_limits(store, step):
     screen = render(store, make_draft(store, step))
     check_limits(screen)

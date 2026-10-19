@@ -19,12 +19,16 @@ def test_cogs_register_commands():
     async def go():
         bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
         bot.store = Store(":memory:")
-        for ext in ("commands.settings", "commands.overview", "commands.event_settings", "commands.botc"):
+        for ext in ("commands.settings", "commands.overview", "commands.event_settings", "commands.botc",
+                    "commands.reminder"):
             await bot.load_extension(ext)
-        return {c.name for c in bot.tree.get_commands()}
+        names = {c.name for c in bot.tree.get_commands()}
+        await bot.unload_extension("commands.reminder")  # Hintergrund-Schleifen stoppen
+        return names
 
     names = run(go())
-    assert {"botc", "set_event_roles", "see_event_roles", "set_academy_access", "set_event_channel"} <= names
+    assert {"botc", "set_event_roles", "see_event_roles", "set_academy_access", "set_event_channel",
+            "set_reminders", "see_reminders", "update_characters"} <= names
 
 
 def test_modal_has_five_components_and_hides_academy():

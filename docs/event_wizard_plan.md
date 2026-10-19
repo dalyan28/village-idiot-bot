@@ -53,9 +53,9 @@ Die Defaults aus Branch `event-creation` gelten unverändert weiter (Dalyan, 19.
 | `co_storyteller` | User-ID + Anzeigename, oder leer | leer | Wizard Schritt 3 | Die User-ID wird für die Rechte auf der Website gebraucht, siehe dort |
 | `script` | Referenz | – | Wizard Schritt 1 | Basis-3, botcscripts.com (ID + Version), Upload (JSON gespeichert) oder freie Wahl |
 | `rating` | grün / gelb / rot / homebrew | aus ScriptRater | Wizard Schritt 2 | per Button überschreibbar, mit Herkunft (`rater` / `manuell` / `fest`) |
-| `title` | Text | Vorlage | Wizard Schritt 4 | Vorlage: „{Skript} mit {ST}[ und {Co-ST}]“, Emoji-Präfix aus den Labels |
-| `description` | Text | Vorlage | Wizard Schritt 4 | Academy: fester Text aus `build_academy_description` |
-| `image` | auto / eigenes / keins | auto | Wizard Schritt 5 | auto = Skript-PNG, bei Basis-3 keins (Thumbnail) |
+| Titel | – | – | wird gebaut, nie eingegeben | Symbole, dann „{Skript} mit {ST}[ und {Co-ST}]“ (Dalyan, 19.10.2026) |
+| `description` | Text, max. 1000 Zeichen | leer | Wizard Schritt 4 | schreibt der Ersteller selbst; Pflicht außer bei Academy, dort folgt der feste Academy-Text |
+| `image_mode` / `custom_image` | auto / eigenes / keins | auto | Wizard Schritt 5 | auto = Skript-Bild (auch für Basis-3), eigenes Bild als PNG auf dem Volume |
 | `reminder_overrides` | Abweichungen vom Server-Default | leer | Wizard Schritt 3 | siehe „Reminder“ |
 
 Vom System gepflegt: `creator_id`, `guild_id`, `channel_id`, `message_id`, `created_at`, `deleted_at`, RSVP-Listen, Reminder-Status.
@@ -222,8 +222,10 @@ Zustandsweiche über Chat-Nachrichten (`on_message`) komplett weg.
    Basis-3 fest (TB grün, BMR/S&V gelb). Freie Wahl: keine Einschätzung. ScriptRater nicht erreichbar: der Storyteller wählt selbst.
 3. **Leitung und Details**: Storyteller (Default: User), Co-ST, Dauer, Kamera, Erinnerungen (siehe „Reminder“). Den Co-ST tippt der User in ein Modal, der
    Bot sucht ihn unter den Servermitgliedern und bietet die Treffer als Select an (siehe Website, „Folgen für die früheren Phasen“).
-4. **Titel und Beschreibung**: Vorlage anzeigen, „Passt“ oder „Anpassen“ (Modal, vorbelegt).
-5. **Bild**: „Automatisch“ (Skript-PNG wird gerendert und gezeigt), „Eigenes Bild“ (Modal mit FileUpload), „Kein Bild“.
+4. **Beschreibung**: schreibt der Ersteller selbst (Modal, vorbelegt beim Bearbeiten). Der Titel wird nicht
+   eingegeben, sondern immer gebaut.
+5. **Bild**: „Aus dem Skript“ (Skript-PNG wird gerendert und gezeigt), „Eigenes Bild hochladen“ (Modal mit
+   FileUpload, ersetzt ein vorheriges), „Kein Bild“.
 6. **Vorschau**: Das Embed genau so, wie es gepostet wird. Buttons „Veröffentlichen“, „Schritt ändern“ (Select),
    „Im Browser bearbeiten“ (Link), „Abbrechen“.
 
@@ -362,7 +364,8 @@ Railway-Projekt, geht es auch über das private Netzwerk).
    und Start des Wizards. ✅ (19.10.2026, siehe „Stand Phase 2“)
 3. **Wizard** Schritte 1–6, Veröffentlichen, Bearbeiten über den Button am Event, Entwürfe, `events/permissions.py`.
    Reminder neu auf der Datenbank, mit `/set_reminders`, `/see_reminders` und Anpassung je Event.
-4. **Einschätzung** über den ScriptRater, Fallback manuell.
+   ✅ (19.10.2026, siehe „Stand Phase 3“)
+4. **Einschätzung** über den ScriptRater, Fallback manuell. ✅ (mit Phase 3 erledigt)
 5. **Deploy Bot**: Volume, Umgebungsvariablen, Test auf dem Server.
 6. **Betrieb und Feedback**: Wizard im Alltag nutzen und nachschärfen, bevor die Website darauf aufbaut.
 7. **Website** (zuletzt): Rechtemodell umsetzen und testen, Login, Seiten, Sync nach Discord. Deploy als `web`-Prozess
@@ -414,9 +417,40 @@ Gebaut:
 
 Nicht getestet: ein echter Durchlauf in Discord. Dafür braucht es den Bot mit `ALLOWED_GUILD_IDS` auf einem Test-Server.
 
+## Stand Phase 3 und 4 (19.10.2026)
+
+Gebaut:
+- `discord_ui/wizard.py`: alle sechs Schritte plus Unterseite „Erinnerungen“. Die Wizard-Nachricht wird bei jedem
+  Klick bearbeitet; Texteingaben laufen über Modals (Suche, JSON-Upload, Mitgliedersuche, Beschreibung, Bild-Upload).
+  Zwischenstände (Suchergebnisse, Kandidaten) liegen in `drafts.ui`.
+- Skript: Basis-3, freie Wahl, botcscripts.com-Suche (10 Treffer im Select) mit Versionswahl, JSON-Upload. Das
+  Skript-JSON wird im Event gespeichert (Bild, Homebrew-Namen, Reminder ohne Netz).
+- `events/rating.py`: ScriptRater `/api/analyse` (live geprüft), Basis-3 fest, sonst manuell. Gelesen werden nur
+  `rating`, `headline`, `reasons`, `metrics.is_homebrew`/`is_amnesiac`.
+- `discord_ui/event_post.py`: Event-Post mit RSVP-Buttons (weiße Custom-Emojis, Academy: 👼), Bearbeiten (DM-Wizard
+  startet in der Vorschau) und Löschen mit Bestätigung. Bilder hängen als `event_image.png`/`thumbnail.png` an;
+  Anmeldungen bauen nur das Embed neu und verweisen per `attachment://` auf sie.
+- `logic/event_images.py`: eigenes Bild wird geprüft und als PNG auf dem Volume gespeichert (Discord-Links laufen ab),
+  erzeugte Skript-Bilder werden zwischengespeichert.
+- `events/reminders.py` + `commands/reminder.py`: Reminder wie geplant; Schleife jede Minute, Thread am Event-Post,
+  Pings nur an User (nie @everyone/Rollen), lange Ping-Listen werden geteilt. Aufräumen stündlich.
+- `/update_characters` (aus `event-creation` übernommen, nur Bot-Owner); beim ersten Start ohne Icons lädt der Bot
+  sie automatisch.
+- `/set_event_channel` und `/set_overview_channel` brauchen jetzt „Server verwalten“ (vorher durfte das jedes Mitglied).
+- Die Übersicht von `main` liest die neuen Event-Posts weiterhin (Felder „Termin“ und „Akzeptiert (n/m)“).
+
+Gefunden und behoben:
+- botcscripts: `/api/scripts/<id>/` erwartet den internen `pk`; mit der Skript-ID kam ein anderes Skript zurück (173 →
+  „Rise of The Outsiders“ statt Boozling). Der alte Reminder hätte oft das falsche Skript-JSON gepostet. Jetzt über
+  `/script/<id>/<version>/download`.
+- Veröffentlichen ohne Event-Channel hätte ein Event in der Datenbank angelegt, das nie gepostet wird.
+
+Tests: 229 grün, darunter ein kompletter Durchlauf mit Discord-Attrappen (`tests/test_wizard_flow.py`) und jeder
+Schritt gegen die Discord-Grenzen (`tests/test_wizard.py`). Ein echter Durchlauf in Discord steht noch aus.
+
 ## Offene Fragen
 
 - Academy-Berechtigung im Detail (z. B. Verhältnis zur Storyteller-Rolle). Kann später geklärt werden.
 
-- ScriptRater: Sein lokaler Branch `refactor/ontologie` liegt 172 Commits vor `origin/main` und ist nicht gepusht.
-  Gilt `/api/analyse` auf `main` als stabile Schnittstelle?
+- ScriptRater: Vorschlag, im ScriptRater einen Test für das Antwortformat von `/api/analyse` anzulegen (siehe oben,
+  der Bot fällt bei unlesbarer Antwort auf manuelle Einschätzung zurück).
