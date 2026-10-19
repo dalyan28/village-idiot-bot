@@ -1,0 +1,376 @@
+# Event-Wizard: Plan
+
+Stand: 19.10.2026, Branch `event-wizard` (von `main`).
+Diese Datei ist die Übergabe: Wer die Arbeit aufnimmt, liest zuerst sie und aktualisiert sie am Ende jedes Arbeitsblocks.
+
+## Ziel
+
+Die Event-Erstellung aus Branch `event-creation` wird ohne KI neu gebaut: deterministisch und linear.
+
+1. `/botc` öffnet ein **Modal** mit den Eckdaten (kein Titel, keine Beschreibung).
+2. Ein **DM-Wizard** führt Schritt für Schritt bis zum fertigen Event.
+3. Ein Event ist danach **im DM-Wizard bearbeitbar** und **auf einer Website verwaltbar**.
+4. Auch die **Erstellung** geht auf der Website, für alle, die das lieber dort machen.
+
+## Entscheidungen (Dalyan, 19.10.2026)
+
+| Thema | Entscheidung |
+|---|---|
+| Basis | Neuer Branch von `main`. Die Module ohne KI werden aus `event-creation` übernommen, der Branch selbst wird nicht gemerged. |
+| Datum im Modal | Textfeld mit deterministischem Parser (kein Select). |
+| Website | Läuft im Bot-Service (FastAPI im Event-Loop des Bots), eigene Subdomain, z. B. `events.widow-botc.com`. Das Design übernimmt CSS und Header vom ScriptRater. |
+| Einschätzung des Skripts | Kommt vom ScriptRater (`POST /api/analyse`). Dort ist der Algorithmus gepflegt und korrigiert. |
+| KI | Fällt vollständig weg: `anthropic`, `logic/conversation.py`, `logic/llm_config.py`, Kostenzeile, Max-Calls, Resume-Keywords. |
+| Wer darf `/botc` | Nur eine bestimmte Rolle, von Server-Admins konfigurierbar (siehe „Rollen und Berechtigungen“). |
+| Academy | Nur konfigurierbare Rollen oder User dürfen Academy-Events erstellen (siehe „Rollen und Berechtigungen“). |
+| botcscripts.com | Die Anbindung bleibt zentral: Suche, Versionen, Skript-JSON für den Reminder. Sie wird aus `event-creation` übernommen und nicht vereinfacht. |
+| Bestandsdaten | `event-creation` lief nie produktiv. Keine Migration von `events.json`, die Datenbank startet leer. |
+| Skript-Bild | Nur die Papier-Variante. Starfield, Neon und `script_image_v2.py` werden für dieses Projekt verworfen und nicht übernommen. |
+| Co-ST | Darf das Event weder bearbeiten noch Teilnehmer verwalten. |
+| Gäste | Sehen auf der Website nichts. Ohne Login und Servermitgliedschaft gibt es keine Termine. |
+| Event-Team | Eine eigene Rolle neben „Server verwalten“, die alle Events des Servers verwalten darf. |
+| Embed-Felder | „NPCs“ (Fabled/Loric) wird wieder angezeigt. „Relevante Charaktere“ kommt als **„Highlights“** zurück (siehe „Event-Embed“). Nutzer werden immer als Text angezeigt, nie als Mention. |
+| ScriptRater | Läuft unter `https://widow-botc.com/script-check`, gehostet auf Railway, DNS bei Cloudflare. |
+
+## Feldschema
+
+Ein Schema an genau einer Stelle (`events/schema.py`). Modal, Wizard, Website, Embed und Speicherung lesen alle daraus.
+
+Die Defaults aus Branch `event-creation` gelten unverändert weiter (Dalyan, 19.10.2026): 12 Spieler, 150 Minuten, Level
+„Alle“, Kamera „Keine Pflicht“, Casual/Academy/Aufzeichnung aus, Storyteller = der erstellende User, kein Co-ST.
+
+| Feld | Typ | Default | Wo erfasst | Hinweis |
+|---|---|---|---|---|
+| `start` | Zeitpunkt (Europe/Berlin) | – | Modal (Datum + Uhrzeit) | Pflicht, muss in der Zukunft liegen |
+| `max_players` | int | 12 | Modal | erlaubt 1–200 (Dalyan, 19.10.2026) |
+| `level` | Neuling / Erfahren / Profi / Alle | Alle | Modal | |
+| `is_casual` | bool | false | Modal (Checkbox) | schließt sich mit Academy aus, Academy gewinnt |
+| `is_academy` | bool | false | Modal (Checkbox) | Beschreibung fest, Thumbnail Academy, „Auffüller“ statt „Vorläufig“ |
+| `is_recorded` | bool | false | Modal (Checkbox) | |
+| `camera` | Pflicht / Keine Pflicht / Aus | Keine Pflicht | Modal (Checkbox „Kamera-Pflicht“), „Aus“ im Wizard | |
+| `duration_minutes` | int | 150 | Wizard Schritt 3 | Select: 90–240 in 30er-Schritten |
+| `storyteller` | Text | Anzeigename des Users | Wizard Schritt 3 | |
+| `co_storyteller` | User-ID + Anzeigename, oder leer | leer | Wizard Schritt 3 | Die User-ID wird für die Rechte auf der Website gebraucht, siehe dort |
+| `script` | Referenz | – | Wizard Schritt 1 | Basis-3, botcscripts.com (ID + Version), Upload (JSON gespeichert) oder freie Wahl |
+| `rating` | grün / gelb / rot / homebrew | aus ScriptRater | Wizard Schritt 2 | per Button überschreibbar, mit Herkunft (`rater` / `manuell` / `fest`) |
+| `title` | Text | Vorlage | Wizard Schritt 4 | Vorlage: „{Skript} mit {ST}[ und {Co-ST}]“, Emoji-Präfix aus den Labels |
+| `description` | Text | Vorlage | Wizard Schritt 4 | Academy: fester Text aus `build_academy_description` |
+| `image` | auto / eigenes / keins | auto | Wizard Schritt 5 | auto = Skript-PNG, bei Basis-3 keins (Thumbnail) |
+| `reminder_overrides` | Abweichungen vom Server-Default | leer | Wizard Schritt 3 | siehe „Reminder“ |
+
+Vom System gepflegt: `creator_id`, `guild_id`, `channel_id`, `message_id`, `created_at`, `deleted_at`, RSVP-Listen, Reminder-Status.
+
+## Server-Lock (Dalyan, 19.10.2026)
+
+Der Bot läuft vorerst **nur auf einem Server** und funktioniert auf keinem anderen. Der Code bleibt trotzdem
+mehrserverfähig: Alles ist weiter je `guild_id` gespeichert und konfiguriert, der Lock ist eine Schicht darüber und lässt
+sich später durch eine längere Liste aufheben.
+
+- **Konfiguration**: Umgebungsvariable `ALLOWED_GUILD_IDS` (kommagetrennt, heute genau eine ID).
+- **Commands nur dort registriert**: statt globalem `bot.tree.sync()` (heute in `bot.py`) Sync je erlaubtem Server
+  (`tree.copy_global_to(guild=…)` + `tree.sync(guild=…)`) und die globalen Commands leeren. Auf anderen Servern tauchen die
+  Commands dann gar nicht erst auf. Nebeneffekt: Guild-Sync greift sofort, globaler Sync braucht bis zu einer Stunde.
+- **Prüfung bei jeder Interaktion**: globaler `interaction_check` im Command-Tree und in allen Views (Buttons, Modals,
+  Selects). Fremder Server → ephemere Antwort „Dieser Bot ist nur für {Servername} freigeschaltet“, sonst nichts.
+- **DMs**: Ein DM-Wizard gehört immer zu einem Entwurf mit `guild_id`; nur Entwürfe erlaubter Server werden bearbeitet.
+- **Hintergrund-Tasks** (Übersicht, Reminder, Cleanup) laufen nur für erlaubte Server.
+- **Fremder Server lädt den Bot ein**: `on_guild_join` → Server verlassen, im Log vermerken. Beim Start werden fremde
+  Server ebenso verlassen.
+  Schutz vor Fehlkonfiguration: Ist `ALLOWED_GUILD_IDS` leer oder fehlt, verlässt der Bot **keinen** Server, sondern
+  verweigert nur alle Interaktionen und loggt eine Warnung. Sonst würde ein Tippfehler in der Variable den Bot aus dem
+  eigenen Server werfen.
+- **Website** (Phase 7): Login nur für Mitglieder eines erlaubten Servers.
+- **Zusätzlich im Discord Developer Portal**: „Public Bot“ ausschalten. Dann kann nur der Eigentümer der Anwendung den Bot
+  einladen. Das ist eine Einstellung, kein Code, und muss von Hand gesetzt werden.
+- Der Lock gilt für den **ganzen Bot**, also auch für die bestehenden Übersichts-Features von `main`.
+
+### Testen auf anderen Servern
+
+Dalyan muss den Bot auch auf Test-Servern ausprobieren können. Dafür:
+
+- **Erlaubte Server sind eine Liste.** Ein Test-Server wird einfach mit seiner ID in `ALLOWED_GUILD_IDS` eingetragen.
+- **Empfohlen: eigene Test-Anwendung im Developer Portal** (eigener Bot-Token, z. B. „Village Idiot Dev“), lokal oder als
+  zweiter Railway-Service mit `ENV=dev`. Ihre `ALLOWED_GUILD_IDS` enthält nur die Test-Server, die des Produktiv-Bots nur
+  den echten Server. So landen Test-Events und Test-Commands (`/create_test_event` usw., heute schon an `ENV=dev`
+  gebunden) nie auf dem echten Server, und der Produktiv-Bot muss keinem Test-Server beitreten.
+- Eigene Datenbank je Umgebung (lokal eine Datei im Projektordner, auf Railway das jeweilige Volume).
+- **Reihenfolge beim Einladen**: erst die ID in `ALLOWED_GUILD_IDS` eintragen und neu starten, dann einladen. Sonst
+  verlässt der Bot den Server sofort wieder. Die Log-Meldung beim Verlassen nennt Servername und ID, damit man sie direkt
+  übernehmen kann.
+
+## Event-Embed
+
+Aufbau wie in `event-creation` (`logic/event_builder.py`): Author, Titel, Storytelling/Kamera/Level, Co-ST, Beschreibung,
+Skript, Termin, RSVP-Listen, Bild, Footer. Dazu kommen zwei Felder wieder hinzu, die dort auskommentiert waren:
+
+- **NPCs**: Fabled und Loric des Skripts, durch Komma getrennt. Fehlt das Feld, wenn es keine gibt.
+- **Highlights** (Name: Dalyan, 19.10.2026; ersetzt „Relevante Charaktere“, weil „relevant“ andere Charaktere als
+  unwichtig hinstellt): bis zu 5 Charaktere mit dem höchsten Score aus `character_rating.json`, Score 9–10 fett. Die Zahl
+  hinter dem Namen (Score) entfällt im Embed, sie ist für Spieler ohne Kontext nicht lesbar.
+- Basis-3 zeigt beide Felder wie jedes andere Skript. Bei freier Skriptwahl gibt es keine Charaktere, dort fehlen beide Felder.
+
+### Nutzer immer als Text anzeigen (Dalyan, 19.10.2026)
+
+Überall, wo Nutzer angezeigt werden (Teilnehmer, Warteliste, Auffüller, Abgelehnt, Storyteller, Co-ST, Author/Footer),
+steht der **Anzeigename als Text**, nie eine Mention `<@id>`. Grund: Discord löst Mentions in Embeds oft nicht auf, weil
+der Client den Nutzer nicht im Cache hat, und zeigt dann die rohe ID.
+
+- Gespeichert wird immer beides: `user_id` (für Rechte und Logik) und `display_name` (Anzeigename auf dem Server zum
+  Zeitpunkt der Aktion, also Server-Nickname vor globalem Namen).
+- Beim Rendern nimmt der Bot den aktuellen Namen aus seinem Member-Cache und fällt auf den gespeicherten zurück. Ändert
+  jemand den Namen, steht beim nächsten Neuaufbau des Embeds (jede RSVP-Änderung) der neue Name drin.
+- Namen werden für Markdown escaped (`discord.utils.escape_markdown`), damit `*`, `_` oder `~` im Namen das Embed nicht zerschießen.
+- Die alte Hilfsfunktion `_format_user_list_quoted` (Mentions `> <@id>`) wird durch eine Variante mit Namen ersetzt.
+- Ausnahme: **Reminder** dürfen per Mention pingen, wenn das so eingestellt ist (siehe „Reminder“). Dort ist der Ping der
+  Zweck. Bei der Einstellung „nur Namen“ gilt auch dort Text.
+
+Die Score-Daten liegen auch im ScriptRater (`app/data/character_rating.json`). Solange `/api/analyse` keine Liste der
+hervorgehobenen Charaktere liefert, bleibt die Kopie im Bot; langfristig soll sie aus dem ScriptRater kommen.
+
+## Reminder
+
+Bisher (`commands/reminder.py` auf `event-creation`): Schleife alle 2 Min.; ~15 Min. vor Start Thread am Event-Post,
+Ping aller Zusagen, Skript-JSON; ~5 Min. vor Start Anwesenheitskontrolle mit nummerierter Liste, wieder als Ping. Alles
+fest eingebaut. Schwächen: Ein verpasstes Zeitfenster (Neustart, Event kurz vor Start angelegt) lässt den Reminder
+ausfallen; die Warteliste wird als Zusage mitgepingt; Vorläufige/Auffüller und Co-ST bekommen nie etwas; für Basis-3 wird
+vermutlich kein Skript-JSON gepostet (keine botcscripts-ID gespeichert, beim Übernehmen prüfen).
+
+Neu (Dalyan, 19.10.2026): **Server-Default + Anpassung je Event.**
+
+Einstellungen je Reminder:
+
+| Einstellung | Werte | Default |
+|---|---|---|
+| Aktiv | ja / nein | ja |
+| Zeitpunkt | Minuten vor Start | 15 bzw. 5 |
+| Benachrichtigung | Ping / nur Namen | Ping |
+| Empfänger | Zusagen, Warteliste, Vorläufig/Auffüller, Co-ST (Mehrfachauswahl) | Zusagen ohne Warteliste |
+| Skript-JSON posten | ja / nein | ja beim ersten, nein beim zweiten |
+| Art | Erinnerung / Anwesenheitskontrolle (nummerierte Liste) | erster: Erinnerung, zweiter: Anwesenheitskontrolle |
+
+- **Server-Default**: `/set_reminders` und `/see_reminders`, nur Event-Team bzw. „Server verwalten“. Gespeichert in der
+  Guild-Konfiguration.
+- **Je Event**: Wizard Schritt 3 zeigt „Erinnerungen: Server-Standard (15 Min. Ping, 5 Min. Anwesenheit)“ mit Button
+  „Anpassen“. Gespeichert wird nur die Abweichung (`reminder_overrides`); ändert ein Admin später den Server-Default,
+  greift das für alle Events ohne eigene Anpassung.
+- **Auslösung**: „fällig und noch nicht gesendet“ statt Zeitfenster. Ein verpasster Reminder wird nachgeholt, solange das
+  Event noch nicht begonnen hat; danach verfällt er still. Gesendete Reminder je Event in der Datenbank
+  (`event_reminders`: `event_id`, `reminder_key`, `sent_at`). Termin geändert → Status zurückgesetzt (wie bisher).
+
+## Rollen und Berechtigungen (Discord)
+
+Zwei Rollen je Server, gespeichert in der Guild-Konfiguration:
+
+- **Storyteller-Rolle**: darf `/botc` nutzen und eigene Events bearbeiten und löschen.
+- **Event-Team-Rolle**: darf zusätzlich alle Events des Servers bearbeiten, löschen und Teilnehmer verwalten.
+  „Server verwalten“ zählt immer als Event-Team.
+
+Konfiguration über `/set_event_roles storyteller:<Rolle> event_team:<Rolle>`, nur für „Server verwalten“
+(`default_permissions`). `/see_event_roles` zeigt den Stand. Ist keine Storyteller-Rolle gesetzt, dürfen nur Event-Team
+und Admins `/botc` nutzen. Der Bot erklärt das in der Antwort und verweist auf den Command.
+
+Warum ein eigener Command und nicht nur die Discord-Einstellungen? Unter *Servereinstellungen → Integrationen* lässt sich
+`/botc` zwar auf Rollen beschränken, und das bleibt als zusätzliche Möglichkeit erhalten. Der Bot muss die Rollen aber
+selbst kennen: für die Buttons „Bearbeiten“ und „Löschen“ am Event, für das Event-Team und später für die Website. Die
+Prüfung im Bot ist deshalb maßgeblich, die Discord-Einstellung ist nur ein Filter für die Sichtbarkeit des Commands.
+
+**Academy-Angebote** (Dalyan, 19.10.2026): Nur bestimmte Rollen oder einzelne User dürfen Academy-Events erstellen.
+Konfigurierbar über `/set_academy_access` (Rollen und/oder User hinzufügen und entfernen), nur Event-Team bzw. „Server
+verwalten“. Das Event-Team darf es immer.
+- Im Modal erscheint die Checkbox „Academy“ nur für Berechtigte (das Modal wird je Aufruf gebaut, das geht).
+- Wer nicht berechtigt ist, kann Academy auch beim Bearbeiten nicht einschalten. Ein bestehendes Academy-Event bleibt
+  Academy, auch wenn der Ersteller die Berechtigung später verliert.
+- Details (z. B. ob Academy-Berechtigte automatisch auch die Storyteller-Rolle brauchen) klären wir später.
+
+Eine Person verliert die Storyteller-Rolle: Ihre bestehenden Events bleiben, sie kann sie weiter bearbeiten und löschen,
+aber keine neuen anlegen.
+
+## Modal (`/botc`)
+
+Fünf Elemente (Grenze von Discord), discord.py 2.7.1 kann Label, Select, Radio, Checkbox und FileUpload in Modals:
+
+1. **Datum**: Textfeld, Platzhalter „z. B. Sa, morgen, 24.10.“
+2. **Uhrzeit**: Textfeld, Platzhalter „20:00“
+3. **Max. Spieler**: Textfeld, vorbelegt mit 12
+4. **Erfahrungslevel**: Radio Neuling / Erfahren / Profi / Alle, vorausgewählt Alle
+5. **Optionen**: Checkboxen Casual, Academy, Aufzeichnung, Kamera-Pflicht
+
+Nach dem Absenden: ephemere Antwort „Check deine DMs“ und Start des Wizards. Die erste DM nennt den erkannten Termin
+ausgeschrieben („Samstag, 24.10.2026, 20:00–22:30“), damit Fehler sofort auffallen.
+
+Kann der Parser die Eingabe nicht lesen, antwortet der Bot ephemer mit dem Grund und einem Button „Nochmal“. Der öffnet das
+Modal erneut, vorbelegt mit der alten Eingabe.
+
+### Parser (deterministisch, `events/parse.py`)
+
+- Datum: `heute`, `morgen`, `übermorgen`; Wochentage lang und kurz (`Samstag`, `Sa`, `nächsten Samstag`); `in 3 Tagen`;
+  `24.10.`, `24.10`, `24.10.2026`, `24.10.26`, `2026-10-24`. Ohne Jahr: das nächste Vorkommen in der Zukunft.
+- Uhrzeit: `20`, `20:00`, `20.00`, `2000`, `20 Uhr`, `20:30 Uhr`.
+- Ablehnen: Zeitpunkt in der Vergangenheit, mehr als 1 Jahr in der Zukunft, ungültiges Datum (31.02.).
+- Umfangreich getestet, ohne Discord.
+
+## DM-Wizard
+
+Eine Wizard-Nachricht pro Session, die bei jedem Schritt **bearbeitet** statt neu gesendet wird. Jeder Schritt hat
+„Zurück“ und „Abbrechen“. Texteingaben laufen über kleine Modals statt über freie Chat-Nachrichten. Damit fällt die
+Zustandsweiche über Chat-Nachrichten (`on_message`) komplett weg.
+
+1. **Skript**: Buttons Trouble Brewing, Bad Moon Rising, Sects & Violets, Freie Skriptwahl, Suchen, JSON hochladen.
+   - Suchen: Modal mit Suchbegriff → Select mit den Treffern von botcscripts.com → Select mit der Version (falls mehrere).
+   - JSON hochladen: Modal mit FileUpload, Validierung wie bisher (`validate_script_json`).
+2. **Einschätzung**: Ergebnis vom ScriptRater mit Überschrift und Begründung. Buttons „Passt“, „Grün“, „Gelb“, „Rot“.
+   Basis-3 fest (TB grün, BMR/S&V gelb). Freie Wahl: keine Einschätzung. ScriptRater nicht erreichbar: der Storyteller wählt selbst.
+3. **Leitung und Details**: Storyteller (Default: User), Co-ST, Dauer, Kamera, Erinnerungen (siehe „Reminder“). Den Co-ST tippt der User in ein Modal, der
+   Bot sucht ihn unter den Servermitgliedern und bietet die Treffer als Select an (siehe Website, „Folgen für die früheren Phasen“).
+4. **Titel und Beschreibung**: Vorlage anzeigen, „Passt“ oder „Anpassen“ (Modal, vorbelegt).
+5. **Bild**: „Automatisch“ (Skript-PNG wird gerendert und gezeigt), „Eigenes Bild“ (Modal mit FileUpload), „Kein Bild“.
+6. **Vorschau**: Das Embed genau so, wie es gepostet wird. Buttons „Veröffentlichen“, „Schritt ändern“ (Select),
+   „Im Browser bearbeiten“ (Link), „Abbrechen“.
+
+**Bearbeiten**: Der Button „Bearbeiten“ am Event öffnet in den DMs direkt die Vorschau (Schritt 6). Über
+„Schritt ändern“ springt man in einen Schritt und kommt danach zurück zur Vorschau. Beim Speichern bleiben die RSVPs
+erhalten, und Reminder werden zurückgesetzt, wenn sich der Termin ändert (wie bisher).
+
+**Entwürfe** liegen in der Datenbank, nicht im Arbeitsspeicher. Ein Wizard übersteht einen Neustart, läuft nach 24 h
+ohne Aktivität ab und lässt sich auf der Website fortsetzen. `/botc` mit offenem Entwurf fragt: „Weitermachen“ oder „Neu“.
+
+## Website (`events.widow-botc.com`) — wird zuletzt umgesetzt
+
+Dalyan (19.10.2026): Die Website ist von Anfang an mitgedacht. Der Kern (`events/service.py`) kennt deshalb kein Discord
+und kein Web, und jede Änderung läuft über eine Funktion, die den handelnden User und seine Rolle prüft. Gebaut wird die
+Website aber erst, wenn Modal und Wizard produktiv laufen (Phase 7). Der Grund ist das Rechtemodell: Wer darf welches
+Event sehen und ändern?
+
+### Technik
+
+- FastAPI + Jinja, gestartet in `bot.py` neben dem Bot im selben Event-Loop (`uvicorn.Server(...).serve()`).
+- Optik: `style.css` und Header vom ScriptRater übernehmen, gegenseitig verlinken.
+- Speichern auf der Website aktualisiert die Discord-Nachricht sofort (gleiche Service-Funktion wie der Wizard).
+
+### Identität: wer ist der Besucher?
+
+- Login nur über **Discord OAuth2** (Authorization Code Flow, Scope `identify`). Die Website kennt danach die Discord-User-ID,
+  sonst nichts: keine eigenen Konten, keine Passwörter.
+- `state`-Parameter gegen CSRF im Login. Die Session liegt in einem signierten, `HttpOnly`-, `Secure`-, `SameSite=Lax`-Cookie
+  (Starlette `SessionMiddleware`, `SESSION_SECRET`). Das Discord-Access-Token wird nach dem Login nicht gespeichert.
+- **Servermitgliedschaft und Rollen prüft der Bot**, nicht der Browser: Der Bot fragt seinen Member-Cache (oder
+  `fetch_member`) der Guild des Events. Wer den Server verlassen hat, sieht nichts mehr. Ergebnis kurz cachen (z. B. 5 Min.).
+- **Login-Link aus Discord**: „Im Browser bearbeiten“ führt auf eine normale URL der Website. Die Website verlangt dort
+  ganz normal den Login. Kein Token in der URL, das sich weiterleiten ließe. (Optional später: ein kurzlebiger,
+  einmal gültiger, an die User-ID gebundener Link, der den OAuth-Schritt nur vorausfüllt.)
+
+### Rollen je Event
+
+Die Rolle wird **je Anfrage und je Event** auf dem Server aus der Datenbank und der Guild berechnet, nie aus dem Request
+übernommen:
+
+| Rolle | Wer | Ableitung |
+|---|---|---|
+| Ersteller | hat das Event angelegt | `events.creator_id` |
+| Co-ST | leitet mit, hat aber keine Verwaltungsrechte | Feld mit **User-ID** statt nur Text (siehe unten) |
+| Event-Team | Event-Team-Rolle oder „Server verwalten“ in der Guild des Events | Guild-Konfiguration + Rollen über den Bot |
+| Teilnehmer | ist in `accepted`, `tentative` oder auf der Warteliste | RSVP-Tabelle |
+| Servermitglied | ist Mitglied der Guild, sonst nichts | Guild über den Bot |
+| Gast | nicht eingeloggt oder nicht in der Guild | – |
+
+### Was jede Rolle darf
+
+| Aktion | Gast | Mitglied | Teilnehmer | Co-ST | Ersteller | Event-Team |
+|---|---|---|---|---|---|---|
+| Überhaupt etwas sehen | – | ✔ | ✔ | ✔ | ✔ | ✔ |
+| Eventliste der Guild sehen | – | ✔ (Felder wie im Discord-Embed) | ✔ | ✔ | ✔ | ✔ |
+| Eigene Anmeldung ändern (zu-/absagen, vorläufig) | – | ✔ | ✔ | – | – | – |
+| Teilnehmerliste sehen | – | ✔ (wie im Embed) | ✔ | ✔ | ✔ | ✔ |
+| Event erstellen | – | nur mit Storyteller-Rolle | – | – | – | ✔ |
+| Event bearbeiten | – | – | – | – | ✔ | ✔ |
+| Teilnehmer entfernen oder verschieben (Warteliste) | – | – | – | – | ✔ | ✔ |
+| Event löschen | – | – | – | – | ✔ | ✔ |
+| Entwürfe sehen | – | – | – | – | nur eigene | – |
+| Event eines anderen Erstellers übernehmen | – | – | – | – | – | ✔ |
+
+Die Spalten sind kumulativ zu lesen, wo es passt: Ein Ersteller ist auch Mitglied und kann sich bei fremden Events anmelden.
+
+Grundsätze:
+- **Standard ist „verboten“**: Jede Route prüft ausdrücklich `can(user, action, event)` aus `events/permissions.py`. Diese
+  Funktion nutzen auch die Buttons im Discord, damit beide Oberflächen dieselben Regeln haben.
+- **Kein Zugriff über erratbare IDs**: Eine URL wie `/events/123/edit` prüft immer die Rolle. Wer keine Rechte hat,
+  bekommt 404 statt 403, damit nicht einmal die Existenz fremder Entwürfe sichtbar wird.
+- **Guild-Grenze**: Ein Event ist nur für Mitglieder der Guild sichtbar, in der es gepostet ist. Gäste sehen nur die
+  Login-Seite.
+- Änderungen über Formulare (POST) brauchen ein CSRF-Token.
+- **Audit-Log**: Jede Änderung wird mit User, Rolle, Zeit und geänderten Feldern in `event_log` gespeichert. So lassen sich
+  Änderungen durch das Event-Team nachvollziehen, und dem Ersteller kann eine DM „X hat dein Event geändert“ geschickt werden.
+
+### Folgen für die früheren Phasen
+
+Damit die Website später ohne Umbau drauf passt, gilt schon ab Phase 1:
+- `storyteller` und `co_storyteller` speichern eine **Discord-User-ID** (wenn bekannt) und zusätzlich den Anzeigenamen.
+  Der Co-ST bekommt dadurch keine Rechte; die ID dient der Anzeige („Meine Events“) und künftigen Erinnerungen.
+  Im Wizard tippt der User den Namen des Co-ST in ein Modal. Der Bot sucht ihn unter den Mitgliedern der Guild
+  (`guild.query_members`) und bietet die Treffer als Select an. Ein User-Select in DMs würde die Servermitglieder nicht
+  kennen. Wird niemand gefunden, bleibt der Name als Freitext ohne Rechte.
+- RSVPs als eigene Tabelle (`event_id`, `user_id`, `display_name`, `status`, `created_at`) statt Listen im Event. So geht die Warteliste
+  nach Anmeldezeit.
+- `events/permissions.py` gibt es schon in Phase 2 und 3, für `/botc` und die Buttons „Bearbeiten“ und „Löschen“.
+
+### Seiten (Phase 7)
+
+- **Übersicht der Guild**: kommende Events wie im Discord, mit Filtern (Level, Skript, Label).
+- **Meine Events**: als Ersteller oder ST, als Teilnehmer, und meine Entwürfe.
+- **Event-Detail**: Embed-Inhalt, Teilnehmer, eigene Anmeldung.
+- **Event erstellen / bearbeiten**: ein Formular mit allen Feldern und derselben Validierung wie der Wizard. Ein Entwurf aus
+  dem Wizard lässt sich hier fortsetzen und umgekehrt.
+- **Teilnehmer verwalten** (Ersteller, Event-Team): entfernen, von der Warteliste nachrücken lassen.
+
+## Architektur
+
+```
+bot.py                    startet Bot + Webserver
+events/                   gemeinsamer Kern, ohne Discord- und Web-Code
+  schema.py               Feldschema, Defaults, Validierung
+  parse.py                Datum/Uhrzeit-Parser
+  templates.py            Titel- und Beschreibungsvorlagen, Emoji-Präfix
+  store.py                SQLite: events, drafts, rsvps, event_log, event_reminders
+  permissions.py          can(user, action, event): Storyteller-Rolle, Event-Team, Ersteller
+  service.py              create / update / publish / delete — von Wizard und Web genutzt
+  rating.py               Client für ScriptRater /api/analyse, Basis-3 fest
+discord_ui/
+  modal.py                /botc-Modal
+  wizard.py               DM-Wizard (Schritte als Klassen, ein state-Feld)
+  event_view.py           RSVP, Bearbeiten, Löschen (aus event-creation)
+web/
+  app.py, auth.py, routes.py, templates/, static/
+logic/                    aus event-creation übernommen: botcscripts.py, script_cache.py,
+                          script_image.py (nur Papier-Variante), event_builder.py
+commands/                 overview/settings (main, + /set_event_roles), reminder.py (aus event-creation)
+```
+
+Speicherung: SQLite unter `RAILWAY_VOLUME_MOUNT_PATH`. Railway-Deploy wird vom `worker` zum `web`-Prozess (braucht
+`$PORT` und den Healthcheck `/health`).
+
+Neue Umgebungsvariablen: `ALLOWED_GUILD_IDS`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `WEB_BASE_URL`, `SESSION_SECRET`,
+`SCRIPT_RATER_URL` (inkl. Präfix: `https://widow-botc.com/script-check`; liegen Bot und ScriptRater im selben
+Railway-Projekt, geht es auch über das private Netzwerk).
+
+## Phasen
+
+0. **Branch und Plan** (diese Datei). ✅
+1. **Kern**: Schema, Parser, Vorlagen, SQLite-Store (events, drafts, rsvps, event_log), Service. Module ohne KI aus
+   `event-creation` übernehmen. Server-Lock (`ALLOWED_GUILD_IDS`, Guild-Sync, `interaction_check`, `on_guild_join`).
+   Tests ohne Discord.
+2. **Rollen und Modal**: `/set_event_roles`, `/see_event_roles`, `/set_academy_access`, Rechteprüfung in `/botc`, Modal
+   und Start des Wizards.
+3. **Wizard** Schritte 1–6, Veröffentlichen, Bearbeiten über den Button am Event, Entwürfe, `events/permissions.py`.
+   Reminder neu auf der Datenbank, mit `/set_reminders`, `/see_reminders` und Anpassung je Event.
+4. **Einschätzung** über den ScriptRater, Fallback manuell.
+5. **Deploy Bot**: Volume, Umgebungsvariablen, Test auf dem Server.
+6. **Betrieb und Feedback**: Wizard im Alltag nutzen und nachschärfen, bevor die Website darauf aufbaut.
+7. **Website** (zuletzt): Rechtemodell umsetzen und testen, Login, Seiten, Sync nach Discord. Deploy als `web`-Prozess
+   (`$PORT`, Healthcheck `/health`), Subdomain in Cloudflare (CNAME) und Railway, OAuth-Redirect, `SESSION_SECRET`.
+
+## Offene Fragen
+
+- Academy-Berechtigung im Detail (z. B. Verhältnis zur Storyteller-Rolle). Kann später geklärt werden.
+
+- ScriptRater: Sein lokaler Branch `refactor/ontologie` liegt 172 Commits vor `origin/main` und ist nicht gepusht.
+  Gilt `/api/analyse` auf `main` als stabile Schnittstelle?
