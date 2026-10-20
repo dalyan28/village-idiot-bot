@@ -629,10 +629,9 @@ class ScriptModal(_WizardModal):
         self.add_item(discord.ui.Label(text="Auf botcscripts.com suchen",
                                        description="Suchbegriff eintragen und abschicken",
                                        component=self.query))
-        self.add_item(discord.ui.Label(text="Oder direkt wählen", description="Hat Vorrang vor der Suche",
+        self.add_item(discord.ui.Label(text="Oder direkt wählen",
                                        component=self.kind))
         self.add_item(discord.ui.Label(text="Oder eigenes Skript-JSON anhängen",
-                                       description="Eine angehängte Datei hat Vorrang vor allem anderen",
                                        component=self.file))
 
     async def handle(self, interaction, ctx: WizardContext):
