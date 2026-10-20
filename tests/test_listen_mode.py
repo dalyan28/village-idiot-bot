@@ -226,31 +226,91 @@ class TestDebounce:
 
 
 # ---------------------------------------------------------------------------
-# Sentinel Handling
+# Ein- und Ausschalten, Listener
 # ---------------------------------------------------------------------------
 
-class TestListenModeSentinel:
-    def test_stop_recognizes_sentinel(self, cog):
-        """is_running Check erkennt 'listen_mode' Sentinel."""
-        cog.auto_tasks[1] = "listen_mode"
-        existing = cog.auto_tasks.get(1)
-        is_running = (
-            existing == "listen_mode"
-            or (isinstance(existing, asyncio.Task) and not existing.done())
-        )
-        assert is_running is True
+@pytest.fixture
+def config_file(tmp_path, monkeypatch):
+    import config
+    monkeypatch.setattr(config, "CONFIG_FILE", str(tmp_path / "config.json"))
+    config.save_guild_config(1, {"event_channel_id": 10, "overview_channel_id": 20})
+    return config
 
-    def test_sentinel_not_cancellable(self, cog):
-        """Sentinel ist ein String, hat kein .cancel() → kein Fehler."""
-        cog.auto_tasks[1] = "listen_mode"
-        existing = cog.auto_tasks[1]
-        assert not isinstance(existing, asyncio.Task)
-        assert existing == "listen_mode"
 
-    def test_on_message_filter_listen_mode(self, cog):
-        """Listen Mode Guild ist in auto_tasks → Listener laeuft."""
-        cog.auto_tasks[42] = "listen_mode"
-        assert 42 in cog.auto_tasks
+class TestStartStop:
+    @pytest.mark.asyncio
+    async def test_start_and_stop(self, cog, config_file):
+        cog.fetch_and_post = AsyncMock()
+        await cog.start_listening(1, "events", "overview")
+        assert 1 in cog.listening and config_file.get_guild_config(1)["auto_active"] is True
+        cog.fetch_and_post.assert_awaited_once_with(1, "events", "overview")
+
+        assert cog.stop_listening(1) is True
+        assert 1 not in cog.listening and config_file.get_guild_config(1)["auto_active"] is False
+        assert cog.stop_listening(1) is False
+
+    @pytest.mark.asyncio
+    async def test_stop_cancels_pending_edit(self, cog, config_file):
+        cog.edit_overview = AsyncMock()
+        cog.listening.add(1)
+        await cog._schedule_edit(1, AsyncMock(), AsyncMock())
+        task = cog._edit_debounce_tasks[1]
+        cog.stop_listening(1)
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        cog.edit_overview.assert_not_called()
+
+
+class TestListeners:
+    def _cog(self, cog, monkeypatch):
+        import events.guild_lock as guild_lock
+        monkeypatch.setattr(guild_lock, "is_allowed", lambda _gid: True)
+        channels = {10: MagicMock(name="events"), 20: MagicMock(name="overview")}
+        cog.bot.get_channel = channels.get
+        cog.fetch_and_post = AsyncMock()
+        cog._schedule_edit = AsyncMock()
+        return channels
+
+    @staticmethod
+    def _message(channel_id=10, field="Termin"):
+        field_obj = MagicMock()
+        field_obj.name = field
+        embed = MagicMock(title="Runde", fields=[field_obj])
+        return MagicMock(author=MagicMock(bot=True), guild=MagicMock(id=1),
+                         channel=MagicMock(id=channel_id), embeds=[embed])
+
+    @pytest.mark.asyncio
+    async def test_nothing_happens_when_not_listening(self, cog, config_file, monkeypatch):
+        self._cog(cog, monkeypatch)
+        await cog.on_message(self._message())
+        await cog.on_raw_message_delete(MagicMock(guild_id=1, channel_id=10))
+        cog.fetch_and_post.assert_not_called()
+        cog._schedule_edit.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_new_event_reposts_overview(self, cog, config_file, monkeypatch):
+        channels = self._cog(cog, monkeypatch)
+        cog.listening.add(1)
+        await cog.on_message(self._message())
+        cog.fetch_and_post.assert_awaited_once_with(1, channels[10], channels[20])
+
+    @pytest.mark.asyncio
+    async def test_other_channel_or_no_event_ignored(self, cog, config_file, monkeypatch):
+        self._cog(cog, monkeypatch)
+        cog.listening.add(1)
+        await cog.on_message(self._message(channel_id=99))
+        await cog.on_message(self._message(field="Description"))
+        cog.fetch_and_post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_edit_and_delete_edit_overview(self, cog, config_file, monkeypatch):
+        channels = self._cog(cog, monkeypatch)
+        cog.listening.add(1)
+        edit = MagicMock(guild_id=1, channel_id=10, data={"embeds": [{"fields": [{"name": "Termin"}]}]})
+        await cog.on_raw_message_edit(edit)
+        await cog.on_raw_message_delete(MagicMock(guild_id=1, channel_id=10))
+        assert cog._schedule_edit.await_count == 2
+        cog._schedule_edit.assert_awaited_with(1, channels[10], channels[20])
 
 
 # ---------------------------------------------------------------------------
