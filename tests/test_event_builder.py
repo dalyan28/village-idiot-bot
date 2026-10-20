@@ -26,8 +26,19 @@ def lists(players=(), waitlist=(), tentative=(), declined=()):
     return RsvpLists(players=list(players), waitlist=list(waitlist), tentative=list(tentative), declined=list(declined))
 
 
+SPACER = "\n​"  # Abstand vor den RSVP-Listen, am letzten Feld davor
+
+
 def fields(embed) -> dict:
-    return {f.name: f.value for f in embed.fields}
+    return {f.name: f.value.removesuffix(SPACER) for f in embed.fields}
+
+
+def test_spacer_before_rsvp_lists():
+    embed = build_event_embed(data(), "Dalyan", lists())
+    names = [f.name for f in embed.fields]
+    before_rsvp = embed.fields[next(i for i, n in enumerate(names) if "Akzeptiert" in n) - 1]
+    assert before_rsvp.value.endswith(SPACER)
+    assert sum(f.value.endswith(SPACER) for f in embed.fields) == 1
 
 
 def test_names_are_text_not_mentions():

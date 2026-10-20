@@ -241,6 +241,12 @@ def build_event_embed(
         if demons:
             embed.add_field(name="Demons", value=demons[:1024], inline=False)
 
+    # Abstand vor den RSVP-Listen (Dalyan, 20.10.2026): leere Zeile an das letzte Feld anhängen.
+    # Discord schneidet Leerzeilen am Ende ab, ein unsichtbares Zeichen (U+200B) bleibt stehen.
+    last = embed.fields[-1]
+    if len(last.value) <= 1024 - 2:
+        embed.set_field_at(len(embed.fields) - 1, name=last.name, value=f"{last.value}\n​", inline=last.inline)
+
     # ── RSVP-Listen (inline, eine Reihe) ─────────────────────────────
     accepted_text = _format_list(rsvps.players, name_for)
     if rsvps.waitlist:
