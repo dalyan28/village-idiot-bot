@@ -103,6 +103,19 @@ def _has(files_or_attachments, filename: str) -> bool:
     return any(f.filename == filename for f in files_or_attachments)
 
 
+def _shown_images(msg: discord.Message) -> tuple[bool, bool]:
+    """Welche Bilder der Post gerade zeigt (Bild, Thumbnail).
+
+    Discord führt Anhänge, auf die ein Embed per attachment:// zeigt, nicht in msg.attachments.
+    Deshalb am Embed ablesen; wer dort fehlt, ließe Discord beim Bearbeiten verwaist fallen
+    (gleiches Problem und gleiche Lösung wie auf event-creation).
+    """
+    if msg.embeds:
+        embed = msg.embeds[0]
+        return bool(embed.image and embed.image.url), bool(embed.thumbnail and embed.thumbnail.url)
+    return _has(msg.attachments, IMAGE_FILENAME), _has(msg.attachments, THUMB_FILENAME)
+
+
 def event_view(event: EventRecord) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     view.add_item(EventButton(event.id, "accept", emoji=EMOJI_ACCEPT_BUTTON, style=discord.ButtonStyle.secondary))
@@ -155,8 +168,7 @@ async def update_event_message(bot: discord.Client, store: Store, event: EventRe
         content = await render_post(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
         await msg.edit(attachments=files, **content)
     else:
-        content = await render_post(bot, store, event, _has(msg.attachments, IMAGE_FILENAME),
-                                    _has(msg.attachments, THUMB_FILENAME))
+        content = await render_post(bot, store, event, *_shown_images(msg))
         await msg.edit(**content)
     return msg
 
@@ -199,9 +211,7 @@ class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<
 
 async def handle_rsvp(interaction: discord.Interaction, store: Store, event: EventRecord, status: str):
     service.toggle_rsvp(store, event, interaction.user.id, interaction.user.display_name, status, now())
-    content = await render_post(interaction.client, store, event,
-                                _has(interaction.message.attachments, IMAGE_FILENAME),
-                                _has(interaction.message.attachments, THUMB_FILENAME))
+    content = await render_post(interaction.client, store, event, *_shown_images(interaction.message))
     # Buttons mitschicken, damit ältere Posts beim nächsten Klick die aktuellen Buttons bekommen
     await interaction.response.edit_message(**content)
 

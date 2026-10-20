@@ -865,10 +865,6 @@ async def _publish(interaction, ctx: WizardContext, arg):
         raise service.ServiceError("Es ist kein Event-Channel eingerichtet. Ein Admin kann ihn mit "
                                    "`/set_event_channel` setzen, dein Entwurf bleibt so lange gespeichert.")
     await busy(interaction, ctx, "Ich veröffentliche dein Event.")
-    if is_v2(ctx.draft) and not ctx.draft.data.v2_post:
-        d = ctx.data
-        d.v2_post = True
-        ctx.save(d)
     old = ctx.store.get_event(ctx.draft.event_id) if ctx.draft.event_id is not None else None
     result = service.publish_draft(ctx.store, ctx.draft, ctx.actor, ctx.member.display_name, now())
     if result.created:

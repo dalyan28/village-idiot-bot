@@ -42,12 +42,31 @@ class FakeMessage:
         self.channel = channel
         self.jump_url = f"https://discord.com/channels/{GUILD}/{CHANNEL}/{self.id}"
         self.embed, self.view = embed, view
-        self.attachments = [SimpleNamespace(filename=f.filename) for f in files]
+        self.files = [f.filename for f in files]
+
+    @property
+    def embeds(self):
+        return [self.embed] if self.embed else []
+
+    @property
+    def attachments(self):
+        """Wie bei Discord: Anhänge, auf die das Embed per attachment:// zeigt, fehlen hier."""
+        used = set()
+        if self.embed:
+            for url in (self.embed.image.url, self.embed.thumbnail.url):
+                if url and url.startswith("attachment://"):
+                    used.add(url.removeprefix("attachment://"))
+        return [SimpleNamespace(filename=n) for n in self.files if n not in used]
 
     async def edit(self, embed=None, view=None, attachments=None):
-        self.embed, self.view = embed, view
         if attachments is not None:
-            self.attachments = [SimpleNamespace(filename=f.filename) for f in attachments]
+            self.files = [f.filename for f in attachments]
+        elif self.embed and embed:
+            # Discord verwirft Anhänge, auf die das neue Embed nicht mehr zeigt
+            def refs(e):
+                return {u.removeprefix("attachment://") for u in (e.image.url, e.thumbnail.url) if u}
+            self.files = [n for n in self.files if n not in refs(self.embed) or n in refs(embed)]
+        self.embed, self.view = embed, view
 
     async def delete(self):
         self.channel.messages.pop(self.id, None)
@@ -245,7 +264,8 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     event = bot.store.list_events(GUILD)[0]
     msg = bot.channel.messages[event.message_id]
     assert msg.embed.title == "🟡 Trouble Brewing mit Dalyan und Rosanna"
-    assert {a.filename for a in msg.attachments} == {"event_image.png", "thumbnail.png"}
+    assert set(msg.files) == {"event_image.png", "thumbnail.png"}
+    assert msg.attachments == []  # wie bei Discord: vom Embed referenzierte Anhänge fehlen hier
     # Ersteller:in nur unten: Profilbild, Name, Erstellungsdatum
     assert msg.embed.author.name is None
     assert msg.embed.footer.text == "Dalyan" and msg.embed.footer.icon_url == "https://cdn/avatar.png"
@@ -257,7 +277,9 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     embed = rsvp.screen["embed"]
     accepted = next(f.value for f in embed.fields if "Akzeptiert" in f.name)
     assert "Anna" in accepted and "<@" not in accepted
+    # Regression: Bild und Thumbnail verschwanden nach Zu-/Absage
     assert embed.image.url == "attachment://event_image.png"
+    assert embed.thumbnail.url == "attachment://thumbnail.png"
 
     # Bearbeiten durch Fremde verboten, durch Ersteller per DM-Wizard (Start in der Vorschau)
     foreign = FakeInteraction(bot, bot.guild.get_member(3), message=msg, guild_id=GUILD)
@@ -355,14 +377,12 @@ def test_botc2_goes_from_script_straight_to_summary(env):
     inter = click(bot, draft.id, "publish")
     assert isinstance(inter.screen["view"], discord.ui.LayoutView)  # Abschluss ebenfalls als V2
     event = bot.store.list_events(GUILD)[0]
-    assert event.data.v2_post
+    assert not event.data.v2_post
     msg = bot.channel.messages[event.message_id]
-    assert msg.embed is None and isinstance(msg.view, discord.ui.LayoutView)  # Event-Post als V2-Karte
-    # Anmeldung auf der V2-Karte: Karte wird neu gebaut, Name als Text
+    assert msg.embed is not None  # Event-Post bleibt ein klassisches Embed (Dalyan, 20.10.2026)
     rsvp = FakeInteraction(bot, bot.guild.get_member(3), message=msg, guild_id=GUILD)
     run(EventButton(event.id, "accept").callback(rsvp))
-    texts = " ".join(i.content for i in rsvp.screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "Zusagen (1/12)" in texts and "Anna" in texts
+    assert rsvp.screen["embed"].image.url == "attachment://event_image.png"
 
 
 def test_free_choice_skips_rating_and_has_no_auto_image(env):
