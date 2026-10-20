@@ -98,9 +98,9 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     container = discord.ui.Container(accent_colour=embed_color(d))
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
     head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
-    # Titel als Überschrift, direkt änderbar
+    # Titel fett statt als Überschrift (wirkte zu groß, Dalyan, 20.10.2026), direkt änderbar
     title_note = "" if d.title.strip() else "\n-# Titel wird automatisch erstellt"
-    container.add_item(section(f"{head}\n## {esc(full_title(d))}{title_note}", "title"))
+    container.add_item(section(f"{head}\n\n**{esc(full_title(d))}**{title_note}", "title"))
     missing = missing_for_publish(d)
     status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
               else "Alle Pflichtangaben sind vollständig. Wenn alles passt: **"
@@ -222,7 +222,7 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
     head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
     # Titel nur fett: Markdown-Überschriften wirken in der Karte zu groß (Dalyan, 20.10.2026)
-    container.add_item(discord.ui.TextDisplay(f"{head}\n**Skript wählen**"))
+    container.add_item(discord.ui.TextDisplay(f"{head}\n\n**Skript wählen**"))
     if first_visit:
         # Erste Karte nach dem /botc-Modal: bestätigen, was steht, und sagen, was jetzt kommt (Dalyan, 20.10.2026)
         from events.parse import format_start
@@ -249,7 +249,7 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
         first = page * RESULTS_PER_PAGE
         container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
         container.add_item(discord.ui.TextDisplay(
-            f"### Treffer für „{esc(ui.get('query', ''))}“\n"
+            f"**Treffer für „{esc(ui.get('query', ''))}“**\n"
             f"-# {len(results)} Treffer, nach Likes sortiert · Seite {page + 1} von {pages}"))
         for i, r in enumerate(results[first:first + RESULTS_PER_PAGE], start=first):
             line = f"**{esc(r['name'])}** v{esc(r['version'])}"
@@ -318,7 +318,7 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
         IMAGE_NONE: "Kein Bild",
     }[d.image_mode]
     container = discord.ui.Container(accent_colour=WIZARD_COLOR)
-    container.add_item(discord.ui.TextDisplay("### Bild"))
+    container.add_item(discord.ui.TextDisplay("**Bild**"))
     text = f"Aktuell: **{mode_text}**"
     if notice:
         text += f"\n{notice}"

@@ -35,7 +35,7 @@ def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord
     # Persönlicher Ton, Emojis nur dort, wo man sie auch im Gespräch setzen würde (Dalyan, 20.10.2026)
     container = discord.ui.Container(accent_colour=START_COLOR)
     intro = discord.ui.TextDisplay(
-        f"-# {esc(guild.name)}\n"
+        f"-# {esc(guild.name)}\n\n"
         "**Neue Runde anlegen**\n"
         "Schön, dass du eine Runde leiten möchtest! Das dauert nur ein paar Minuten.")
     icon = getattr(guild, "icon", None)

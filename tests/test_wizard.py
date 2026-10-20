@@ -108,7 +108,7 @@ async def _rating_modal(data):
 
 def test_special_reasons_shown_in_summary(store):
     layout, _ = render(store, make_draft(store, "preview", is_special=True, special_reasons=["Loric: Bootlegger"]))
-    assert "⭐ Abweichung: `Loric: Bootlegger`" in texts(layout) and "## ⭐ 💚 Trouble Brewing" in texts(layout)
+    assert "⭐ Abweichung: `Loric: Bootlegger`" in texts(layout) and "**⭐ 💚 Trouble Brewing" in texts(layout)
 
 
 def test_verdict_text_is_preferred(store):
@@ -125,7 +125,7 @@ def test_verdict_text_is_preferred(store):
 
 def test_custom_title(store):
     layout, _ = render(store, make_draft(store, "preview", title="Spukige Nacht"))
-    assert "## 💚 Spukige Nacht" in texts(layout) and "automatisch" not in texts(layout)
+    assert "**💚 Spukige Nacht**" in texts(layout) and "automatisch" not in texts(layout)
 
 
 def test_base_step():
