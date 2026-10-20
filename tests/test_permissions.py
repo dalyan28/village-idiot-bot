@@ -47,7 +47,7 @@ class TestAcademy:
         assert can(academy_st, CREATE_ACADEMY, SETTINGS)
         assert can(academy_user, CREATE_ACADEMY, SETTINGS)
         assert not can(team, CREATE_ACADEMY, SETTINGS)
-        assert not can(admin, CREATE_ACADEMY, SETTINGS)
+        assert can(admin, CREATE_ACADEMY, SETTINGS)  # Server-Admins automatisch
 
 
 class TestEventActions:

@@ -217,7 +217,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     inter = choose(bot, draft.id, "edit", "labels")
     modal = inter.response.modal
-    assert "academy" not in [o.value for o in modal.options.options]  # keine Academy-Freigabe
+    assert "academy" in [o.value for o in modal.options.options]  # Server-Admin: Academy automatisch
     modal.camera._value = "required"
     modal.options._values = []
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))

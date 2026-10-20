@@ -176,8 +176,7 @@ Prüfung im Bot ist deshalb maßgeblich, die Discord-Einstellung ist nur ein Fil
 
 **Academy-Angebote** (Dalyan, 19.10.2026): Nur bestimmte Rollen oder einzelne User dürfen Academy-Events erstellen.
 Konfigurierbar über `/set_academy_access` (Rollen und/oder User hinzufügen und entfernen), nur Event-Team bzw. „Server
-verwalten“. **Auch Admins und Event-Team nur mit Freigabe** (Dalyan, 20.10.2026: nur wer den Academy-Titel hat);
-Admins können sich selbst freigeben.
+verwalten“. **Server-Admins dürfen es immer, das Event-Team nur mit Freigabe** (Dalyan, 20.10.2026).
 - Im Modal erscheint die Checkbox „Academy“ nur für Berechtigte (das Modal wird je Aufruf gebaut, das geht).
 - Wer nicht berechtigt ist, kann Academy auch beim Bearbeiten nicht einschalten. Ein bestehendes Academy-Event bleibt
   Academy, auch wenn der Ersteller die Berechtigung später verliert.
