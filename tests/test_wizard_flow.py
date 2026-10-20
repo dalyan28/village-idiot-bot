@@ -332,12 +332,17 @@ def test_botc2_goes_from_script_straight_to_summary(env):
     inter = click(bot, draft.id, "pick", "trouble_brewing")
     assert step(bot, draft.id) == "preview"  # keine Schritte Beschreibung/Bild
     assert isinstance(inter.screen["view"], discord.ui.LayoutView)
-    # Fehlende Beschreibung: roter Button öffnet den Beschreibungs-Dialog
-    inter = click(bot, draft.id, "edit_field", "descriptive")
+    # Fehlende Beschreibung: roter Button öffnet einen Dialog NUR mit dem Beschreibungsfeld
+    inter = click(bot, draft.id, "fix_field", "description")
     modal = inter.response.modal
+    assert isinstance(modal, DescriptionModal) and len(modal.children) == 1
     modal.text._value = "Gemütliche Runde."
-    modal.st._value, modal.co._value, modal.title_text._value = "Dalyan", "", ""
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    # Titel-Dialog: der aktuelle Titel steht ausgeschrieben drin; unverändert bleibt er automatisch
+    inter = click(bot, draft.id, "edit_field", "title")
+    assert inter.response.modal.text.default == "Trouble Brewing mit Dalyan"
+    run(inter.response.modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    assert bot.store.get_draft(draft.id).data.title == ""
     d = bot.store.get_draft(draft.id)
     assert d.data.description == "Gemütliche Runde." and d.step == "preview"
     inter = click(bot, draft.id, "publish")

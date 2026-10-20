@@ -983,16 +983,23 @@ class TitleModal(_WizardModal):
 
     def __init__(self, draft_id: int, data: EventData):
         super().__init__(draft_id, "Titel")
-        self.text = discord.ui.TextInput(default=data.title or None, placeholder=base_title(data)[:100],
+        # Der aktuelle Titel steht ausgeschrieben drin (Dalyan, 20.10.2026), nicht nur als Platzhalter
+        self.text = discord.ui.TextInput(default=(data.title or base_title(data))[:TITLE_MAX_LENGTH],
                                          required=False, max_length=TITLE_MAX_LENGTH)
-        self.add_item(discord.ui.Label(text="Titel", description="Leer = automatischer Titel. "
-                                       "Die Symbole (Labels, Schwierigkeit) kommen immer davor.", component=self.text))
+        self.add_item(discord.ui.Label(text="Titel", description="Die Symbole (Labels, Schwierigkeit) kommen "
+                                       "automatisch davor. Leer = automatischer Titel.", component=self.text))
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
-        d.title = (self.text.value or "").strip()
+        d.title = _title_from_input(d, self.text.value)
         ctx.save(d)
         await show(interaction, ctx)
+
+
+def _title_from_input(d: EventData, value: str | None) -> str:
+    """Eigener Titel; unverändert vorbelegter (= automatischer) Titel bleibt automatisch."""
+    value = (value or "").strip()
+    return "" if value == base_title(d) else value
 
 
 class RatingModal(_WizardModal):
@@ -1091,7 +1098,7 @@ class DescriptiveModal(_WizardModal):
 
     def __init__(self, draft_id: int, data: EventData):
         super().__init__(draft_id, "Beschreibung")
-        self.title_text = discord.ui.TextInput(default=data.title or None, placeholder=base_title(data)[:100],
+        self.title_text = discord.ui.TextInput(default=(data.title or base_title(data))[:TITLE_MAX_LENGTH],
                                                required=False, max_length=TITLE_MAX_LENGTH)
         self.text = discord.ui.TextInput(style=discord.TextStyle.paragraph, default=data.description or None,
                                          placeholder="Worauf können sich die Mitspieler:innen freuen?",
@@ -1108,7 +1115,7 @@ class DescriptiveModal(_WizardModal):
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
-        d.title = (self.title_text.value or "").strip()
+        d.title = _title_from_input(d, self.title_text.value)
         d.description = (self.text.value or "").strip()
         _apply_people(ctx, d, self.st.value, self.co.value)
         ctx.save(d)

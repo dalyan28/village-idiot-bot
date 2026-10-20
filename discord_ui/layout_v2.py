@@ -106,34 +106,36 @@ MISSING_MARK = "🔴 fehlt"
 # Fehlende Pflichtangabe → (Ziel von „Feld ändern“, Button-Beschriftung)
 MISSING_TARGETS = {
     "Skript": ("script", "Skript wählen"),
-    "Beschreibung": ("descriptive", "Beschreibung schreiben"),
-    "Storyteller": ("descriptive", "Storyteller eintragen"),
+    "Beschreibung": ("description", "Beschreibung schreiben"),
+    "Storyteller": ("people", "Storyteller eintragen"),
     "Schwierigkeit": ("rating", "Schwierigkeit wählen"),
     "Termin": ("frame", "Termin eintragen"),
 }
 
 
 def _missing_buttons(missing: list[str]) -> list[tuple[str, str]]:
-    """Ein Button je Ziel (Beschreibung und Storyteller teilen sich einen Dialog), höchstens 4."""
+    """Ein roter Button je fehlender Angabe, höchstens 3 (dazu „Bild ändern“ und „Abbrechen“)."""
     buttons, seen = [], set()
     for name in missing:
-        target, label = MISSING_TARGETS.get(name, ("descriptive", f"{name} ergänzen"))
+        target, label = MISSING_TARGETS.get(name, ("description", f"{name} ergänzen"))
         if target not in seen:
             seen.add(target)
             buttons.append((target, label))
-    return buttons[:4]
+    return buttons[:3]
 
 
-def _line(label: str, value: str) -> str:
-    return f"**{label}** {value}"
+def _block(label: str, *lines: str) -> str:
+    """Abschnitt: kleine graue Überschrift, darunter die Werte."""
+    return "\n".join([f"-# {label}", *lines])
 
 
 async def summary_layout(bot: discord.Client, store, draft, notice: str | None = None):
-    """Zusammenfassung für /botc2: fünf Abschnitte mit je einem Button, kompakte Zeilen.
+    """Zusammenfassung für /botc2 (Dalyan, 20.10.2026, nach Test auf dem Handy).
 
-    Gruppen nach Dalyan (20.10.2026): Beschreibendes · Skript & Schwierigkeit ·
-    Auswahl (Labels, Level, Kamera) · Termin & Rahmen (organisatorisch) · Bild.
-    Gibt (LayoutView, Dateien) zurück.
+    Titel als Überschrift mit eigenem „Ändern“, danach je ein Abschnitt mit kleiner Überschrift:
+    Beschreibung · Skript (mit Schwierigkeit) · Leitung · Auswahl (Labels, Level, Kamera) ·
+    Termin (organisatorisch) · Bild (kleine Vorschau). Alle Buttons heißen „Ändern“; die Beschreibung
+    öffnet einen Dialog nur mit dem Beschreibungsfeld. Gibt (LayoutView, Dateien) zurück.
     """
     from discord_ui import wizard as wz  # zirkulären Import vermeiden
     from discord_ui.event_post import build_files
@@ -147,14 +149,17 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     esc = discord.utils.escape_markdown
     guild = bot.get_guild(draft.guild_id)
 
-    def section(text: str, target: str, label: str = "Bearbeiten") -> discord.ui.Section:
+    def section(text: str, target: str, label: str = "Ändern") -> discord.ui.Section:
         return discord.ui.Section(discord.ui.TextDisplay(text),
                                   accessory=wz.WizardButton(draft.id, "edit_field", label, arg=target))
 
     container = discord.ui.Container(accent_colour=embed_color(d))
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
-    container.add_item(discord.ui.TextDisplay(f"{heading} für **{esc(guild.name)}**" if guild else heading))
-    container.add_item(discord.ui.TextDisplay(f"## {esc(full_title(d))}"))
+    container.add_item(discord.ui.TextDisplay(f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"))
+
+    # Titel als Überschrift, direkt änderbar
+    title_note = "" if d.title.strip() else "\n-# Titel wird automatisch gebaut"
+    container.add_item(section(f"## {esc(full_title(d))}{title_note}", "title"))
     missing = missing_for_publish(d)
     status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
               else "Alles da. Wenn es passt: **Veröffentlichen**.")
@@ -162,72 +167,74 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
         status += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(status))
 
-    # 1. Beschreibendes
-    description = esc(d.description.strip()) if d.description.strip() else MISSING_MARK
+    # Beschreibung (eigener Dialog, nur das Textfeld)
+    if d.description.strip():
+        description = esc(d.description.strip())
+    else:
+        description = MISSING_MARK
     if d.is_academy:
         description += "\n-# Darunter folgt der feste Academy-Text."
-    co = esc(d.co_storyteller.name) if d.co_storyteller else "–"
-    st = esc(d.storyteller.name) if d.storyteller else MISSING_MARK
-    title_hint = "" if d.title.strip() else " (automatisch)"
     container.add_item(discord.ui.Separator())
-    container.add_item(section("\n".join([
-        _line("Titel", esc(d.title.strip() or wz.base_title(d)) + title_hint),
-        _line("Storyteller", st) + " · " + _line("Co-ST", co),
-        _line("Beschreibung", ""), description,
-    ]), "descriptive"))
+    container.add_item(section(_block("BESCHREIBUNG", description), "description",
+                               "Ändern" if d.description.strip() else "Schreiben"))
 
-    # 2. Skript & Schwierigkeit
+    # Skript mit Schwierigkeit
     s = d.script
     if s is None:
-        script_line = MISSING_MARK
+        lines = [MISSING_MARK]
     else:
-        script_line = esc(s.display_name)
+        script_line = f"**{esc(s.display_name)}**"
         if s.author and s.kind != SCRIPT_BASE:
             script_line += f" von {esc(s.author)}"
         if s.version and s.kind != SCRIPT_BASE:
             script_line += f" · v{esc(s.version)}"
         if s.teensy:
             script_line += " · Teensyville"
-    lines = [_line("Skript", script_line)]
-    if d.rating:
-        lines.append(_line("Schwierigkeit", f"{wz.LABEL_EMOJI[d.rating]} {wz.RATING_WORDS[d.rating].capitalize()}"))
-        if d.rating_source == wz.RATING_SOURCE_RATER:
-            explanation = wz.rating_explanation(draft.ui or {}, limit=2)
-            if explanation:
-                lines.append("\n".join(f"> {line}" for line in explanation.split("\n")))
-    else:
-        lines.append(_line("Schwierigkeit", MISSING_MARK))
-    if d.is_special:
-        why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
-        lines.append(f"⭐ {esc(why)}")
+        lines = [script_line]
+        if d.rating:
+            lines.append(f"{wz.LABEL_EMOJI[d.rating]} {wz.RATING_WORDS[d.rating].capitalize()}")
+            if d.rating_source == wz.RATING_SOURCE_RATER:
+                explanation = wz.rating_explanation(draft.ui or {}, limit=2)
+                if explanation:
+                    lines.append(explanation)
+        else:
+            lines.append(f"Schwierigkeit: {MISSING_MARK}")
+        if d.is_special:
+            why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
+            lines.append(f"⭐ {esc(why)}")
     container.add_item(discord.ui.Separator())
-    container.add_item(section("\n".join(lines), "script", "Ändern"))
+    container.add_item(section(_block("SKRIPT", *lines), "script"))
 
-    # 3. Auswahl: Labels, Level, Kamera
+    # Leitung
+    st = esc(d.storyteller.name) if d.storyteller else MISSING_MARK
+    co = esc(d.co_storyteller.name) if d.co_storyteller else "–"
+    container.add_item(discord.ui.Separator())
+    container.add_item(section(_block("LEITUNG", f"{st} · Co-ST: {co}"), "people"))
+
+    # Auswahl: Labels, Level, Kamera
     labels = [name for flag, name in ((d.is_academy, "🎓 Academy"), (d.is_casual, "🕊️ Casual"),
                                       (d.is_recorded, "🎦 Aufzeichnung"), (d.is_special, "⭐ Abweichung")) if flag]
+    selection = " · ".join([*labels, f"Level {d.level}", f"Kamera: {CAMERA_LABELS[d.camera]}"])
     container.add_item(discord.ui.Separator())
-    container.add_item(section("\n".join([
-        _line("Labels", ", ".join(labels) or "–"),
-        _line("Level", d.level) + " · " + _line("Kamera", CAMERA_LABELS[d.camera]),
-    ]), "selection"))
+    container.add_item(section(_block("AUSWAHL", selection), "selection"))
 
-    # 4. Termin & Rahmen (organisatorisch)
+    # Termin & Rahmen
+    termin = format_start(d.start, d.duration_minutes) if d.start else MISSING_MARK
     container.add_item(discord.ui.Separator())
-    container.add_item(section("\n".join([
-        _line("Termin", format_start(d.start, d.duration_minutes) if d.start else MISSING_MARK),
-        _line("Spieler", f"max. {d.max_players}"),
-    ]), "frame"))
+    container.add_item(section(_block("TERMIN", f"{termin} · max. {d.max_players} Spieler"), "frame"))
 
-    # 5. Bild
+    # Bild: kleine Vorschau rechts; geändert wird es über „Bild ändern“ unten
     files = await build_files(d)
+    has_image = any(f.filename == IMAGE_FILENAME for f in files)
     image_text = {IMAGE_AUTO: "Aus dem Skript" if has_auto_image(d) else "Keins (freie Skriptwahl)",
                   IMAGE_CUSTOM: "Eigenes Bild"}.get(d.image_mode, "Kein Bild")
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_line("Bild", image_text), "image", "Ändern"))
-    if any(f.filename == IMAGE_FILENAME for f in files):
-        container.add_item(discord.ui.MediaGallery(discord.MediaGalleryItem(f"attachment://{IMAGE_FILENAME}")))
-    container.add_item(discord.ui.TextDisplay("-# Entwürfe bleiben 24 Stunden gespeichert."))
+    image_block = discord.ui.TextDisplay(_block("BILD", image_text))
+    if has_image:
+        container.add_item(discord.ui.Section(
+            image_block, accessory=discord.ui.Thumbnail(f"attachment://{IMAGE_FILENAME}")))
+    else:
+        container.add_item(image_block)
 
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
@@ -235,11 +242,12 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     if missing:
         # Statt Veröffentlichen: je fehlender Angabe ein roter Button, der direkt dorthin führt
         for target, label in _missing_buttons(missing):
-            # eigene Aktion: dieselbe custom_id wie der Bearbeiten-Button am Abschnitt lehnt Discord ab
+            # eigene Aktion: dieselbe custom_id wie der Ändern-Button am Abschnitt lehnt Discord ab
             row.add_item(wz.WizardButton(draft.id, "fix_field", label, discord.ButtonStyle.danger, arg=target))
     else:
         publish_label = "Veröffentlichen" if draft.event_id is None else "Änderungen speichern"
         row.add_item(wz.WizardButton(draft.id, "publish", publish_label, discord.ButtonStyle.success, emoji="🎉"))
+    row.add_item(wz.WizardButton(draft.id, "edit_field", "Bild ändern", arg="image"))
     row.add_item(wz.WizardButton(draft.id, "cancel",
                                  "Abbrechen" if draft.event_id is None else "Bearbeitung verwerfen",
                                  discord.ButtonStyle.secondary))

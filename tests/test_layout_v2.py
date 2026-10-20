@@ -44,8 +44,10 @@ def summary_for(store, draft):
 def test_summary_has_five_grouped_sections(store):
     layout, files = summary_for(store, make_draft(store, "preview"))
     sections = [i for i in layout.walk_children() if isinstance(i, discord.ui.Section)]
-    targets = [s.accessory.custom_id.split(":")[3] for s in sections]
-    assert targets == ["descriptive", "script", "selection", "frame", "image"]
+    targets = [s.accessory.custom_id.split(":")[3] for s in sections if isinstance(s.accessory, discord.ui.Button)
+               or hasattr(s.accessory, "item")]
+    assert targets == ["title", "description", "script", "people", "selection", "frame"]
+    assert isinstance(sections[-1].accessory, discord.ui.Thumbnail)  # Bild als kleine Vorschau
     ids = [getattr(i, "custom_id", "") for i in layout.walk_children()]
     assert any(c.endswith(":publish") for c in ids)  # alles da → Veröffentlichen
     assert [f.filename for f in files] == ["event_image.png"]
@@ -61,6 +63,7 @@ def test_missing_items_replace_publish_with_red_buttons(store):
     assert [b.custom_id.split(":")[2] for b in row.children][:2] == ["fix_field", "fix_field"]
     assert buttons == [("Schwierigkeit wählen", discord.ButtonStyle.danger),
                        ("Beschreibung schreiben", discord.ButtonStyle.danger),
+                       ("Bild ändern", discord.ButtonStyle.secondary),
                        ("Abbrechen", discord.ButtonStyle.secondary)]
     ids = [getattr(i, "custom_id", "") for i in layout.walk_children()]
     assert not any(c.endswith(":publish") for c in ids)
