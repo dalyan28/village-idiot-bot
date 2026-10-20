@@ -161,10 +161,11 @@ def message_text(cfg: ReminderConfig, start: datetime, people: list[Person], is_
     ts = int(start.timestamp())
     if cfg.kind == KIND_ATTENDANCE:
         if not people:
-            return "**Anwesenheitskontrolle!**\n\nKeine Zusagen vorhanden."
+            return "**Anwesenheitskontrolle**\n\nEs gibt keine Zusagen."
         lines = "\n".join(f"{i}. {_who(p, cfg.mode)}" for i, p in enumerate(people, 1))
-        return f"**Anwesenheitskontrolle!**\n\n{lines}\n\nWer fehlt, bitte melden, es geht gleich los!"
-    text = f"**Erinnerung!** Das Event startet <t:{ts}:R>!"
+        return (f"**Anwesenheitskontrolle**\n\n{lines}\n\n"
+                "Wer nicht teilnehmen kann, meldet sich bitte vor Beginn bei der Spielleitung.")
+    text = f"**Erinnerung:** Das Event beginnt <t:{ts}:R>."
     if people:
         text += "\n\n" + " ".join(_who(p, cfg.mode) for p in people)
     return text

@@ -102,7 +102,7 @@ class TestText:
     def test_attendance(self):
         cfg = reminders.copy_of(reminders.DEFAULTS[SECOND])
         assert "1. <@1>" in reminders.message_text(cfg, START, [Person("Anna", 1)])
-        assert "Keine Zusagen" in reminders.message_text(cfg, START, [])
+        assert "keine Zusagen" in reminders.message_text(cfg, START, [])
 
 
 def test_script_json_variants():
