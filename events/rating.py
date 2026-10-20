@@ -2,7 +2,7 @@
 
 Der Algorithmus lebt im ScriptRater (widow-botc.com/script-check), nicht im Bot. Gelesen werden
 nur `rating`, `verdict` und `tagline` (optional, Fließtext), `headline`, `reasons` und `metrics.is_homebrew`/`is_amnesiac`. Ist der ScriptRater nicht
-erreichbar oder die Antwort unlesbar, gibt `rate_script` None zurück und der Storyteller
+erreichbar oder die Antwort unlesbar, wirft `rate_script` RatingUnavailable und der Storyteller
 schätzt selbst ein. Die Basis-Skripte haben eine feste Einschätzung.
 """
 
@@ -21,7 +21,15 @@ from events.templates import BASE3_RATINGS
 logger = logging.getLogger(__name__)
 
 DEFAULT_URL = "https://widow-botc.com/script-check"
-TIMEOUT_SECONDS = 15
+TIMEOUT_SECONDS = 8
+
+
+class RatingUnavailable(Exception):
+    """Der ScriptRater antwortet nicht oder liefert Unbrauchbares; der Storyteller schätzt dann selbst ein."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.timeout = reason == "timeout"
 
 
 @dataclass
@@ -56,21 +64,25 @@ def parse_response(payload) -> RatingResult | None:
     )
 
 
-def _request(body) -> RatingResult | None:
+def _request(body) -> RatingResult:
     try:
         r = requests.post(f"{rater_url()}/api/analyse", json=body, timeout=TIMEOUT_SECONDS)
+    except requests.Timeout:
+        logger.warning("ScriptRater: Zeitüberschreitung")
+        raise RatingUnavailable("timeout") from None
     except requests.RequestException as e:
         logger.warning("ScriptRater nicht erreichbar: %s", e)
-        return None
+        raise RatingUnavailable("error") from None
     if r.status_code != 200:
         logger.warning("ScriptRater antwortet %s: %s", r.status_code, r.text[:200])
-        return None
+        raise RatingUnavailable("error")
     try:
         result = parse_response(r.json())
     except ValueError:
         result = None
     if result is None:
         logger.warning("ScriptRater-Antwort unlesbar: %s", r.text[:200])
+        raise RatingUnavailable("error")
     return result
 
 

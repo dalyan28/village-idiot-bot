@@ -25,9 +25,14 @@ API_SEARCH = "https://www.botcscripts.com/api/scripts/?format=json&search={query
 HTML_SEARCH = "https://www.botcscripts.com/?search={query}"
 DOWNLOAD_URL = "https://www.botcscripts.com/script/{id}/{version}/download"
 
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 8   # Sekunden je Anfrage
+TOTAL_TIMEOUT = 15    # Sekunden für eine ganze Suche bzw. einen Download
 REQUEST_DELAY = 0.5
 HEADERS = {"User-Agent": "BotC-EventBot/1.0"}
+
+
+class BotcScriptsUnavailable(Exception):
+    """botcscripts.com antwortet nicht (Zeitüberschreitung, Fehler) – nicht zu verwechseln mit „keine Treffer“."""
 
 
 def _get(url: str) -> requests.Response | None:
@@ -152,7 +157,8 @@ def _search_scrape(query: str, limit: int = 5) -> list[dict]:
 
     r = _get(url)
     if r is None or r.status_code != 200:
-        return []
+        # API und Webseite nicht erreichbar → das ist ein Ausfall, nicht „keine Treffer“
+        raise BotcScriptsUnavailable(f"Suche nicht erreichbar ({r.status_code if r is not None else 'keine Antwort'})")
 
     soup = BeautifulSoup(r.text, "html.parser")
     html_results = _parse_search_html(soup)[:limit]
@@ -206,18 +212,10 @@ def _search_sync(query: str, limit: int = 5) -> list[dict]:
     if results is not None:
         return results
 
-    # 2. Fallback: HTML Scraping
+    # 2. Fallback: HTML Scraping. Charaktere werden erst bei der Auswahl geladen (download_script),
+    # nicht für jeden Treffer – das kostete bis zu 10 weitere Anfragen.
     logger.info("API fehlgeschlagen, nutze Scraping-Fallback für '%s'", query)
-    scrape_results = _search_scrape(query, limit)
-
-    # Characters nachladen für Scraping-Ergebnisse
-    for result in scrape_results:
-        if not result["characters"] and result["botcscripts_id"] and result["version"]:
-            result["characters"] = _download_script_sync(
-                result["botcscripts_id"], result["version"]
-            )
-
-    return scrape_results
+    return _search_scrape(query, limit)
 
 
 async def search_scripts(query: str, limit: int = 5) -> list[dict]:
@@ -226,7 +224,10 @@ async def search_scripts(query: str, limit: int = 5) -> list[dict]:
     Returns:
         Liste von Dicts mit: name, author, version, botcscripts_id, pk, characters, url
     """
-    return await asyncio.to_thread(_search_sync, query, limit)
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_search_sync, query, limit), TOTAL_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise BotcScriptsUnavailable("Zeitüberschreitung bei der Suche") from None
 
 
 def _download_script_json_sync(script_id: str, version: str) -> list | None:
@@ -248,7 +249,12 @@ async def download_script(script_id: str, version: str) -> list | None:
     Eindeutig im Gegensatz zu /api/scripts/<id>/, das den internen pk erwartet und mit der
     Skript-ID ein anderes Skript liefert.
     """
-    return await asyncio.to_thread(_download_script_json_sync, script_id, version)
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_download_script_json_sync, script_id, version),
+                                      TOTAL_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.warning("Download von Skript %s v%s: Zeitüberschreitung", script_id, version)
+        return None
 
 
 async def download_script_characters(script_id: str, version: str) -> list[str]:
@@ -303,7 +309,10 @@ async def search_versions(script_name: str, author: str = "") -> list[dict]:
     Returns:
         Liste von Script-Dicts mit verschiedenen Versionen.
     """
-    return await asyncio.to_thread(_search_versions_sync, script_name, author)
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(_search_versions_sync, script_name, author), TOTAL_TIMEOUT)
+    except asyncio.TimeoutError:
+        raise BotcScriptsUnavailable("Zeitüberschreitung bei der Versionssuche") from None
 
 
 async def fetch_script_json(botcscripts_id: str) -> list | None:

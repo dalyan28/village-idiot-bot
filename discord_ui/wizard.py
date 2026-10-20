@@ -27,7 +27,7 @@ from events import guild_lock, permissions, service
 from events.intake import parse_players
 from events.parse import ParseError, format_termin, parse_start
 from events.permissions import Actor
-from events.rating import rate_script
+from events.rating import RatingUnavailable, rate_script
 from events.schema import (
     BERLIN_TZ,
     CAMERA_LABELS,
@@ -72,6 +72,7 @@ logger = logging.getLogger(__name__)
 
 WIZARD_COLOR = 0x5865F2
 SEARCH_LIMIT = 10
+OUTAGE_SEARCH = ("botcscripts.com antwortet gerade nicht (zu langsam oder nicht erreichbar). Du kannst ein Basis-Skript oder die freie Skriptwahl nehmen, dein Skript als JSON hochladen oder es gleich nochmal versuchen.")
 PREVIEW_IMAGE = "vorschau.png"
 
 STEP_SCRIPT = "script"
@@ -490,6 +491,8 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
             rating_text += "\n" + rating_explanation(ui, limit=3)
     else:
         rating_text = OPEN
+        if ui.get("rating_error"):
+            rating_text += "\n" + ui["rating_error"]
     if d.is_special:
         why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
         rating_text += f"\n{LABEL_EMOJI['special']} Abweichung vom klassischen Clocktower: {_esc(why)}"
@@ -618,6 +621,23 @@ async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str
                                              attachments=screen.files)
 
 
+async def busy(interaction: discord.Interaction, ctx: WizardContext, text: str):
+    """Zeigt während einer Wartezeit eine Statusmeldung statt der Karte (ohne Buttons, gegen Doppelklicks).
+
+    Die nächste Anzeige (show) ersetzt sie wieder; bei einem Fehler zeigt sie die Erklärung.
+    """
+    if not interaction.response.is_done():
+        await interaction.response.defer()
+    message = f"**Einen Moment …**\n{text}"
+    try:
+        if is_v2(ctx.draft):
+            await interaction.edit_original_response(view=text_layout(message), attachments=[])
+        else:
+            await interaction.edit_original_response(content=message, embeds=[], view=None, attachments=[])
+    except discord.HTTPException:
+        logger.debug("Statusmeldung konnte nicht angezeigt werden", exc_info=True)
+
+
 async def goto(interaction: discord.Interaction, ctx: WizardContext, step: str, data: EventData | None = None,
                notice: str | None = None):
     ctx.save(data, step)
@@ -684,9 +704,18 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
     for key in ("search_results", "query", "rating_detail"):
         ui.pop(key, None)
 
-    if not interaction.response.is_done():
+    if script.kind in (SCRIPT_BOTCSCRIPTS, SCRIPT_UPLOAD):
+        await busy(interaction, ctx, f"Der ScriptRater schätzt „{_esc(script.display_name)}“ ein.")
+    elif not interaction.response.is_done():
         await interaction.response.defer()
-    result = await rate_script(script)
+    ui.pop("rating_error", None)
+    try:
+        result = await rate_script(script)
+    except RatingUnavailable as e:
+        result = None
+        ui["rating_error"] = ("Der ScriptRater braucht gerade zu lange" if e.timeout
+                              else "Der ScriptRater ist gerade nicht erreichbar") + \
+            ". Bitte stell die Schwierigkeit selbst ein."
     if script.kind == SCRIPT_FREE:
         d.rating, d.rating_source = RATING_ANY, RATING_SOURCE_FIXED
     elif result is not None:
@@ -729,11 +758,12 @@ async def _pick_botcscripts(interaction, ctx: WizardContext, value: str):
     ui = ctx.ui
     known = [*(ui.get("search_results") or []), *(ui.get("versions") or [])]
     script_type = next((r.get("type") for r in known if r["id"] == script_id and r["version"] == version), "")
-    if not interaction.response.is_done():
-        await interaction.response.defer()
+    await busy(interaction, ctx, "Ich lade das Skript von botcscripts.com.")
     content = await botcscripts.download_script(script_id, version)
     if not content:
-        raise service.ServiceError("Das Skript konnte nicht von botcscripts.com geladen werden. Versuch es nochmal.")
+        raise service.ServiceError(
+            "Das Skript konnte nicht von botcscripts.com geladen werden (zu langsam oder nicht erreichbar). "
+            "Versuch es gleich nochmal oder lade dein Skript als JSON hoch.")
     parsed, error = validate_script_json(content)
     if error:
         raise service.ServiceError(error)
@@ -765,8 +795,11 @@ async def _version(interaction, ctx: WizardContext, values):
 @action("versions")
 async def _versions(interaction, ctx: WizardContext, arg):
     s = ctx.data.script
-    await interaction.response.defer()
-    found = await botcscripts.search_versions(s.name, s.author)
+    await busy(interaction, ctx, f"Ich suche weitere Versionen von „{_esc(s.name)}“ auf botcscripts.com.")
+    try:
+        found = await botcscripts.search_versions(s.name, s.author)
+    except botcscripts.BotcScriptsUnavailable:
+        raise service.ServiceError(OUTAGE_SEARCH) from None
     ui = ctx.ui
     ui["versions"] = [{"id": v["botcscripts_id"], "version": v["version"], "type": v.get("script_type", "")}
                       for v in found if v.get("version")]
@@ -831,7 +864,7 @@ async def _publish(interaction, ctx: WizardContext, arg):
     if ctx.draft.event_id is None and event_channel(ctx.bot, ctx.draft.guild_id) is None:
         raise service.ServiceError("Es ist kein Event-Channel eingerichtet. Ein Admin kann ihn mit "
                                    "`/set_event_channel` setzen, dein Entwurf bleibt so lange gespeichert.")
-    await interaction.response.defer()
+    await busy(interaction, ctx, "Ich veröffentliche dein Event.")
     if is_v2(ctx.draft) and not ctx.draft.data.v2_post:
         d = ctx.data
         d.v2_post = True
@@ -944,8 +977,11 @@ class SearchModal(_WizardModal):
 
     async def handle(self, interaction, ctx: WizardContext):
         query = self.query.value.strip()
-        await interaction.response.defer()
-        results = await botcscripts.search_scripts(query, limit=SEARCH_LIMIT)
+        await busy(interaction, ctx, f"Ich suche „{_esc(query)}“ auf botcscripts.com.")
+        try:
+            results = await botcscripts.search_scripts(query, limit=SEARCH_LIMIT)
+        except botcscripts.BotcScriptsUnavailable:
+            raise service.ServiceError(OUTAGE_SEARCH) from None
         ui = ctx.ui
         ui["query"] = query
         ui["search_results"] = [
@@ -1029,8 +1065,11 @@ class ScriptModal(_WizardModal):
             query = (self.query.value or "").strip()
             if len(query) < 2:
                 raise service.ServiceError("Bitte gib einen Suchbegriff mit mindestens 2 Zeichen ein.")
-            await interaction.response.defer()
-            results = await botcscripts.search_scripts(query, limit=SEARCH_LIMIT)
+            await busy(interaction, ctx, f"Ich suche „{_esc(query)}“ auf botcscripts.com.")
+            try:
+                results = await botcscripts.search_scripts(query, limit=SEARCH_LIMIT)
+            except botcscripts.BotcScriptsUnavailable:
+                raise service.ServiceError(OUTAGE_SEARCH) from None
             found = [r for r in results if r.get("botcscripts_id") and r.get("version")]
             if len(found) == 1:  # eindeutig → direkt übernehmen
                 ctx.set_ui({**ctx.ui, "search_results": [_result_entry(found[0])]})
@@ -1094,6 +1133,9 @@ class RatingModal(_WizardModal):
         if self.rating.value in RATINGS and self.rating.value != d.rating:
             d.rating, d.rating_source = self.rating.value, RATING_SOURCE_MANUAL
             ctx.save(d)
+            ui = ctx.ui
+            if ui.pop("rating_error", None):
+                ctx.set_ui(ui)
         await show(interaction, ctx)
 
 

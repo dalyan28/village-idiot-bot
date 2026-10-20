@@ -208,6 +208,8 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
                 rating_lines.append(explanation)
     else:
         rating_lines = [MISSING_MARK if s is not None else "Ergibt sich aus dem Skript"]
+        if (draft.ui or {}).get("rating_error"):
+            rating_lines.append(esc(draft.ui["rating_error"]))
     if d.is_special:
         why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
         rating_lines.append(f"⭐ {esc(why)}")
