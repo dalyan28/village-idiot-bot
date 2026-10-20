@@ -49,6 +49,25 @@ def _name_resolver(guild: discord.Guild | None):
     return name_for
 
 
+async def render_post(bot: discord.Client, store: Store, event: EventRecord,
+                      has_image: bool, has_thumbnail: bool) -> dict:
+    """Inhalt des Event-Posts als kwargs für send/edit: Embed + Buttons oder (Test /botc2) V2-Karte."""
+    if not event.data.v2_post:
+        embed = await build_embed(bot, store, event, has_image, has_thumbnail)
+        return {"embed": embed, "view": event_view(event)}
+    from discord_ui.layout_v2 import event_layout  # zirkulären Import vermeiden
+
+    guild = bot.get_guild(event.guild_id)
+    creator = await fetch_member(bot, event.guild_id, event.creator_id)
+    layout = event_layout(
+        event.data, creator.display_name if creator else event.creator_name,
+        creator.display_avatar.url if creator else None, service.rsvp_lists(store, event),
+        list(event_view(event).children), has_image, has_thumbnail, event.created_at,
+        name_for=_name_resolver(guild),
+    )
+    return {"view": layout}
+
+
 async def build_embed(bot: discord.Client, store: Store, event: EventRecord,
                       has_image: bool, has_thumbnail: bool) -> discord.Embed:
     guild = bot.get_guild(event.guild_id)
@@ -106,8 +125,8 @@ async def post_event(bot: discord.Client, store: Store, event: EventRecord) -> d
     if channel is None:
         raise service.ServiceError("Es ist kein Event-Channel eingerichtet (`/set_event_channel`).")
     files = await build_files(event.data)
-    embed = await build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
-    msg = await channel.send(embed=embed, files=files, view=event_view(event))
+    content = await render_post(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+    msg = await channel.send(files=files, **content)
     store.set_event_message(event.id, msg.channel.id, msg.id)
     logger.info("Event %s gepostet (msg %s)", event.id, msg.id)
     return msg
@@ -133,12 +152,12 @@ async def update_event_message(bot: discord.Client, store: Store, event: EventRe
         return await post_event(bot, store, event)
     if images_changed:
         files = await build_files(event.data)
-        embed = await build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
-        await msg.edit(embed=embed, attachments=files, view=event_view(event))
+        content = await render_post(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+        await msg.edit(attachments=files, **content)
     else:
-        embed = await build_embed(bot, store, event, _has(msg.attachments, IMAGE_FILENAME),
-                            _has(msg.attachments, THUMB_FILENAME))
-        await msg.edit(embed=embed, view=event_view(event))
+        content = await render_post(bot, store, event, _has(msg.attachments, IMAGE_FILENAME),
+                                    _has(msg.attachments, THUMB_FILENAME))
+        await msg.edit(**content)
     return msg
 
 
@@ -180,11 +199,11 @@ class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<
 
 async def handle_rsvp(interaction: discord.Interaction, store: Store, event: EventRecord, status: str):
     service.toggle_rsvp(store, event, interaction.user.id, interaction.user.display_name, status, now())
-    embed = await build_embed(interaction.client, store, event,
-                              _has(interaction.message.attachments, IMAGE_FILENAME),
-                              _has(interaction.message.attachments, THUMB_FILENAME))
+    content = await render_post(interaction.client, store, event,
+                                _has(interaction.message.attachments, IMAGE_FILENAME),
+                                _has(interaction.message.attachments, THUMB_FILENAME))
     # Buttons mitschicken, damit ältere Posts beim nächsten Klick die aktuellen Buttons bekommen
-    await interaction.response.edit_message(embed=embed, view=event_view(event))
+    await interaction.response.edit_message(**content)
 
 
 async def handle_edit(interaction: discord.Interaction, store: Store, event: EventRecord):

@@ -28,6 +28,26 @@ class Overview(commands.Cog):
         self._edit_debounce_tasks: dict[int, asyncio.Task] = {}
         self._edit_debounce_start: dict[int, float] = {}
 
+    def _own_event(self, msg) -> dict | None:
+        """Eigene Event-Posts direkt aus der Datenbank lesen (Embed- und V2-Posts)."""
+        from events import service
+        from events.store import Store
+        from events.templates import full_title
+
+        store = getattr(self.bot, "store", None)
+        if not isinstance(store, Store) or self.bot.user is None or msg.author.id != self.bot.user.id:
+            return None
+        event = store.get_event_by_message(msg.id)
+        if event is None or event.data.start is None:
+            return None
+        return {
+            "title": full_title(event.data),
+            "start_ts": int(event.data.start.timestamp()),
+            "accepted": service.rsvp_lists(store, event).accepted_count,
+            "max_players": str(event.data.max_players),
+            "url": msg.jump_url,
+        }
+
     async def fetch_and_post(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
         lock = self._fetch_locks.setdefault(guild_id, asyncio.Lock())
         if lock.locked():
@@ -40,7 +60,7 @@ class Overview(commands.Cog):
         messages = [msg async for msg in event_channel.history(limit=100)]
         cfg = get_guild_config(guild_id)
 
-        events = parse_events(messages)
+        events = parse_events(messages, self._own_event)
         self._update_smart_dynamic_times(guild_id, events, cfg.get("smart_dynamic", True))
         embeds = build_overviews(events)
 
@@ -87,7 +107,7 @@ class Overview(commands.Cog):
         messages = [msg async for msg in event_channel.history(limit=100)]
         cfg = get_guild_config(guild_id)
 
-        events = parse_events(messages)
+        events = parse_events(messages, self._own_event)
         embeds = build_overviews(events)
 
         now_ts = int(datetime.now(tz=timezone.utc).timestamp())

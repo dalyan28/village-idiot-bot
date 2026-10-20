@@ -22,11 +22,23 @@ def new_embed() -> discord.Embed:
     return discord.Embed(title="Kommende Events", color=0x0083C2)
 
 
-def parse_events(messages: list[discord.Message]) -> list[dict]:
+def parse_events(messages: list[discord.Message], lookup=None) -> list[dict]:
+    """Events aus den Nachrichten des Event-Channels.
+
+    Apollo-Posts (und Embed-Posts des eigenen Bots) werden über die Embed-Felder „Time/Termin“ und
+    „Accepted/Akzeptiert (n/m)“ gelesen. `lookup(message)` kann für eigene Posts die Daten direkt
+    liefern (aus der Datenbank) – nötig für V2-Posts ohne Embeds, und zuverlässiger.
+    """
     events = []
 
     for msg in messages:
-        if not msg.author.bot or not msg.embeds:
+        if not msg.author.bot:
+            continue
+        own = lookup(msg) if lookup else None
+        if own is not None:
+            events.append(own)
+            continue
+        if not msg.embeds:
             continue
 
         embed = msg.embeds[0]

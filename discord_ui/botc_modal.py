@@ -51,6 +51,20 @@ def date_choice_radio(previous: str = "") -> discord.ui.RadioGroup:
     return radio
 
 
+OTHER_TIME = "other"
+TIME_CHOICES = ("13:00", "14:00", "19:00", "20:00")  # häufigste Startzeiten (Dalyan, 20.10.2026)
+
+
+def time_choice_radio(previous: str = "") -> discord.ui.RadioGroup:
+    """Uhrzeit als Auswahl: die häufigsten Startzeiten oder „Andere Uhrzeit“."""
+    radio = discord.ui.RadioGroup()
+    for t in TIME_CHOICES:
+        radio.add_option(label=f"{t} Uhr", value=t, default=previous == t)
+    radio.add_option(label="Andere Uhrzeit (unten eintragen)", value=OTHER_TIME,
+                     default=bool(previous) and previous not in TIME_CHOICES)
+    return radio
+
+
 class BotcModal(discord.ui.Modal):
     """Fünf Felder (Discord-Grenze): Datum, Uhrzeit, Spieler, Level, Optionen."""
 
@@ -92,9 +106,15 @@ class BotcModal(discord.ui.Modal):
             self.date.placeholder = "nur bei „Anderes Datum“, z. B. 24.12."
             if self.date.default and any(o.value == self.date.default for o in self.date_choice.options):
                 self.date.default = None
+            self.time_choice = time_choice_radio(raw.time_text)
+            self.time.required = False
+            self.time.placeholder = "nur bei „Andere Uhrzeit“, z. B. 18:30"
+            if self.time.default in TIME_CHOICES:
+                self.time.default = None
             self.add_item(discord.ui.Label(text="Datum", component=self.date_choice))
             self.add_item(discord.ui.Label(text="Anderes Datum", component=self.date))
-            self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
+            self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time_choice))
+            self.add_item(discord.ui.Label(text="Andere Uhrzeit", component=self.time))
             self.add_item(discord.ui.Label(text="Optionen", component=self.options))
             return
         self.add_item(discord.ui.Label(text="Datum", component=self.date))
@@ -106,9 +126,10 @@ class BotcModal(discord.ui.Modal):
     def raw_input(self) -> ModalInput:
         if self.v2:
             choice = self.date_choice.value or OTHER_DATE
+            time_choice = self.time_choice.value or OTHER_TIME
             return ModalInput(
                 date_text=(self.date.value or "") if choice == OTHER_DATE else choice,
-                time_text=self.time.value or "",
+                time_text=(self.time.value or "") if time_choice == OTHER_TIME else time_choice,
                 options=list(self.options.values),
             )
         return ModalInput(

@@ -68,11 +68,16 @@ def test_botc2_modal_is_slim_with_date_choices():
         return BotcModal(Store(":memory:"), allow_academy=False, v2=True)
 
     m = run(go())
-    assert len(m.children) == 4  # Datum-Auswahl, anderes Datum, Uhrzeit, Optionen
+    assert len(m.children) == 5  # Datum-Auswahl, anderes Datum, Uhrzeit-Auswahl, andere Uhrzeit, Optionen
     labels = [o.label for o in m.date_choice.options]
     assert labels[0].startswith("Heute") and labels[1].startswith("Morgen") and len(labels) == 10
     assert m.date_choice.options[-1].value == "other"
+    assert [o.value for o in m.time_choice.options] == ["13:00", "14:00", "19:00", "20:00", "other"]
     m.date_choice._value = m.date_choice.options[1].value
-    m.time._value = "20"
+    m.time_choice._value = "19:00"
     raw = m.raw_input()
-    assert raw.date_text == m.date_choice.options[1].value and raw.players_text == "12" and raw.level == "Alle"
+    assert raw.date_text == m.date_choice.options[1].value and raw.time_text == "19:00"
+    assert raw.players_text == "12" and raw.level == "Alle"
+    # „Andere Uhrzeit“ nimmt das Textfeld
+    m.time_choice._value, m.time._value = "other", "18:30"
+    assert m.raw_input().time_text == "18:30"

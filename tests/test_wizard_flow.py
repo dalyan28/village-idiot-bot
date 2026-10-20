@@ -342,7 +342,15 @@ def test_botc2_goes_from_script_straight_to_summary(env):
     assert d.data.description == "Gemütliche Runde." and d.step == "preview"
     inter = click(bot, draft.id, "publish")
     assert isinstance(inter.screen["view"], discord.ui.LayoutView)  # Abschluss ebenfalls als V2
-    assert bot.store.list_events(GUILD)
+    event = bot.store.list_events(GUILD)[0]
+    assert event.data.v2_post
+    msg = bot.channel.messages[event.message_id]
+    assert msg.embed is None and isinstance(msg.view, discord.ui.LayoutView)  # Event-Post als V2-Karte
+    # Anmeldung auf der V2-Karte: Karte wird neu gebaut, Name als Text
+    rsvp = FakeInteraction(bot, bot.guild.get_member(3), message=msg, guild_id=GUILD)
+    run(EventButton(event.id, "accept").callback(rsvp))
+    texts = " ".join(i.content for i in rsvp.screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert "Zusagen (1/12)" in texts and "Anna" in texts
 
 
 def test_free_choice_skips_rating_and_has_no_auto_image(env):

@@ -21,7 +21,7 @@ from datetime import datetime
 
 import discord
 
-from discord_ui.layout_v2 import summary_layout, text_layout, to_layout
+from discord_ui.layout_v2 import script_layout, summary_layout, text_layout, to_layout
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.intake import parse_players
@@ -574,6 +574,10 @@ async def send_wizard(bot: discord.Client, user: discord.abc.User, draft: Draft,
     """Schickt die Wizard-Nachricht per DM. Wirft discord.Forbidden, wenn DMs geschlossen sind."""
     screen = await build_screen(bot, bot.store, draft)
     if is_v2(draft):
+        if base_step(draft.step) == STEP_SCRIPT:
+            layout, files = await script_layout(bot, bot.store, draft, intro)
+            await user.send(view=layout, files=files)
+            return
         if base_step(draft.step) == STEP_PREVIEW or base_step(draft.step) not in STEPS:
             layout, files = await summary_layout(bot, bot.store, draft, intro)
             await user.send(view=layout, files=files)
@@ -587,8 +591,8 @@ async def send_wizard(bot: discord.Client, user: discord.abc.User, draft: Draft,
 
 
 def is_v2(draft: Draft) -> bool:
-    """Entwurf aus /botc2: Darstellung mit Components V2 (Bearbeiten-Button je Abschnitt)."""
-    return bool((draft.ui or {}).get("v2"))
+    """Entwurf aus /botc2 bzw. Bearbeitung eines /botc2-Events: Darstellung mit Components V2."""
+    return bool((draft.ui or {}).get("v2")) or draft.data.v2_post
 
 
 async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str | None = None,
@@ -596,6 +600,10 @@ async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str
     """Zeigt den aktuellen Schritt in der Wizard-Nachricht, auf die geklickt wurde."""
     if not interaction.response.is_done():
         await interaction.response.defer()
+    if is_v2(ctx.draft) and base_step(ctx.draft.step) == STEP_SCRIPT:
+        layout, files = await script_layout(ctx.bot, ctx.store, ctx.draft, notice)
+        await interaction.edit_original_response(view=layout, attachments=files)
+        return
     if is_v2(ctx.draft) and (base_step(ctx.draft.step) == STEP_PREVIEW
                              or base_step(ctx.draft.step) not in STEPS):
         layout, files = await summary_layout(ctx.bot, ctx.store, ctx.draft, notice)
@@ -730,6 +738,15 @@ async def _pick_botcscripts(interaction, ctx: WizardContext, value: str):
     await _set_script(interaction, ctx, script)
 
 
+@action("pick_result")
+async def _pick_result(interaction, ctx: WizardContext, arg):
+    results = ctx.ui.get("search_results") or []
+    if not (arg or "").isdigit() or int(arg) >= len(results):
+        raise service.ServiceError("Diesen Treffer gibt es nicht mehr. Such bitte nochmal.")
+    r = results[int(arg)]
+    await _pick_botcscripts(interaction, ctx, f"{r['id']}|{r['version']}")
+
+
 @select_action("result")
 async def _result(interaction, ctx: WizardContext, values):
     await _pick_botcscripts(interaction, ctx, values[0])
@@ -810,6 +827,10 @@ async def _publish(interaction, ctx: WizardContext, arg):
         raise service.ServiceError("Es ist kein Event-Channel eingerichtet. Ein Admin kann ihn mit "
                                    "`/set_event_channel` setzen, dein Entwurf bleibt so lange gespeichert.")
     await interaction.response.defer()
+    if is_v2(ctx.draft) and not ctx.draft.data.v2_post:
+        d = ctx.data
+        d.v2_post = True
+        ctx.save(d)
     old = ctx.store.get_event(ctx.draft.event_id) if ctx.draft.event_id is not None else None
     result = service.publish_draft(ctx.store, ctx.draft, ctx.actor, ctx.member.display_name, now())
     if result.created:
@@ -915,7 +936,9 @@ class SearchModal(_WizardModal):
         ui["query"] = query
         ui["search_results"] = [
             {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", ""),
-             "type": r.get("script_type", "")}
+             "type": r.get("script_type", ""),
+             "special": bool(special_reasons(ScriptRef(kind=SCRIPT_BOTCSCRIPTS, characters=r.get("characters") or [],
+                                                       content=r.get("content"))))}
             for r in results if r.get("botcscripts_id") and r.get("version")
         ]
         ctx.set_ui(ui)

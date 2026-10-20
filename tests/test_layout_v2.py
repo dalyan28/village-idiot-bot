@@ -82,3 +82,45 @@ def test_long_academy_description_is_shortened(store):
     layout = layout_for(store, make_draft(store, "preview", is_academy=True, description="x" * 1000,
                                           title="T" * 200))
     assert layout.content_length() <= 4000
+
+
+def test_search_results_as_sections_with_choose_button(store):
+    from discord_ui.layout_v2 import script_layout
+    draft = make_draft(store, "script")
+    store.set_draft_ui(draft.id, {"query": "teensy", "search_results": [
+        {"id": str(i), "version": "1.0", "name": f"Skript {i}", "author": "A",
+         "type": "Teensyville" if i == 0 else "Full", "special": i == 1} for i in range(8)]})
+
+    async def go():
+        layout, _ = await script_layout(FakeBot(store=store), store, store.get_draft(draft.id))
+        layout.to_components()
+        return layout
+    layout = asyncio.run(go())
+    sections = [i for i in layout.walk_children() if isinstance(i, discord.ui.Section)]
+    assert [s.accessory.custom_id for s in sections] == [f"wiz:{draft.id}:pick_result:{i}" for i in range(5)]
+    texts = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert "Teensyville" in texts and "⭐ Abweichung" in texts and "3 weitere Treffer" in texts
+    assert sum(1 for _ in layout.walk_children()) <= 40
+
+
+def test_event_card_v2_within_limits():
+    from datetime import datetime, timezone
+    from discord_ui.layout_v2 import event_layout
+    from events.schema import Person, ScriptRef, EventData
+    from events.service import RsvpLists
+    data = EventData(start=datetime(2026, 10, 24, 18, tzinfo=timezone.utc), storyteller=Person("Dalyan"),
+                     script=ScriptRef(kind="botcscripts", name="Boozling", author="Lau", version="9.0.0",
+                                      botcscripts_id="173", characters=["noble", "imp", "djinn"]),
+                     description="x" * 1000, rating="yellow", is_academy=True, max_players=2)
+    people = [Person(f"Spieler {i}", i) for i in range(60)]
+    rsvps = RsvpLists(players=people[:2], waitlist=people[2:30], tentative=people[30:45], declined=people[45:])
+
+    async def go():
+        buttons = [discord.ui.Button(label=str(i), custom_id=f"b{i}") for i in range(5)]
+        layout = event_layout(data, "Dalyan", "https://cdn/a.png", rsvps, buttons, True, True, 1792459044)
+        layout.to_components()
+        return layout
+    layout = asyncio.run(go())
+    texts = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert "Zusagen (30/2)" in texts and "Warteliste" in texts and "Auffüller" in texts and "<@" not in texts
+    assert layout.content_length() <= 4000 and sum(1 for _ in layout.walk_children()) <= 40
