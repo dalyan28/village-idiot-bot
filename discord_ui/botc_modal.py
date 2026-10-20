@@ -18,7 +18,7 @@ from events.intake import (
     ModalInput,
     parse_modal_input,
 )
-from events.parse import ParseError, format_start
+from events.parse import ParseError
 from events.store import Store
 
 logger = logging.getLogger(__name__)
@@ -125,17 +125,15 @@ class BotcModal(discord.ui.Modal):
                 ephemeral=True
             )
             return
-        where = "Check deine DMs, dort geht es weiter." if interaction.guild_id else "Weiter geht es hier unten."
-        await interaction.response.send_message(
-            f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n{where}",
-            ephemeral=True,
-        )
+        # Den Termin und die nächsten Schritte zeigt die erste Wizard-Karte; hier nur der Weg dorthin
+        where = "Es geht in deinen DMs weiter." if interaction.guild_id else "Es geht hier unten weiter."
+        await interaction.response.send_message(f"Der Termin ist gespeichert. {where}", ephemeral=True)
         await deliver_wizard(interaction, draft)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception):
         logger.exception("Fehler im /botc-Modal", exc_info=error)
         if not interaction.response.is_done():
-            await interaction.response.send_message("Da ist etwas schiefgelaufen. Versuch es bitte nochmal.",
+            await interaction.response.send_message("Ein Fehler ist aufgetreten. Bitte versuch es erneut.",
                                                     ephemeral=True)
 
 
@@ -146,8 +144,8 @@ async def deliver_wizard(interaction: discord.Interaction, draft, intro: str | N
     except discord.Forbidden:
         await interaction.followup.send(
             "Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "
-            "(Servereinstellungen → Privatsphäre) und starte dann `/botc` erneut, "
-            "dein Entwurf bleibt gespeichert.",
+            "(Servereinstellungen → Privatsphäre) und starte `/botc` dann erneut. "
+            "Dein Entwurf bleibt gespeichert.",
             ephemeral=True,
         )
 
@@ -161,7 +159,7 @@ class RetryView(discord.ui.View):
         self.store, self.allow_academy, self.raw = store, allow_academy, raw
         self.guild, self.member = guild, member
 
-    @discord.ui.button(label="Nochmal", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Eingaben korrigieren", style=discord.ButtonStyle.primary)
     async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw,
                                                         self.guild, self.member))
@@ -180,11 +178,12 @@ class ResumeOrNewView(discord.ui.View):
     async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
         draft = self.store.get_draft(self.draft.id)
         if draft is None:
-            await interaction.response.edit_message(content="Der Entwurf ist inzwischen weg. Starte bitte neu.",
+            await interaction.response.edit_message(content="Den Entwurf gibt es nicht mehr. Bitte starte `/botc` neu.",
                                                     view=None)
             return
-        await interaction.response.edit_message(content="Check deine DMs, dort geht es weiter.", view=None)
-        await deliver_wizard(interaction, draft, intro="Hier geht es mit deinem Entwurf weiter:")
+        where = "Es geht in deinen DMs weiter." if interaction.guild_id else "Es geht hier unten weiter."
+        await interaction.response.edit_message(content=where, view=None)
+        await deliver_wizard(interaction, draft, intro="Hier geht es mit deinem Entwurf weiter.")
 
     @discord.ui.button(label="Neu beginnen", style=discord.ButtonStyle.secondary)
     async def new(self, interaction: discord.Interaction, button: discord.ui.Button):

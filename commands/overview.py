@@ -416,11 +416,11 @@ class Overview(commands.Cog):
 
         if not event_channel:
             await interaction.response.send_message(
-                "Kein Event-Channel gesetzt. Bitte erst `/set_event_channel` nutzen.", ephemeral=True
+                "Es ist kein Event-Channel gesetzt. Bitte zuerst `/set_event_channel` nutzen.", ephemeral=True
             )
             return
 
-        await interaction.response.send_message(f"Erstelle Übersicht in {channel.mention}...", ephemeral=True)
+        await interaction.response.send_message(f"Die Übersicht wird in {channel.mention} erstellt.", ephemeral=True)
         await self.fetch_and_post(interaction.guild_id, event_channel, channel)
 
     @app_commands.command(name="automate_overview", description="Automatisiert die Übersicht in einem Intervall")
@@ -554,11 +554,11 @@ class Overview(commands.Cog):
                 continue
             m = re.fullmatch(r"(\d{1,2}):(\d{2})", token)
             if not m:
-                errors.append(f"`{token}` – kein gültiges Format (erwartet HH:MM)")
+                errors.append(f"`{token}`: kein gültiges Format (erwartet HH:MM)")
                 continue
             h, mi = int(m.group(1)), int(m.group(2))
             if not (0 <= h <= 23 and 0 <= mi <= 59):
-                errors.append(f"`{token}` – Stunde/Minute außerhalb des gültigen Bereichs")
+                errors.append(f"`{token}`: Stunde oder Minute außerhalb des gültigen Bereichs")
                 continue
             key = (h, mi)
             if key in seen:
@@ -608,7 +608,7 @@ class Overview(commands.Cog):
                 await btn_interaction.response.edit_message(content="Abgebrochen.", view=None)
 
         await interaction.response.send_message(
-            f"Erkannter Zeitplan ({len(valid)} Zeiten):\n**{preview}**\n\nStimmt das so?",
+            f"Erkannter Zeitplan ({len(valid)} Zeiten):\n**{preview}**\n\nSoll er gespeichert werden?",
             view=ConfirmView(),
             ephemeral=True
         )

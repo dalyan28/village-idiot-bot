@@ -99,11 +99,12 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
     head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
     # Titel als Überschrift, direkt änderbar
-    title_note = "" if d.title.strip() else "\n-# Titel wird automatisch gebaut"
+    title_note = "" if d.title.strip() else "\n-# Titel wird automatisch erstellt"
     container.add_item(section(f"{head}\n## {esc(full_title(d))}{title_note}", "title"))
     missing = missing_for_publish(d)
     status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
-              else "Alles da. Wenn es passt: **Veröffentlichen**.")
+              else "Alle Pflichtangaben sind vollständig. Wenn alles passt: **"
+              + ("Veröffentlichen" if draft.event_id is None else "Änderungen speichern") + "**.")
     if notice:
         status += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(status))
@@ -214,14 +215,31 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
     esc = discord.utils.escape_markdown
     results = ui.get("search_results") or []
     container = discord.ui.Container(accent_colour=0x5865F2)
-    container.add_item(discord.ui.TextDisplay("### Skript wählen"))
-    intro = ("Such dein Skript auf **botcscripts.com**, oder nimm ein Basis-Skript, "
-             "die freie Wahl oder ein eigenes JSON.")
+    # Erster Besuch: neuer Entwurf, noch kein Skript und noch keine Suche, nicht aus der Zusammenfassung heraus
+    first_visit = (draft.event_id is None and d.script is None and d.start is not None
+                   and draft.step == wz.STEP_SCRIPT and not ui.get("query"))
+    if first_visit:
+        # Erste Karte nach dem /botc-Modal: bestätigen, was steht, und sagen, was jetzt kommt (Dalyan, 20.10.2026)
+        from events.parse import format_start
+        guild = bot.get_guild(draft.guild_id)
+        head = f"-# Neue Runde · {esc(guild.name)}" if guild else "-# Neue Runde"
+        container.add_item(discord.ui.TextDisplay(
+            f"{head}\n### Skript wählen\n"
+            f"Der Termin steht: **{format_start(d.start, d.duration_minutes)}**\n"
+            "Als Nächstes wählst du das Skript: per Suche auf **botcscripts.com**, als Basis-Skript, "
+            "als freie Skriptwahl oder als eigenes JSON. Danach siehst du eine Zusammenfassung, in der du "
+            "alles anpassen und die Runde veröffentlichen kannst."))
+        intro = ""
+    else:
+        container.add_item(discord.ui.TextDisplay("### Skript wählen"))
+        intro = ("Such dein Skript auf **botcscripts.com** oder wähl ein Basis-Skript, "
+                 "die freie Skriptwahl oder ein eigenes JSON.")
     if d.script:
         intro = f"Aktuell: **{esc(d.script.display_name)}**\n" + intro
     if notice:
-        intro += f"\n{notice}"
-    container.add_item(discord.ui.TextDisplay(intro))
+        intro = f"{intro}\n{notice}" if intro else notice
+    if intro:
+        container.add_item(discord.ui.TextDisplay(intro))
 
     layout = discord.ui.LayoutView(timeout=None)
     if results:

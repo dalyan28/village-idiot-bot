@@ -260,7 +260,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
 
     # 6. Veröffentlichen
     inter = click(bot, draft.id, "publish")
-    assert "online" in screen_text(inter)
+    assert "veröffentlicht" in screen_text(inter)
     assert bot.store.get_draft(draft.id) is None
     event = bot.store.list_events(GUILD)[0]
     msg = bot.channel.messages[event.message_id]
@@ -512,11 +512,36 @@ def test_botc_modal_submit_creates_draft_and_confirms(env, guild_id):
     modal.time_choice._value = "20:00"
     inter = FakeInteraction(bot, member, guild_id=guild_id)
     run(modal.on_submit(inter))
-    assert inter.sent and inter.sent[0].startswith("Termin erkannt:")
-    assert ("Check deine DMs" in inter.sent[0]) == (guild_id is not None)
+    assert inter.sent and inter.sent[0].startswith("Der Termin ist gespeichert.")
+    assert ("in deinen DMs" in inter.sent[0]) == (guild_id is not None)
     draft = bot.store.list_drafts(USER)[0]
     assert draft.step == "script"  # /botc beginnt mit der Skriptwahl
-    assert sent_dm  # Zusammenfassung per DM geschickt
+    assert sent_dm  # Skript-Karte per DM geschickt
+    # Die erste Karte bestätigt den Termin und erklärt die nächsten Schritte
+    texts = " ".join(i.content for i in sent_dm[0]["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert "Neue Runde" in texts and "Der Termin steht" in texts and "Zusammenfassung" in texts
+
+
+def test_script_card_intro_only_on_first_visit(env):
+    """Die ausführliche Einleitung steht nur auf der ersten Skript-Karte, nicht nach Skriptwahl
+    und nicht, wenn die Karte aus der Zusammenfassung heraus geöffnet wird."""
+    from discord_ui.layout_v2 import script_layout
+    bot = env
+    draft = new_draft(bot)
+
+    def card_text(d):
+        layout, _ = run(script_layout(bot, bot.store, d))
+        return " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
+
+    assert "Der Termin steht" in card_text(bot.store.get_draft(draft.id))
+    d = bot.store.get_draft(draft.id)
+    bot.store.update_draft(d.id, d.data, "script:p", int(NOW.timestamp()))
+    assert "Der Termin steht" not in card_text(bot.store.get_draft(draft.id))
+    click(bot, draft.id, "pick", "trouble_brewing")
+    d = bot.store.get_draft(draft.id)
+    bot.store.update_draft(d.id, d.data, "script", int(NOW.timestamp()))
+    text = card_text(bot.store.get_draft(draft.id))
+    assert "Der Termin steht" not in text and "Aktuell: **Trouble Brewing**" in text
 
 
 def test_script_dialog_attached_file_wins(env, monkeypatch):

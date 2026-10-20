@@ -214,14 +214,14 @@ async def handle_edit(interaction: discord.Interaction, store: Store, event: Eve
         await interaction.response.send_message("Bearbeiten dürfen nur der Ersteller und das Event-Team.",
                                                 ephemeral=True)
         return
-    await interaction.response.send_message("Check deine DMs, dort kannst du das Event bearbeiten.",
+    await interaction.response.send_message("Du kannst das Event in deinen DMs bearbeiten.",
                                             ephemeral=True)
     try:
         await wizard.send_wizard(interaction.client, interaction.user, draft)
     except discord.Forbidden:
         store.delete_draft(draft.id)
         await interaction.followup.send("Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "
-                                        "und versuch es nochmal.", ephemeral=True)
+                                        "und versuch es dann erneut.", ephemeral=True)
 
 
 async def handle_delete(interaction: discord.Interaction, store: Store, event: EventRecord):
@@ -245,7 +245,7 @@ class DeleteConfirmView(discord.ui.View):
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         event = self.store.get_event(self.event_id)
         if event is None:
-            await interaction.response.edit_message(content="Das Event ist schon gelöscht.", view=None)
+            await interaction.response.edit_message(content="Das Event wurde bereits gelöscht.", view=None)
             return
         try:
             service.delete_event(self.store, event, actor_from_member(interaction.user), now())
@@ -260,4 +260,4 @@ class DeleteConfirmView(discord.ui.View):
 
     @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="Nicht gelöscht.", view=None)
+        await interaction.response.edit_message(content="Löschen abgebrochen.", view=None)

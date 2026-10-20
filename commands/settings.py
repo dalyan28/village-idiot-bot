@@ -36,7 +36,7 @@ class Settings(commands.Cog):
         name="update_characters",
         description="Aktualisiert Charakterdatenbank, Jinxes und Icons von der offiziellen BotC-Quelle",
     )
-    @app_commands.describe(force_icons="Alle Icons neu herunterladen, auch bereits vorhandene (default: nein)")
+    @app_commands.describe(force_icons="Alle Icons neu herunterladen, auch bereits vorhandene (Standard: nein)")
     @app_commands.default_permissions(manage_guild=True)
     async def update_characters(self, interaction: discord.Interaction, force_icons: bool = False):
         app_info = await self.bot.application_info()
@@ -56,7 +56,7 @@ class Settings(commands.Cog):
             errors = "\n".join(f"• {e}" for e in result["errors"])
             await interaction.followup.send(f"⚠️ Update mit Fehlern:\n{errors}\n\n{summary}", ephemeral=True)
         else:
-            await interaction.followup.send(f"✅ Update erfolgreich!\n{summary}", ephemeral=True)
+            await interaction.followup.send(f"✅ Update abgeschlossen.\n{summary}", ephemeral=True)
             logger.info("/update_characters: %d Charaktere, %d neue Icons",
                         result["characters_count"], result["new_icons"])
 

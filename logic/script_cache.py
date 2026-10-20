@@ -464,10 +464,10 @@ def validate_script_json(data) -> tuple[dict | None, str | None]:
         (parsed_data, error_message) — parsed_data ist None bei Fehler.
     """
     if not isinstance(data, list):
-        return None, "Ungültiges Format: Erwartet wird eine JSON-Liste (Array)."
+        return None, "Ungültiges Format: Das Skript muss eine JSON-Liste (Array) sein."
 
     if len(data) == 0:
-        return None, "Leere Script-JSON. Mindestens ein Charakter wird erwartet."
+        return None, "Das Skript-JSON ist leer. Es muss mindestens einen Charakter enthalten."
 
     meta = {}
     characters = []
@@ -482,7 +482,7 @@ def validate_script_json(data) -> tuple[dict | None, str | None]:
                 characters.append(item["id"])
 
     if not characters:
-        return None, "Keine Charaktere in der JSON gefunden."
+        return None, "Im JSON wurden keine Charaktere gefunden."
 
     # Content bewahren (Name, Ability, Icon-URLs pro Charakter)
     content = [item for item in data if isinstance(item, dict)]

@@ -81,9 +81,9 @@ def test_wizard_shows_rater_outage_and_manual_rating_clears_it(env, monkeypatch)
     run(wizard.WizardButton(draft.id, "pick_result", "x", arg="0").callback(inter))
 
     d = bot.store.get_draft(draft.id)
-    assert d.data.rating is None and "zu lange" in d.ui["rating_error"]
+    assert d.data.rating is None and "nicht rechtzeitig" in d.ui["rating_error"]
     texts = " ".join(i.content for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "Der ScriptRater braucht gerade zu lange" in texts
+    assert "Der ScriptRater antwortet gerade nicht rechtzeitig" in texts
     labels = [getattr(getattr(i, "item", i), "label", "") for i in inter.screen["view"].walk_children()]
     assert "Schwierigkeit wählen" in labels
 

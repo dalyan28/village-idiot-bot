@@ -63,7 +63,7 @@ from logic.script_flags import is_teensy, special_reasons
 logger = logging.getLogger(__name__)
 
 SEARCH_LIMIT = 50  # nach Likes sortiert; die Skript-Karte blättert in Seiten durch (layout_v2.RESULTS_PER_PAGE)
-OUTAGE_SEARCH = ("botcscripts.com antwortet gerade nicht (zu langsam oder nicht erreichbar). Du kannst ein Basis-Skript oder die freie Skriptwahl nehmen, dein Skript als JSON hochladen oder es gleich nochmal versuchen.")
+OUTAGE_SEARCH = ("botcscripts.com antwortet gerade nicht (zu langsam oder nicht erreichbar). Du kannst ein Basis-Skript oder die freie Skriptwahl nehmen, dein Skript als JSON hochladen oder es später erneut versuchen.")
 
 STEP_SCRIPT = "script"
 STEP_IMAGE = "image"
@@ -149,7 +149,7 @@ async def load_context(interaction: discord.Interaction, draft_id: int) -> Wizar
     store: Store = interaction.client.store
     draft = store.get_draft(draft_id)
     if draft is None:
-        await _reply(interaction, "Diesen Entwurf gibt es nicht mehr. Starte mit `/botc` neu.")
+        await _reply(interaction, "Diesen Entwurf gibt es nicht mehr. Mit `/botc` kannst du neu beginnen.")
         return None
     if draft.user_id != interaction.user.id:
         await _reply(interaction, "Das ist nicht dein Entwurf.")
@@ -355,7 +355,7 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
         result = await rate_script(script)
     except RatingUnavailable as e:
         result = None
-        ui["rating_error"] = ("Der ScriptRater braucht gerade zu lange" if e.timeout
+        ui["rating_error"] = ("Der ScriptRater antwortet gerade nicht rechtzeitig" if e.timeout
                               else "Der ScriptRater ist gerade nicht erreichbar") + \
             ". Bitte stell die Schwierigkeit selbst ein."
     if script.kind == SCRIPT_FREE:
@@ -421,7 +421,7 @@ async def _run_search(interaction, ctx: WizardContext, query: str):
         # aus der Zusammenfassung heraus gesucht: Treffer zeigen, nach der Wahl zurück
         step = STEP_SCRIPT + (RETURN_SUFFIX if step == STEP_PREVIEW or returns_to_preview(step) else "")
     ctx.save(step=step)
-    notice = None if ui["search_results"] else f"Keine Treffer für „{_esc(query)}“. Versuch einen anderen Suchbegriff."
+    notice = None if ui["search_results"] else f"Keine Treffer für „{_esc(query)}“. Versuch es mit einem anderen Suchbegriff."
     await show(interaction, ctx, notice)
 
 
@@ -443,7 +443,7 @@ async def _pick_botcscripts(interaction, ctx: WizardContext, value: str):
     if not content:
         raise service.ServiceError(
             "Das Skript konnte nicht von botcscripts.com geladen werden (zu langsam oder nicht erreichbar). "
-            "Versuch es gleich nochmal oder lade dein Skript als JSON hoch.")
+            "Versuch es später erneut oder lade dein Skript als JSON hoch.")
     parsed, error = validate_script_json(content)
     if error:
         raise service.ServiceError(error)
@@ -457,7 +457,7 @@ async def _pick_botcscripts(interaction, ctx: WizardContext, value: str):
 async def _pick_result(interaction, ctx: WizardContext, arg):
     results = ctx.ui.get("search_results") or []
     if not (arg or "").isdigit() or int(arg) >= len(results):
-        raise service.ServiceError("Diesen Treffer gibt es nicht mehr. Such bitte nochmal.")
+        raise service.ServiceError("Diesen Treffer gibt es nicht mehr. Bitte starte eine neue Suche.")
     r = results[int(arg)]
     await _pick_botcscripts(interaction, ctx, f"{r['id']}|{r['version']}")
 
@@ -479,7 +479,7 @@ async def _versions(interaction, ctx: WizardContext, arg):
     ui["versions"] = [{"id": v["botcscripts_id"], "version": v["version"], "type": v.get("script_type", "")}
                       for v in found if v.get("version")]
     ctx.set_ui(ui)
-    notice = None if ui["versions"] else "Ich habe keine weiteren Versionen gefunden."
+    notice = None if ui["versions"] else "Keine weiteren Versionen gefunden."
     await show(interaction, ctx, notice)
 
 
@@ -534,7 +534,7 @@ async def _publish(interaction, ctx: WizardContext, arg):
     result = service.publish_draft(ctx.store, ctx.draft, ctx.actor, ctx.member.display_name, now())
     if result.created:
         msg = await post_event(ctx.bot, ctx.store, result.event)
-        text = f"Dein Event ist online.\n{msg.jump_url}"
+        text = f"Dein Event ist veröffentlicht.\n{msg.jump_url}"
     else:
         msg = await update_event_message(ctx.bot, ctx.store, result.event,
                                          images_changed(old.data, result.event.data) if old else True)
@@ -606,7 +606,7 @@ class _WizardModal(discord.ui.Modal):
 
     async def on_error(self, interaction: discord.Interaction, error: Exception):
         logger.exception("Fehler im Wizard-Modal", exc_info=error)
-        await _reply(interaction, "Da ist etwas schiefgelaufen. Versuch es bitte nochmal.")
+        await _reply(interaction, "Ein Fehler ist aufgetreten. Bitte versuch es erneut.")
 
 
 class ScriptModal(_WizardModal):
@@ -628,10 +628,10 @@ class ScriptModal(_WizardModal):
         self.add_item(discord.ui.Label(text="Auf botcscripts.com suchen",
                                        description="Suchbegriff eintragen und abschicken",
                                        component=self.query))
-        self.add_item(discord.ui.Label(text="Oder direkt wählen", description="Geht vor der Suche",
+        self.add_item(discord.ui.Label(text="Oder direkt wählen", description="Hat Vorrang vor der Suche",
                                        component=self.kind))
         self.add_item(discord.ui.Label(text="Oder eigenes Skript-JSON anhängen",
-                                       description="Eine angehängte Datei geht vor allem anderen",
+                                       description="Eine angehängte Datei hat Vorrang vor allem anderen",
                                        component=self.file))
 
     async def handle(self, interaction, ctx: WizardContext):
