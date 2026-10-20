@@ -498,8 +498,8 @@ Dritte Runde Feedback (20.10.2026):
   je ein Button; nach der Skriptwahl direkt dorthin; fehlende Angaben mit 🔴 und roten Buttons statt
   „Veröffentlichen“. Erstes Modal schlank: Datum als Auswahl (Heute, Morgen, die nächsten Tage, Anderes Datum),
   Uhrzeit, Optionen; Level (Alle) und Spieler (12) mit Standardwert.
-  Skriptwahl zuerst: ein Button öffnet den Skript-Dialog, das Suchfeld (botcscripts.com) steht ganz oben; mit
-  Suchbegriff wird gesucht und die Auswahl darunter (Basis-Skripte, freie Wahl, JSON) ignoriert. Treffer (bis 50,
+  Skriptwahl zuerst: ein Button öffnet den Skript-Dialog, das Suchfeld (botcscripts.com) steht ganz oben. Geprüft
+  wird von unten nach oben: Datei, dann Auswahl (Basis-Skripte, freie Wahl), zuletzt die Suche. Treffer (bis 50,
   nach Likes) stehen seitenweise (5) in der Karte mit „Wählen“, „◀ Zurück“/„Weiter ▶“ und „Neue Suche“.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.

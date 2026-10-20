@@ -1024,8 +1024,9 @@ SCRIPT_FILE = "upload"
 class ScriptModal(_WizardModal):
     """/botc2: Skript per Dialog, die Suche steht ganz oben (Dalyan, 20.10.2026).
 
-    Discord-Dialoge haben außer „Absenden“ keine Buttons. Steht ein Suchbegriff drin, wird gesucht
-    und die Auswahl darunter ignoriert; „Absenden“ ist damit der Such-Button.
+    Geprüft wird von unten nach oben (Dalyan, 20.10.2026): angehängte Datei, dann Auswahl, zuletzt
+    die Suche. Wer erst etwas eintippt und sich dann für ein Basis-Skript entscheidet, landet nicht
+    wegen eines Suchrests in der Suche.
     """
 
     def __init__(self, draft_id: int, query: str = ""):
@@ -1040,27 +1041,25 @@ class ScriptModal(_WizardModal):
         self.add_item(discord.ui.Label(text="Auf botcscripts.com suchen",
                                        description="Suchbegriff eintragen und abschicken",
                                        component=self.query))
-        self.add_item(discord.ui.Label(text="Oder direkt wählen", description="Nur wenn das Suchfeld leer ist",
+        self.add_item(discord.ui.Label(text="Oder direkt wählen", description="Geht vor der Suche",
                                        component=self.kind))
         self.add_item(discord.ui.Label(text="Skript-JSON", description="Nur bei „Eigenes JSON hochladen“",
                                        component=self.file))
 
     async def handle(self, interaction, ctx: WizardContext):
-        query = (self.query.value or "").strip()
-        if query:
-            if len(query) < 2:
-                raise service.ServiceError("Bitte gib einen Suchbegriff mit mindestens 2 Zeichen ein.")
-            await _run_search(interaction, ctx, query)
-            return
-        choice = self.kind.value or ""
         if self.file.values:  # Datei angehängt: zählt auch ohne Auswahl „Eigenes JSON hochladen“
             await _set_script(interaction, ctx, await _script_from_upload(self.file.values[0]))
             return
+        choice = self.kind.value or ""
         if choice == SCRIPT_FILE:
             raise service.ServiceError("Bitte hänge die Skript-JSON-Datei an.")
-        if not choice:
-            raise service.ServiceError("Gib einen Suchbegriff ein oder wähl ein Skript aus.")
-        await _pick_base(interaction, ctx, choice)
+        if choice:
+            await _pick_base(interaction, ctx, choice)
+            return
+        query = (self.query.value or "").strip()
+        if len(query) < 2:
+            raise service.ServiceError("Gib einen Suchbegriff (mindestens 2 Zeichen) ein oder wähl ein Skript aus.")
+        await _run_search(interaction, ctx, query)
 
 
 class ScriptUploadModal(_WizardModal):

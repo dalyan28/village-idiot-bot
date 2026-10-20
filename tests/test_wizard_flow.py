@@ -483,7 +483,6 @@ def test_botc2_script_first_with_result_list(env, monkeypatch):
     assert isinstance(modal, ScriptModal)
     assert modal.children[0].component is modal.query  # Suche ganz oben
     modal.query._value = "boo"
-    modal.kind._value = "trouble_brewing"  # wird bei Suchbegriff ignoriert
     inter = FakeInteraction(bot, user)
     run(modal.on_submit(inter))
     sections = [i for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.Section)]
@@ -504,7 +503,7 @@ def test_botc2_script_first_with_result_list(env, monkeypatch):
     inter = click(bot, draft.id, "edit_field", "script")
     modal = inter.response.modal
     assert isinstance(modal, ScriptModal)
-    modal.query._value = ""
+    modal.query._value = "boo"  # Suchrest: die Auswahl geht vor (Prüfung von unten nach oben)
     modal.kind._value = "trouble_brewing"
     run(modal.on_submit(FakeInteraction(bot, user)))
     d = bot.store.get_draft(draft.id)
