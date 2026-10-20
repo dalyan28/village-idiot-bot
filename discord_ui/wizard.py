@@ -21,7 +21,7 @@ from datetime import datetime
 
 import discord
 
-from discord_ui.layout_v2 import text_layout, to_layout
+from discord_ui.layout_v2 import summary_layout, text_layout, to_layout
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.intake import parse_players
@@ -345,6 +345,8 @@ async def _screen_script(bot, store, draft: Draft, head: discord.Embed, view: di
     view.add_item(WizardButton(draft.id, "pick", "Freie Skriptwahl", arg="free", row=0))
     view.add_item(WizardButton(draft.id, "search", "Auf botcscripts.com suchen", row=1))
     view.add_item(WizardButton(draft.id, "upload", "Skript-JSON hochladen", row=1))
+    if d.script is not None:
+        view.add_item(WizardButton(draft.id, "rating_dialog", "Schwierigkeit ändern", row=1))
     if d.script is not None and d.script.kind == SCRIPT_BOTCSCRIPTS:
         view.add_item(WizardButton(draft.id, "versions", "Andere Version", row=1))
         versions = ui.get("versions") or []
@@ -570,11 +572,14 @@ async def send_wizard(bot: discord.Client, user: discord.abc.User, draft: Draft,
     """Schickt die Wizard-Nachricht per DM. Wirft discord.Forbidden, wenn DMs geschlossen sind."""
     screen = await build_screen(bot, bot.store, draft)
     if is_v2(draft):
+        if base_step(draft.step) == STEP_PREVIEW or base_step(draft.step) not in STEPS:
+            layout, files = await summary_layout(bot, bot.store, draft, intro)
+            await user.send(view=layout, files=files)
+            return
         embeds = screen.embeds
         if intro:
             embeds = [discord.Embed(description=intro), *embeds]
-        await user.send(view=to_layout(embeds, screen.view, draft.id, base_step(draft.step) == STEP_PREVIEW),
-                        files=screen.files)
+        await user.send(view=to_layout(embeds, screen.view, draft.id, False), files=screen.files)
         return
     await user.send(content=intro, embeds=screen.embeds, view=screen.view, files=screen.files)
 
@@ -589,10 +594,14 @@ async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str
     """Zeigt den aktuellen Schritt in der Wizard-Nachricht, auf die geklickt wurde."""
     if not interaction.response.is_done():
         await interaction.response.defer()
+    if is_v2(ctx.draft) and (base_step(ctx.draft.step) == STEP_PREVIEW
+                             or base_step(ctx.draft.step) not in STEPS):
+        layout, files = await summary_layout(ctx.bot, ctx.store, ctx.draft, notice)
+        await interaction.edit_original_response(view=layout, attachments=files)
+        return
     screen = await build_screen(ctx.bot, ctx.store, ctx.draft, notice)
     if is_v2(ctx.draft):
-        editable = base_step(ctx.draft.step) == STEP_PREVIEW
-        await interaction.edit_original_response(view=to_layout(screen.embeds, screen.view, ctx.draft.id, editable),
+        await interaction.edit_original_response(view=to_layout(screen.embeds, screen.view, ctx.draft.id, False),
                                                  attachments=screen.files)
         return
     await interaction.edit_original_response(content=content, embeds=screen.embeds, view=screen.view,
@@ -642,8 +651,13 @@ async def _cancel(interaction, ctx: WizardContext, arg):
 
 
 def _after_script(ctx: WizardContext) -> str:
-    """Nach der Skriptwahl: Beschreibung, beim Bearbeiten zurück zur Zusammenfassung."""
-    return STEP_PREVIEW if returns_to_preview(ctx.draft.step) else STEP_DESCRIPTION
+    """Nach der Skriptwahl: Beschreibung, beim Bearbeiten zurück zur Zusammenfassung.
+
+    /botc2 geht immer direkt in die Zusammenfassung; was fehlt, steht dort rot markiert.
+    """
+    if returns_to_preview(ctx.draft.step) or is_v2(ctx.draft):
+        return STEP_PREVIEW
+    return STEP_DESCRIPTION
 
 
 async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice: str | None = None):
@@ -832,9 +846,23 @@ async def open_edit(interaction, ctx: WizardContext, choice: str):
     elif choice == "basics":
         await interaction.response.send_modal(BasicsModal(ctx.draft.id, d))
     elif choice == "labels":
-        allow_academy = d.is_academy or permissions.can(
-            ctx.actor, permissions.CREATE_ACADEMY, service.get_access(ctx.store, ctx.draft.guild_id))
-        await interaction.response.send_modal(LabelsModal(ctx.draft.id, d, allow_academy))
+        await interaction.response.send_modal(LabelsModal(ctx.draft.id, d, _allow_academy(ctx)))
+    elif choice == "descriptive":
+        await interaction.response.send_modal(DescriptiveModal(ctx.draft.id, d))
+    elif choice == "selection":
+        await interaction.response.send_modal(SelectionModal(ctx.draft.id, d, _allow_academy(ctx)))
+    elif choice == "frame":
+        await interaction.response.send_modal(FrameModal(ctx.draft.id, d))
+
+
+def _allow_academy(ctx: WizardContext) -> bool:
+    return ctx.draft.data.is_academy or permissions.can(
+        ctx.actor, permissions.CREATE_ACADEMY, service.get_access(ctx.store, ctx.draft.guild_id))
+
+
+@action("rating_dialog")
+async def _rating_dialog(interaction, ctx: WizardContext, arg):
+    await interaction.response.send_modal(RatingModal(ctx.draft.id, ctx.draft.data))
 
 
 # ── Modals ───────────────────────────────────────────────────────────────────
@@ -958,21 +986,150 @@ class PeopleModal(_WizardModal):
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
-        st_name = self.st.value.strip()
-        old_st = d.storyteller
-        if old_st is not None and old_st.name == st_name:
-            pass  # unverändert, User-ID bleibt
-        elif st_name == ctx.member.display_name:
-            d.storyteller = Person(name=st_name, user_id=ctx.member.id)
-        else:
-            d.storyteller = Person(name=st_name)
-        co_name = (self.co.value or "").strip()
-        if not co_name:
-            d.co_storyteller = None
-        elif d.co_storyteller is None or d.co_storyteller.name != co_name:
-            d.co_storyteller = Person(name=co_name)
+        _apply_people(ctx, d, self.st.value, self.co.value)
         ctx.save(d)
         await show(interaction, ctx)
+
+
+def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str | None):
+    """Storyteller/Co-ST aus Freitext; ein unveränderter Name behält seine User-ID."""
+    st_name = st_text.strip()
+    old_st = d.storyteller
+    if old_st is not None and old_st.name == st_name:
+        pass
+    elif st_name == ctx.member.display_name:
+        d.storyteller = Person(name=st_name, user_id=ctx.member.id)
+    else:
+        d.storyteller = Person(name=st_name)
+    co_name = (co_text or "").strip()
+    if not co_name:
+        d.co_storyteller = None
+    elif d.co_storyteller is None or d.co_storyteller.name != co_name:
+        d.co_storyteller = Person(name=co_name)
+
+
+def _label_checkboxes(data: EventData, allow_academy: bool) -> discord.ui.CheckboxGroup:
+    group = discord.ui.CheckboxGroup(required=False, min_values=0)
+    choices = [("academy", "🎓 Academy", data.is_academy), ("casual", "🕊️ Casual", data.is_casual),
+               ("recorded", "🎦 Aufzeichnung", data.is_recorded),
+               ("special", "⭐ Abweichung vom klassischen Clocktower", data.is_special)]
+    for value, label, on in choices:
+        if value == "academy" and not allow_academy:
+            continue
+        group.add_option(label=label, value=value, default=on)
+    group.max_values = len(group.options)
+    return group
+
+
+def _apply_labels(d: EventData, group: discord.ui.CheckboxGroup):
+    chosen = set(group.values)
+    d.is_recorded = "recorded" in chosen
+    d.is_special = "special" in chosen
+    if "academy" in {o.value for o in group.options}:
+        d.is_academy = "academy" in chosen
+    d.is_casual = "casual" in chosen
+
+
+def _camera_radio(data: EventData) -> discord.ui.RadioGroup:
+    radio = discord.ui.RadioGroup()
+    for key, label in CAMERA_LABELS.items():
+        radio.add_option(label=label, value=key, default=key == data.camera)
+    return radio
+
+
+def _level_radio(data: EventData) -> discord.ui.RadioGroup:
+    radio = discord.ui.RadioGroup()
+    for lvl in LEVELS:
+        radio.add_option(label=lvl, value=lvl, default=lvl == data.level)
+    return radio
+
+
+class DescriptiveModal(_WizardModal):
+    """/botc2 „Beschreibung“: Titel, Beschreibung, Storyteller:in, Co-Storyteller:in."""
+
+    def __init__(self, draft_id: int, data: EventData):
+        super().__init__(draft_id, "Beschreibung")
+        self.title_text = discord.ui.TextInput(default=data.title or None, placeholder=base_title(data)[:100],
+                                               required=False, max_length=TITLE_MAX_LENGTH)
+        self.text = discord.ui.TextInput(style=discord.TextStyle.paragraph, default=data.description or None,
+                                         placeholder="Worauf können sich die Mitspieler:innen freuen?",
+                                         required=False, max_length=DESCRIPTION_MAX_LENGTH)
+        self.st = discord.ui.TextInput(default=data.storyteller.name if data.storyteller else None,
+                                       min_length=1, max_length=50)
+        self.co = discord.ui.TextInput(default=data.co_storyteller.name if data.co_storyteller else None,
+                                       required=False, max_length=50, placeholder="leer lassen, wenn es keine:n gibt")
+        self.add_item(discord.ui.Label(text="Titel", description="Leer = automatisch. Die Symbole kommen davor.",
+                                       component=self.title_text))
+        self.add_item(discord.ui.Label(text="Beschreibung", component=self.text))
+        self.add_item(discord.ui.Label(text="Storyteller:in", component=self.st))
+        self.add_item(discord.ui.Label(text="Co-Storyteller:in", component=self.co))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        d = ctx.data
+        d.title = (self.title_text.value or "").strip()
+        d.description = (self.text.value or "").strip()
+        _apply_people(ctx, d, self.st.value, self.co.value)
+        ctx.save(d)
+        await show(interaction, ctx)
+
+
+class SelectionModal(_WizardModal):
+    """/botc2 „Auswahl“: Labels, Erfahrungslevel, Kamera."""
+
+    def __init__(self, draft_id: int, data: EventData, allow_academy: bool):
+        super().__init__(draft_id, "Labels, Level & Kamera")
+        self.options = _label_checkboxes(data, allow_academy)
+        self.level = _level_radio(data)
+        self.camera = _camera_radio(data)
+        self.add_item(discord.ui.Label(text="Labels", component=self.options))
+        self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
+        self.add_item(discord.ui.Label(text="Kamera", component=self.camera))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        d = ctx.data
+        _apply_labels(d, self.options)
+        d.level = self.level.value or d.level
+        d.camera = self.camera.value or d.camera
+        ctx.save(d)  # prüft die Academy-Berechtigung
+        await show(interaction, ctx)
+
+
+class FrameModal(_WizardModal):
+    """/botc2 „Termin & Rahmen“: Datum, Uhrzeit, Dauer, Spieler."""
+
+    def __init__(self, draft_id: int, data: EventData):
+        super().__init__(draft_id, "Termin & Rahmen")
+        start = data.start.astimezone(BERLIN_TZ) if data.start else None
+        self.prefill = (f"{start:%d.%m.%Y}" if start else "", f"{start:%H:%M}" if start else "")
+        self.date = discord.ui.TextInput(default=self.prefill[0] or None, placeholder="z. B. Sa, morgen, 24.10.",
+                                         max_length=30)
+        self.time = discord.ui.TextInput(default=self.prefill[1] or None, placeholder="z. B. 20:00", max_length=10)
+        self.duration = discord.ui.TextInput(default=str(data.duration_minutes), max_length=4)
+        self.players = discord.ui.TextInput(default=str(data.max_players), max_length=3)
+        self.add_item(discord.ui.Label(text="Datum", component=self.date))
+        self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
+        self.add_item(discord.ui.Label(text="Dauer in Minuten", component=self.duration))
+        self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200", component=self.players))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        d = ctx.data
+        _apply_frame(d, self.prefill, self.date.value, self.time.value, self.duration.value, self.players.value)
+        ctx.save(d)
+        await show(interaction, ctx)
+
+
+def _apply_frame(d: EventData, prefill, date_text, time_text, duration_text, players_text):
+    try:
+        # Unveränderter Termin bleibt, auch wenn er schon vorbei ist (Bearbeiten einer laufenden Runde)
+        if (date_text.strip(), time_text.strip()) != prefill:
+            d.start = parse_start(date_text, time_text, now())
+        d.max_players = parse_players(players_text)
+    except ParseError as e:
+        raise service.ServiceError(str(e)) from None
+    duration = duration_text.strip()
+    if not duration.isdigit() or not 15 <= int(duration) <= 24 * 60:
+        raise service.ServiceError("Die Dauer muss eine Zahl zwischen 15 und 1440 Minuten sein.")
+    d.duration_minutes = int(duration)
 
 
 class BasicsModal(_WizardModal):

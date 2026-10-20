@@ -31,14 +31,38 @@ def test_every_step_fits_components_v2(store, step):
     assert sum(1 for _ in layout.walk_children()) <= 40
 
 
-def test_summary_has_edit_button_per_section(store):
-    layout = layout_for(store, make_draft(store, "preview"))
-    targets = [b.custom_id.split(":")[3] for b in edit_buttons(layout)]
-    assert targets == ["title", "script", "rating", "description", "people", "basics", "labels", "image"]
-    # Das „Feld ändern“-Select gibt es in V2 nicht, Veröffentlichen schon
+def summary_for(store, draft):
+    from discord_ui.layout_v2 import summary_layout
+
+    async def go():
+        layout, files = await summary_layout(FakeBot(store=store), store, draft)
+        layout.to_components()
+        return layout, files
+    return asyncio.run(go())
+
+
+def test_summary_has_five_grouped_sections(store):
+    layout, files = summary_for(store, make_draft(store, "preview"))
+    sections = [i for i in layout.walk_children() if isinstance(i, discord.ui.Section)]
+    targets = [s.accessory.custom_id.split(":")[3] for s in sections]
+    assert targets == ["descriptive", "script", "selection", "frame", "image"]
     ids = [getattr(i, "custom_id", "") for i in layout.walk_children()]
-    assert not any(c.endswith(":edit") for c in ids)
-    assert any(c.endswith(":publish") for c in ids)
+    assert any(c.endswith(":publish") for c in ids)  # alles da → Veröffentlichen
+    assert [f.filename for f in files] == ["event_image.png"]
+    assert layout.content_length() <= 4000 and sum(1 for _ in layout.walk_children()) <= 40
+
+
+def test_missing_items_replace_publish_with_red_buttons(store):
+    layout, _ = summary_for(store, make_draft(store, "preview", description="", rating=None, rating_source=None))
+    texts = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert "🔴 **Bevor du veröffentlichen kannst, fehlt noch:** Schwierigkeit, Beschreibung" in texts
+    row = [c for c in layout.children if isinstance(c, discord.ui.ActionRow)][0]
+    buttons = [(b.item.label, b.item.style) for b in row.children]
+    assert buttons == [("Schwierigkeit wählen", discord.ButtonStyle.danger),
+                       ("Beschreibung schreiben", discord.ButtonStyle.danger),
+                       ("Abbrechen", discord.ButtonStyle.secondary)]
+    ids = [getattr(i, "custom_id", "") for i in layout.walk_children()]
+    assert not any(c.endswith(":publish") for c in ids)
 
 
 def test_script_step_with_search_results_and_versions(store):
@@ -51,7 +75,7 @@ def test_script_step_with_search_results_and_versions(store):
         "versions": [{"id": "173", "version": "9.0.0"}]})
     layout = layout_for(store, store.get_draft(draft.id))
     rows = [c for c in layout.children if isinstance(c, discord.ui.ActionRow)]
-    assert [len(r.children) for r in rows] == [4, 3, 1, 1, 1]
+    assert [len(r.children) for r in rows] == [4, 4, 1, 1, 1]
 
 
 def test_long_academy_description_is_shortened(store):

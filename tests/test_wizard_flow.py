@@ -8,6 +8,7 @@ import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import discord
 import pytest
 
 from discord_ui import event_post, wizard
@@ -322,6 +323,26 @@ def test_edit_title_and_rating_range(env):
     modal.text._value = ""
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     assert bot.store.get_draft(draft.id).data.title == ""
+
+
+def test_botc2_goes_from_script_straight_to_summary(env):
+    bot = env
+    draft = new_draft(bot)
+    bot.store.set_draft_ui(draft.id, {"v2": True})
+    inter = click(bot, draft.id, "pick", "trouble_brewing")
+    assert step(bot, draft.id) == "preview"  # keine Schritte Beschreibung/Bild
+    assert isinstance(inter.screen["view"], discord.ui.LayoutView)
+    # Fehlende Beschreibung: roter Button öffnet den Beschreibungs-Dialog
+    inter = click(bot, draft.id, "edit_field", "descriptive")
+    modal = inter.response.modal
+    modal.text._value = "Gemütliche Runde."
+    modal.st._value, modal.co._value, modal.title_text._value = "Dalyan", "", ""
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    d = bot.store.get_draft(draft.id)
+    assert d.data.description == "Gemütliche Runde." and d.step == "preview"
+    inter = click(bot, draft.id, "publish")
+    assert isinstance(inter.screen["view"], discord.ui.LayoutView)  # Abschluss ebenfalls als V2
+    assert bot.store.list_events(GUILD)
 
 
 def test_free_choice_skips_rating_and_has_no_auto_image(env):
