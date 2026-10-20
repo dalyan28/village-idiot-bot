@@ -862,6 +862,12 @@ async def _edit_field(interaction, ctx: WizardContext, arg):
     await open_edit(interaction, ctx, arg or "")
 
 
+@action("fix_field")
+async def _fix_field(interaction, ctx: WizardContext, arg):
+    """Roter Button für eine fehlende Angabe (/botc2). Eigene Aktion, weil Discord doppelte custom_ids ablehnt."""
+    await open_edit(interaction, ctx, arg or "")
+
+
 async def open_edit(interaction, ctx: WizardContext, choice: str):
     d = ctx.draft.data
     if choice in ("script", "rating", "image"):

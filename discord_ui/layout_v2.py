@@ -235,7 +235,8 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     if missing:
         # Statt Veröffentlichen: je fehlender Angabe ein roter Button, der direkt dorthin führt
         for target, label in _missing_buttons(missing):
-            row.add_item(wz.WizardButton(draft.id, "edit_field", label, discord.ButtonStyle.danger, arg=target))
+            # eigene Aktion: dieselbe custom_id wie der Bearbeiten-Button am Abschnitt lehnt Discord ab
+            row.add_item(wz.WizardButton(draft.id, "fix_field", label, discord.ButtonStyle.danger, arg=target))
     else:
         publish_label = "Veröffentlichen" if draft.event_id is None else "Änderungen speichern"
         row.add_item(wz.WizardButton(draft.id, "publish", publish_label, discord.ButtonStyle.success, emoji="🎉"))

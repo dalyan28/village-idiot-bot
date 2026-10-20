@@ -58,6 +58,7 @@ def test_missing_items_replace_publish_with_red_buttons(store):
     assert "🔴 **Bevor du veröffentlichen kannst, fehlt noch:** Schwierigkeit, Beschreibung" in texts
     row = [c for c in layout.children if isinstance(c, discord.ui.ActionRow)][0]
     buttons = [(b.item.label, b.item.style) for b in row.children]
+    assert [b.custom_id.split(":")[2] for b in row.children][:2] == ["fix_field", "fix_field"]
     assert buttons == [("Schwierigkeit wählen", discord.ButtonStyle.danger),
                        ("Beschreibung schreiben", discord.ButtonStyle.danger),
                        ("Abbrechen", discord.ButtonStyle.secondary)]
@@ -124,3 +125,21 @@ def test_event_card_v2_within_limits():
     texts = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
     assert "Zusagen (30/2)" in texts and "Warteliste" in texts and "Auffüller" in texts and "<@" not in texts
     assert layout.content_length() <= 4000 and sum(1 for _ in layout.walk_children()) <= 40
+
+
+def _custom_ids(layout):
+    return [i.custom_id for i in layout.walk_children() if getattr(i, "custom_id", None)]
+
+
+@pytest.mark.parametrize("draft_kw", [{}, {"description": "", "rating": None, "rating_source": None}])
+def test_no_duplicate_custom_ids_in_summary(store, draft_kw):
+    """Regression: roter „Beschreibung schreiben“-Button und „Bearbeiten“ hatten dieselbe custom_id → 400."""
+    layout, _ = summary_for(store, make_draft(store, "preview", **draft_kw))
+    ids = _custom_ids(layout)
+    assert len(ids) == len(set(ids)), ids
+
+
+@pytest.mark.parametrize("step", wizard.STEPS)
+def test_no_duplicate_custom_ids_on_any_page(store, step):
+    ids = _custom_ids(layout_for(store, make_draft(store, step)))
+    assert len(ids) == len(set(ids)), ids
