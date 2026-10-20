@@ -483,7 +483,7 @@ def test_welcome_lists_only_existing_commands(ts):
     names = run(go())
     import re
     listed = list(dict.fromkeys(re.findall(r"`/([a-z_]+(?: [a-z_]+)?)`", texts.WELCOME)))
-    assert listed == ["botc", "overview_events", "testserver beispiel", "testserver reset", "testserver setup",
+    assert listed == ["botc", "testserver beispiel", "testserver reset", "testserver setup",
                       "testserver update", "testserver delete_all"]
     assert set(listed) <= set(names)
 
