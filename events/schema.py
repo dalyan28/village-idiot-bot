@@ -133,7 +133,8 @@ class EventData:
     script: ScriptRef | None = None
     rating: str | None = None
     rating_source: str | None = None
-    is_homebrew: bool = False      # unbekannte Charaktere (Homebrew/Amnesiac), zusätzlich zum Rating
+    is_special: bool = False       # ⭐ Abweichung vom klassischen Clocktower (Homebrew, Lorics, All-Amnesiac)
+    special_reasons: list[str] = field(default_factory=list)  # warum ⭐ automatisch gesetzt wurde
     title: str = ""                # eigener Titel; leer = automatisch „{Skript} mit {ST}“ (templates.full_title)
     description: str = ""          # schreibt der Ersteller selbst
     image_mode: str = IMAGE_AUTO
@@ -156,6 +157,8 @@ class EventData:
     @classmethod
     def from_dict(cls, d: dict) -> "EventData":
         d = dict(d)
+        if "is_homebrew" in d and "is_special" not in d:  # Entwürfe aus der Zeit vor ⭐
+            d["is_special"] = d.pop("is_homebrew")
         start = d.pop("start", None)
         st = d.pop("storyteller", None)
         co = d.pop("co_storyteller", None)
@@ -236,6 +239,8 @@ def missing_for_publish(data: EventData) -> list[str]:
         missing.append("Skript")
     if data.storyteller is None or not data.storyteller.name.strip():
         missing.append("Storyteller")
+    if data.rating is None:
+        missing.append("Schwierigkeit")
     if not data.description.strip() and not data.is_academy:
         missing.append("Beschreibung")
     return missing

@@ -54,7 +54,7 @@ class TestDefaults:
 
 class TestSerialization:
     def test_roundtrip(self):
-        d = make(co_storyteller=Person("Rosanna"), rating="red", is_homebrew=True,
+        d = make(co_storyteller=Person("Rosanna"), rating="red", is_special=True, special_reasons=["Loric: Bootlegger"],
                  reminder_overrides={"r1": {"mode": "names"}})
         again = EventData.from_dict(d.to_dict())
         assert again == d
@@ -93,8 +93,14 @@ class TestValidate:
         assert validate(make(rating="purple"), NOW)
 
     def test_missing_for_publish(self):
-        assert missing_for_publish(make()) == []
-        assert missing_for_publish(EventData()) == ["Termin", "Skript", "Storyteller", "Beschreibung"]
+        assert missing_for_publish(make(rating="green")) == []
+        assert missing_for_publish(EventData()) == ["Termin", "Skript", "Storyteller", "Schwierigkeit",
+                                                    "Beschreibung"]
+
+    def test_legacy_homebrew_flag_becomes_special(self):
+        d = make().to_dict()
+        d.pop("is_special"); d["is_homebrew"] = True
+        assert EventData.from_dict(d).is_special
         assert "Beschreibung" not in missing_for_publish(EventData(is_academy=True))
 
 
@@ -113,13 +119,13 @@ class TestTemplates:
         assert title_prefix(d) == "💚/🟡/🟥"
 
     def test_prefix_order(self):
-        d = make(is_recorded=True, is_academy=True, rating="red", is_homebrew=True)
-        assert title_prefix(d) == "🎦 🎓 ⚒️ 🟥"
-        assert full_title(d) == "🎦 🎓 ⚒️ 🟥 Boozling mit Dalyan"
+        d = make(is_recorded=True, is_academy=True, rating="red", is_special=True)
+        assert title_prefix(d) == "🎦 🎓 ⭐ 🟥"
+        assert full_title(d) == "🎦 🎓 ⭐ 🟥 Boozling mit Dalyan"
 
     def test_rating_ranges(self):
         assert title_prefix(make(rating="green_yellow")) == "💚/🟡"
-        assert title_prefix(make(rating="yellow_red", is_homebrew=True)) == "⚒️ 🟡/🟥"
+        assert title_prefix(make(rating="yellow_red", is_special=True)) == "⭐ 🟡/🟥"
         assert title_prefix(make(rating="any")) == "💚/🟡/🟥"
         assert validate(make(rating="green_yellow"), NOW) == []
         text = academy_description("green_yellow")

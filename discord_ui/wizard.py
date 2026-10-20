@@ -36,17 +36,14 @@ from events.schema import (
     IMAGE_NONE,
     LEVELS,
     RATING_ANY,
-    RATING_GREEN_YELLOW,
     RATING_SOURCE_FIXED,
     RATING_SOURCE_MANUAL,
     RATING_SOURCE_RATER,
     SCRIPT_BASE,
     SCRIPT_BOTCSCRIPTS,
     SCRIPT_FREE,
-    RATING_YELLOW_RED,
     RATINGS,
     SCRIPT_UPLOAD,
-    SINGLE_RATINGS,
     TITLE_MAX_LENGTH,
     EventData,
     Person,
@@ -64,7 +61,9 @@ from logic.event_images import (
     render_image,
     save_custom_image,
 )
+from logic.event_builder import embed_color
 from logic.script_cache import get_base_script, validate_script_json
+from logic.script_flags import special_reasons
 
 logger = logging.getLogger(__name__)
 
@@ -73,16 +72,15 @@ SEARCH_LIMIT = 10
 PREVIEW_IMAGE = "vorschau.png"
 
 STEP_SCRIPT = "script"
-STEP_RATING = "rating"
 STEP_DESCRIPTION = "description"
 STEP_IMAGE = "image"
 STEP_PREVIEW = "preview"
 # Standardwerte (Dauer, Kamera, Co-ST, Erinnerungen …) werden nicht abgefragt, sondern nur in der
 # Zusammenfassung geändert (Dalyan, 20.10.2026).
-STEPS = (STEP_SCRIPT, STEP_RATING, STEP_DESCRIPTION, STEP_IMAGE, STEP_PREVIEW)
+# Die Schwierigkeit legt der Algorithmus fest; geändert wird sie nur in der Zusammenfassung.
+STEPS = (STEP_SCRIPT, STEP_DESCRIPTION, STEP_IMAGE, STEP_PREVIEW)
 STEP_LABELS = {
     STEP_SCRIPT: "Skript",
-    STEP_RATING: "Einschätzung",
     STEP_DESCRIPTION: "Beschreibung",
     STEP_IMAGE: "Bild",
     STEP_PREVIEW: "Zusammenfassung",
@@ -109,9 +107,6 @@ def returns_to_preview(step: str) -> bool:
 
 
 def steps_for(data: EventData) -> list[str]:
-    """Bei freier Skriptwahl gibt es keine Einschätzung."""
-    if data.script is not None and data.script.kind == SCRIPT_FREE:
-        return [s for s in STEPS if s != STEP_RATING]
     return list(STEPS)
 
 
@@ -335,7 +330,6 @@ async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: 
     head = step_embed(draft, notice)
     builder = {
         STEP_SCRIPT: _screen_script,
-        STEP_RATING: _screen_rating,
         STEP_DESCRIPTION: _screen_description,
         STEP_IMAGE: _screen_image,
         STEP_PREVIEW: _screen_preview,
@@ -356,6 +350,14 @@ async def _screen_script(bot, store, draft: Draft, head: discord.Embed, view: di
     view.add_item(WizardButton(draft.id, "pick", "Freie Skriptwahl", arg="free", row=0))
     view.add_item(WizardButton(draft.id, "search", "Auf botcscripts.com suchen", row=1))
     view.add_item(WizardButton(draft.id, "upload", "Skript-JSON hochladen", row=1))
+    if d.script is not None and d.script.kind == SCRIPT_BOTCSCRIPTS:
+        view.add_item(WizardButton(draft.id, "versions", "Andere Version", row=1))
+        versions = ui.get("versions") or []
+        if versions:
+            options = [discord.SelectOption(label=f"v{v['version']}"[:100], value=f"{v['id']}|{v['version']}",
+                                            default=v["version"] == d.script.version)
+                       for v in versions[:25]]
+            view.add_item(WizardSelect(draft.id, "version", options, "Version wählen", row=3))
 
     results = ui.get("search_results") or []
     if results:
@@ -372,52 +374,9 @@ async def _screen_script(bot, store, draft: Draft, head: discord.Embed, view: di
         head.add_field(name="Suche", value=f"Keine Treffer für „{_esc(ui['query'])}“.", inline=False)
 
     if d.script and returns_to_preview(draft.step):
-        view.add_item(WizardButton(draft.id, "next", "Zurück zur Vorschau", discord.ButtonStyle.success, row=3))
-    _cancel_button(view, draft, row=3)
-    return [], []
-
-
-async def _screen_rating(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
-    d, ui = draft.data, draft.ui or {}
-    s = d.script
-    info = f"**{_esc(s.display_name)}**"
-    if s.kind != SCRIPT_BASE:
-        if s.version:
-            info += f" v{_esc(s.version)}"
-        if s.author:
-            info += f" von {_esc(s.author)}"
-    if s.url:
-        info += f"\n{s.url}"
-    head.add_field(name="Skript", value=info, inline=False)
-
-    if d.rating:
-        word = RATING_WORDS[d.rating]
-        source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_FIXED: "feste Einschätzung",
-                  RATING_SOURCE_MANUAL: "von dir gewählt"}.get(d.rating_source, "")
-        text = f"{LABEL_EMOJI[d.rating]} **{word}** ({source})"
-        if d.is_homebrew:
-            text += f"\n{LABEL_EMOJI['homebrew']} Enthält unbekannte Charaktere (Homebrew)."
-        if d.rating_source == RATING_SOURCE_RATER:
-            text += "\n" + rating_explanation(ui)
-    else:
-        text = ("Ich konnte das Skript nicht automatisch einschätzen. Bitte wähle selbst, "
-                "wie anspruchsvoll es ist.")
-    head.add_field(name="Einschätzung", value=text[:1024], inline=False)
-
-    head.add_field(name="Selbst einstellen", value="Eine Stufe oder einen Bereich wählen:", inline=False)
-    for row, options in ((0, SINGLE_RATINGS), (1, (RATING_GREEN_YELLOW, RATING_YELLOW_RED, RATING_ANY))):
-        for rating in options:
-            style = discord.ButtonStyle.primary if d.rating == rating else discord.ButtonStyle.secondary
-            view.add_item(WizardButton(draft.id, "rate", RATING_BUTTON_LABELS[rating], style, arg=rating, row=row))
-    if s.kind == SCRIPT_BOTCSCRIPTS:
-        view.add_item(WizardButton(draft.id, "versions", "Andere Version", row=2))
-        versions = ui.get("versions") or []
-        if versions:
-            options = [discord.SelectOption(label=f"v{v['version']}"[:100], value=f"{v['id']}|{v['version']}",
-                                            default=v["version"] == s.version)
-                       for v in versions[:25]]
-            view.add_item(WizardSelect(draft.id, "version", options, "Version wählen", row=3))
-    _nav(view, draft, row=4, next_disabled=d.rating is None)
+        view.add_item(WizardButton(draft.id, "next", "Zurück zur Zusammenfassung", discord.ButtonStyle.success,
+                                   row=4))
+    _cancel_button(view, draft, row=4)
     return [], []
 
 
@@ -516,11 +475,11 @@ def _code(text: str) -> str:
 EDIT_CHOICES = {
     "title": "1 · Titel",
     "script": "2 · Skript",
-    "rating": "3 · Einschätzung",
+    "rating": "3 · Schwierigkeit",
     "description": "4 · Beschreibung",
     "people": "5–6 · Storyteller:in & Co-Storyteller:in",
     "basics": "7, 10, 11 · Level, Max Spieler, Termin & Dauer",
-    "labels": "8–9 · Labels & Kamera",
+    "labels": "8–9 · Labels (inkl. ⭐) & Kamera",
     "image": "12 · Bild",
     "reminders": "13 · Erinnerungen",
 }
@@ -529,9 +488,7 @@ EDIT_CHOICES = {
 def summary_fields(store: Store, draft: Draft) -> discord.Embed:
     """Nummerierte Zusammenfassung (Aufbau wie `_show_final_review` auf Branch event-creation)."""
     d, ui = draft.data, draft.ui or {}
-    color = {"green": 0x78B159, "yellow": 0xFDCB58, "red": 0xDD2E44}.get(d.rating, 0xFDCB58)
-    if d.is_homebrew:
-        color = 0xF4900C
+    color = embed_color(d)
     embed = discord.Embed(title="Event-Zusammenfassung", color=color)
 
     embed.add_field(name="1 · Titel" + ("" if d.title.strip() else " (automatisch)"),
@@ -557,12 +514,13 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
             source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_MANUAL: "von dir gewählt"}.get(
                 d.rating_source, "")
         rating_text = f"**{RATING_WORDS[d.rating].capitalize()}** ({source})"
-        if d.is_homebrew:
-            rating_text += "\nEnthält unbekannte Charaktere (Homebrew)."
         if d.rating_source == RATING_SOURCE_RATER:
             rating_text += "\n" + rating_explanation(ui, limit=3)
     else:
         rating_text = OPEN
+    if d.is_special:
+        why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
+        rating_text += f"\n{LABEL_EMOJI['special']} Abweichung vom klassischen Clocktower: {_esc(why)}"
     quoted = "\n".join(f"> {line}" for line in rating_text.split("\n"))
     embed.add_field(name="3 · Einschätzung", value=quoted[:1024], inline=True)
 
@@ -580,7 +538,7 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
     embed.add_field(name="7 · Level", value=_code(d.level), inline=True)
 
     labels = [name for flag, name in ((d.is_casual, "Casual"), (d.is_academy, "Academy"),
-                                      (d.is_recorded, "Aufzeichnung")) if flag]
+                                      (d.is_recorded, "Aufzeichnung"), (d.is_special, "Abweichung")) if flag]
     embed.add_field(name="8 · Labels", value=_code(", ".join(labels) or "—"), inline=True)
     embed.add_field(name="9 · Kamera", value=_code(CAMERA_LABELS[d.camera]), inline=True)
     embed.add_field(name="10 · Max Spieler", value=_code(str(d.max_players)), inline=True)
@@ -674,8 +632,6 @@ async def _next(interaction, ctx: WizardContext, arg):
     step = base_step(ctx.draft.step)
     if step == STEP_SCRIPT and d.script is None:
         raise service.ServiceError("Wähle zuerst ein Skript.")
-    if step == STEP_RATING and d.rating is None:
-        raise service.ServiceError("Wähle zuerst eine Einschätzung.")
     if step == STEP_DESCRIPTION and not d.description.strip() and not d.is_academy:
         raise service.ServiceError("Schreib zuerst eine Beschreibung.")
     await goto(interaction, ctx, next_step(d, ctx.draft.step))
@@ -701,19 +657,16 @@ async def _cancel(interaction, ctx: WizardContext, arg):
 
 
 def _after_script(ctx: WizardContext) -> str:
-    """Nach der Skriptwahl: Einschätzung (außer freie Wahl), beim Bearbeiten zurück zur Vorschau."""
-    d = ctx.draft.data
-    if d.script.kind == SCRIPT_FREE:
-        return STEP_PREVIEW if returns_to_preview(ctx.draft.step) else STEP_DESCRIPTION
-    return STEP_RATING + (RETURN_SUFFIX if returns_to_preview(ctx.draft.step) else "")
+    """Nach der Skriptwahl: Beschreibung, beim Bearbeiten zurück zur Zusammenfassung."""
+    return STEP_PREVIEW if returns_to_preview(ctx.draft.step) else STEP_DESCRIPTION
 
 
 async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice: str | None = None):
     d = ctx.data
     d.script = script
-    d.rating, d.rating_source, d.is_homebrew = None, None, False
+    d.rating, d.rating_source = None, None
     ui = ctx.ui
-    for key in ("search_results", "query", "versions", "rating_detail"):
+    for key in ("search_results", "query", "rating_detail"):
         ui.pop(key, None)
 
     if not interaction.response.is_done():
@@ -723,10 +676,12 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
         d.rating, d.rating_source = RATING_ANY, RATING_SOURCE_FIXED
     elif result is not None:
         d.rating = result.rating
-        d.is_homebrew = result.is_homebrew
         d.rating_source = RATING_SOURCE_FIXED if script.kind == SCRIPT_BASE else RATING_SOURCE_RATER
         ui["rating_detail"] = {"verdict": result.verdict, "tagline": result.tagline,
                                "headline": result.headline, "reasons": result.reasons}
+    d.special_reasons = special_reasons(script, is_amnesiac=bool(result and result.is_amnesiac),
+                                        rater_homebrew=bool(result and result.is_homebrew))
+    d.is_special = bool(d.special_reasons)
     ctx.set_ui(ui)
     ctx.save(d)
     await goto(interaction, ctx, _after_script(ctx), notice=notice)
@@ -790,16 +745,6 @@ async def _versions(interaction, ctx: WizardContext, arg):
 @action("upload")
 async def _upload(interaction, ctx: WizardContext, arg):
     await interaction.response.send_modal(ScriptUploadModal(ctx.draft.id))
-
-
-@action("rate")
-async def _rate(interaction, ctx: WizardContext, arg):
-    if arg not in RATINGS:
-        return
-    d = ctx.data
-    d.rating, d.rating_source = arg, RATING_SOURCE_MANUAL
-    ctx.save(d)
-    await show(interaction, ctx)
 
 
 # ── Aktionen: Erinnerungen (Unterseite der Zusammenfassung) ──────────────────
@@ -929,7 +874,10 @@ async def _edit(interaction, ctx: WizardContext, values):
     choice = values[0] if values else ""
     d = ctx.draft.data
     if choice in ("script", "rating", "image"):
-        step = {"script": STEP_SCRIPT, "rating": STEP_RATING, "image": STEP_IMAGE}[choice]
+        if choice == "rating":
+            await interaction.response.send_modal(RatingModal(ctx.draft.id, d))
+            return
+        step = {"script": STEP_SCRIPT, "image": STEP_IMAGE}[choice]
         await goto(interaction, ctx, step + RETURN_SUFFIX)
     elif choice == "reminders":
         await goto(interaction, ctx, STEP_REMINDERS)
@@ -1035,6 +983,25 @@ class TitleModal(_WizardModal):
         await show(interaction, ctx)
 
 
+class RatingModal(_WizardModal):
+    """Schwierigkeit selbst einstellen: eine Stufe oder ein Bereich."""
+
+    def __init__(self, draft_id: int, data: EventData):
+        super().__init__(draft_id, "Schwierigkeit")
+        self.rating = discord.ui.RadioGroup()
+        for value in RATINGS:
+            self.rating.add_option(label=RATING_BUTTON_LABELS[value], value=value, default=value == data.rating)
+        self.add_item(discord.ui.Label(text="Schwierigkeit", description="Eine Stufe oder einen Bereich wählen",
+                                       component=self.rating))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        d = ctx.data
+        if self.rating.value in RATINGS and self.rating.value != d.rating:
+            d.rating, d.rating_source = self.rating.value, RATING_SOURCE_MANUAL
+            ctx.save(d)
+        await show(interaction, ctx)
+
+
 class PeopleModal(_WizardModal):
     """Storyteller:in und Co-Storyteller:in als einfacher Text (keine Mitgliedersuche)."""
 
@@ -1112,7 +1079,8 @@ class LabelsModal(_WizardModal):
         super().__init__(draft_id, "Labels & Kamera")
         self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
         choices = [("casual", "Casual", data.is_casual), ("academy", "Academy", data.is_academy),
-                   ("recorded", "Aufzeichnung", data.is_recorded)]
+                   ("recorded", "Aufzeichnung", data.is_recorded),
+                   ("special", "Abweichung vom klassischen Clocktower (⭐)", data.is_special)]
         for value, label, on in choices:
             if value == "academy" and not allow_academy:
                 continue
@@ -1129,6 +1097,7 @@ class LabelsModal(_WizardModal):
         chosen = set(self.options.values)
         offered = {o.value for o in self.options.options}
         d.is_recorded = "recorded" in chosen
+        d.is_special = "special" in chosen
         if "academy" in offered:
             d.is_academy = "academy" in chosen
         d.is_casual = "casual" in chosen

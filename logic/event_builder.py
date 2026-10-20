@@ -48,7 +48,7 @@ HIGHLIGHTS_LIMIT = 5
 HIGHLIGHT_BOLD_SCORE = 9
 
 EMBED_COLORS = {
-    "homebrew": 0xF4900C,   # Orange
+    "special": 0xF4900C,    # Orange (⭐ Abweichung)
     RATING_GREEN: 0x78B159,
     RATING_YELLOW: 0xFDCB58,
     RATING_RED: 0xDD2E44,
@@ -75,8 +75,8 @@ def _load_ratings() -> dict:
 
 
 def embed_color(data: EventData) -> int:
-    if data.is_homebrew:
-        return EMBED_COLORS["homebrew"]
+    if data.is_special:
+        return EMBED_COLORS["special"]
     return EMBED_COLORS.get(data.rating, DEFAULT_EMBED_COLOR)
 
 

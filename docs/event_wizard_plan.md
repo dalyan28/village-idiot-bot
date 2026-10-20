@@ -477,6 +477,18 @@ Zweite Runde Feedback (20.10.2026):
   `/api/analyse` aber nicht aus. Der Bot liest ein optionales Feld `verdict` und zeigt es statt der Kriterienliste,
   sobald der ScriptRater es liefert (Prompt für das ScriptRater-Projekt ging an Dalyan).
 
+Dritte Runde Feedback (20.10.2026):
+- **⭐ ersetzt ⚒️**: „Hier gibt es eine Abweichung von traditionellem Clocktower (Homebrew, Lorics oder andere
+  Auffälligkeiten) – bitte die Beschreibung lesen!“ Automatisch gesetzt bei Homebrew-Charakteren, Lorics (beides lokal
+  erkannt, `logic/script_flags.py`) oder All-Amnesiac (ScriptRater `metrics.is_amnesiac`). Die Gründe stehen bei der
+  Einschätzung in der Zusammenfassung; an- und abschalten über „Labels“. Felder `is_special`, `special_reasons`
+  (alte Entwürfe mit `is_homebrew` werden übernommen).
+- **Schwierigkeit ist kein Schritt mehr**: Ablauf Skript → Beschreibung → Bild → Zusammenfassung. Der Algorithmus legt
+  sie fest (Basis-3 fest, sonst ScriptRater, freie Wahl 💚/🟡/🟥); ändern über „3 · Schwierigkeit“ (Dialog). Ohne
+  Schwierigkeit (ScriptRater nicht erreichbar) ist Veröffentlichen gesperrt. „Andere Version“ sitzt jetzt beim Skript.
+- Weniger Emojis in der Oberfläche (nur 🎉 an „Veröffentlichen“), Event-Post mit Ersteller:in nur in der Fußzeile,
+  Academy für Server-Admins automatisch, Academy und Casual kombinierbar (🎓 vor 🕊️).
+
 ## Offene Fragen
 
 - Academy-Berechtigung im Detail (z. B. Verhältnis zur Storyteller-Rolle). Kann später geklärt werden.

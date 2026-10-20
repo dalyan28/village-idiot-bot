@@ -104,15 +104,12 @@ def test_script_step_with_search_results(store):
     assert any(getattr(i, "custom_id", "") == f"wizs:{draft.id}:result" for i in screen.view.children)
 
 
-def test_rating_step_without_rating_disables_next(store):
-    draft = make_draft(store, "rating", rating=None, rating_source=None,
-                       script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="X", version="1", botcscripts_id="5",
-                                        characters=["imp"]))
+def test_missing_rating_blocks_publish(store):
+    draft = make_draft(store, "preview", rating=None, rating_source=None)
     screen = render(store, draft)
-    nxt = next(i for i in screen.view.children if i.custom_id.endswith(":next"))
-    assert nxt.item.disabled
-    assert any("nicht automatisch einschätzen" in f.value for f in screen.embeds[1].fields)
-    assert next(f.value for f in screen.embeds[0].fields if "Einschätzung" in f.name) == "> offen"
+    assert next(f.value for f in screen.embeds[0].fields if f.name == "3 · Einschätzung") == "> offen"
+    publish = next(i for i in screen.view.children if i.custom_id.endswith(":publish"))
+    assert publish.item.disabled and "Schwierigkeit" in screen.embeds[0].description
 
 
 def test_description_required_unless_academy(store):
@@ -144,24 +141,22 @@ class TestNavigation:
 
     def test_linear_order(self):
         d = self.data()
-        assert wizard.next_step(d, "script") == "rating"
-        assert wizard.next_step(d, "rating") == "description"
+        assert wizard.next_step(d, "script") == "description"
         assert wizard.next_step(d, "description") == "image"
         assert wizard.next_step(d, "image") == "preview"
-        assert wizard.previous_step(d, "description") == "rating"
+        assert wizard.previous_step(d, "description") == "script"
         assert wizard.previous_step(d, "script") == "script"
 
     def test_free_choice_skips_rating(self):
         d = self.data(SCRIPT_FREE)
         assert wizard.next_step(d, "script") == "description"
-        assert wizard.previous_step(d, "description") == "script"
         assert wizard.step_number(d, "description") == (2, 4)
 
     def test_jump_from_preview_returns_to_preview(self):
         d = self.data()
-        assert wizard.next_step(d, "rating:p") == "preview"
-        assert wizard.previous_step(d, "rating:p") == "preview"
-        assert wizard.base_step("rating:p") == "rating"
+        assert wizard.next_step(d, "image:p") == "preview"
+        assert wizard.previous_step(d, "image:p") == "preview"
+        assert wizard.base_step("image:p") == "image"
 
 
 def test_summary_is_numbered_with_code_blocks(store):
@@ -180,13 +175,25 @@ def test_open_fields_and_rating_options(store):
     screen = render(store, make_draft(store, "description", description=""))
     summary = {f.name: f.value for f in screen.embeds[0].fields}
     assert summary["4 · Beschreibung"] == "```offen```"
-    screen = render(store, make_draft(store, "rating"))
-    rates = [i.item.label for i in screen.view.children if i.custom_id.split(":")[2] == "rate"]
-    assert rates == ["Grün", "Gelb", "Rot", "Grün bis Gelb", "Gelb bis Rot", "Alle drei"]
+    modal = asyncio.run(_rating_modal(make_draft(store, "preview").data))
+    assert [o.label for o in modal.rating.options] == ["Grün", "Gelb", "Rot", "Grün bis Gelb", "Gelb bis Rot",
+                                                       "Alle drei"]
+    assert [o.value for o in modal.rating.options if o.default] == ["green"]
+
+
+async def _rating_modal(data):
+    return wizard.RatingModal(1, data)
+
+
+def test_special_reasons_shown_in_summary(store):
+    screen = render(store, make_draft(store, "preview", is_special=True, special_reasons=["Loric: Bootlegger"]))
+    rating = next(f.value for f in screen.embeds[0].fields if f.name == "3 · Einschätzung")
+    assert "⭐ Abweichung vom klassischen Clocktower: Loric: Bootlegger" in rating
+    assert screen.embeds[0].fields[0].value.startswith("```⭐ 💚")
 
 
 def test_verdict_text_is_preferred(store):
-    draft = make_draft(store, "rating", rating="red", rating_source="rater",
+    draft = make_draft(store, "preview", rating="red", rating_source="rater",
                        script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="X", version="1", botcscripts_id="5",
                                         characters=["imp"]))
     store.set_draft_ui(draft.id, {"rating_detail": {"verdict": "Viele Charaktere stehen auf keinem Basis-Skript.",

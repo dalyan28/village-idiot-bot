@@ -39,6 +39,7 @@ def modal_data(**kw) -> EventData:
 def complete(data: EventData) -> EventData:
     data.script = ScriptRef(kind=SCRIPT_BASE, name="Trouble Brewing", base_key="trouble_brewing")
     data.description = "Klassische Runde."
+    data.rating = "green"
     return data
 
 
@@ -104,7 +105,7 @@ class TestDrafts:
 class TestPublish:
     def test_incomplete_draft(self, store):
         draft = service.start_draft(store, GUILD, st, "Dalyan", modal_data(), NOW)
-        with pytest.raises(ServiceError, match="Skript, Beschreibung"):
+        with pytest.raises(ServiceError, match="Skript, Schwierigkeit, Beschreibung"):
             service.publish_draft(store, draft, st, "Dalyan", NOW)
 
     def test_creates_event_and_removes_draft(self, store):

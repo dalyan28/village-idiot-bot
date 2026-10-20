@@ -182,16 +182,18 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     bot = env
     draft = new_draft(bot)
 
-    # 1. Skript: Trouble Brewing → Einschätzung fest grün
+    # 1. Skript: Trouble Brewing → Schwierigkeit legt der Algorithmus fest (fest grün), weiter zur Beschreibung
     click(bot, draft.id, "pick", "trouble_brewing")
     d = bot.store.get_draft(draft.id)
-    assert d.step == "rating" and d.data.rating == "green" and d.data.rating_source == "fixed"
+    assert d.step == "description" and d.data.rating == "green" and d.data.rating_source == "fixed"
+    assert not d.data.is_special
 
-    # 2. Einschätzung manuell überschreiben, weiter
-    click(bot, draft.id, "rate", "yellow")
+    # 2. Schwierigkeit in der Zusammenfassung per Dialog ändern
+    inter = choose(bot, draft.id, "edit", "rating")
+    modal = inter.response.modal
+    modal.rating._value = "yellow"
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     assert bot.store.get_draft(draft.id).data.rating_source == "manual"
-    click(bot, draft.id, "next")
-    assert step(bot, draft.id) == "description"
 
     # 3. Beschreibung: Weiter ohne Text geht nicht, mit Text schon
     inter = click(bot, draft.id, "next")
@@ -272,9 +274,9 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     modal.text._value = "Neue Beschreibung."
     run(modal.on_submit(FakeInteraction(bot, owner)))
     assert step(bot, edit_draft.id) == "preview"
-    # Skript-Schritt aus der Zusammenfassung: „Weiter“ führt zurück
-    choose(bot, edit_draft.id, "edit", "rating")
-    assert step(bot, edit_draft.id) == "rating:p"
+    # Bild-Schritt aus der Zusammenfassung: „Weiter“ führt zurück
+    choose(bot, edit_draft.id, "edit", "image")
+    assert step(bot, edit_draft.id) == "image:p"
     click(bot, edit_draft.id, "next")
     assert step(bot, edit_draft.id) == "preview"
     inter = click(bot, edit_draft.id, "publish")
@@ -322,7 +324,10 @@ def test_edit_title_and_rating_range(env):
     modal = inter.response.modal
     modal.text._value = "Gemütlicher Abend"
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
-    click(bot, draft.id, "rate", "green_yellow")
+    inter = choose(bot, draft.id, "edit", "rating")
+    modal = inter.response.modal
+    modal.rating._value = "green_yellow"
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     d = bot.store.get_draft(draft.id).data
     assert d.title == "Gemütlicher Abend" and d.rating == "green_yellow" and d.rating_source == "manual"
     # Titel leeren → wieder automatisch

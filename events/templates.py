@@ -19,7 +19,7 @@ LABEL_EMOJI = {
     "recorded": "🎦",
     "academy": "🎓",
     "casual": "🕊️",
-    "homebrew": "⚒️",
+    "special": "⭐",  # Abweichung vom klassischen Clocktower (ersetzt ⚒️)
     RATING_GREEN: "💚",
     RATING_YELLOW: "🟡",
     RATING_RED: "🟥",
@@ -63,7 +63,7 @@ ACADEMY_MAX_ROUNDS = {
 
 
 def title_prefix(data: EventData) -> str:
-    """Emoji-Präfix vor dem Titel: [Aufzeichnung] [Academy] [Casual] [Homebrew] [Einschätzung]."""
+    """Emoji-Präfix vor dem Titel: [Aufzeichnung] [Academy] [Casual] [⭐ Abweichung] [Schwierigkeit]."""
     parts = []
     if data.is_recorded:
         parts.append(LABEL_EMOJI["recorded"])
@@ -72,8 +72,8 @@ def title_prefix(data: EventData) -> str:
     if data.is_casual:
         parts.append(LABEL_EMOJI["casual"])
 
-    if data.is_homebrew:
-        parts.append(LABEL_EMOJI["homebrew"])
+    if data.is_special:
+        parts.append(LABEL_EMOJI["special"])
     if data.rating in RATING_RANGE:
         parts.append(LABEL_EMOJI[data.rating])
     elif data.script is not None and data.script.kind == SCRIPT_FREE:
