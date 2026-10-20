@@ -15,6 +15,8 @@ Nachdem sich Apollo verändert hat, haben wir beschlossen, einen eigenen Bot fü
 **Commands**
 `/botc` neue Runde anlegen. Wie der Rest funktioniert, seht ihr dann schon.
 `/overview_events` Wochenplan posten
+
+Die `/testserver`-Commands braucht ihr in der Regel nicht, die sind eher für mich:
 `/testserver beispiel` ein volles Beispiel-Event mit 23 erfundenen Anmeldungen posten
 `/testserver reset` Event-Channel leeren, alle Runden und Entwürfe weg
 `/testserver setup` Channels und Texte hier auffrischen
