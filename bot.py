@@ -104,6 +104,14 @@ async def on_ready():
 @bot.event
 async def on_guild_join(guild: discord.Guild):
     await leave_if_not_allowed(guild)
+    # Eingeladen, nachdem der Bot schon lief: Beim Start ging die Registrierung für diesen Server
+    # mit „Forbidden“ schief, also die Commands jetzt nachholen.
+    if guild_lock.is_allowed(guild.id) and _synced:
+        try:
+            synced = await bot.tree.sync(guild=guild)
+            print(f"Synced commands für neu beigetretene Guild {guild.id}: {[c.name for c in synced]}")
+        except discord.HTTPException:
+            logger.exception("Commands für Guild %s konnten nicht synchronisiert werden", guild.id)
 
 
 async def restore_auto_tasks():
