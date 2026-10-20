@@ -91,9 +91,13 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     esc = discord.utils.escape_markdown
     guild = bot.get_guild(draft.guild_id)
 
+    # Abschnitte mit fehlender Pflichtangabe bekommen einen roten Button (Dalyan, 20.10.2026)
+    missing_targets = {MISSING_TARGETS[n][0] for n in missing_for_publish(d) if n in MISSING_TARGETS}
+
     def section(text: str, target: str, label: str = "Ändern") -> discord.ui.Section:
+        style = discord.ButtonStyle.danger if target in missing_targets else discord.ButtonStyle.secondary
         return discord.ui.Section(discord.ui.TextDisplay(text),
-                                  accessory=wz.WizardButton(draft.id, "edit_field", label, arg=target))
+                                  accessory=wz.WizardButton(draft.id, "edit_field", label, style, arg=target))
 
     container = discord.ui.Container(accent_colour=embed_color(d))
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
