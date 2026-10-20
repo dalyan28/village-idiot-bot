@@ -239,7 +239,7 @@ def build_event_embed(
             embed.add_field(name="Highlights", value=highlights, inline=False)
         demons = demon_characters(char_ids, data.script.content)
         if demons:
-            embed.add_field(name="Dämonen", value=demons[:1024], inline=False)
+            embed.add_field(name="Demons", value=demons[:1024], inline=False)
 
     # ── RSVP-Listen (inline, eine Reihe) ─────────────────────────────
     accepted_text = _format_list(rsvps.players, name_for)
