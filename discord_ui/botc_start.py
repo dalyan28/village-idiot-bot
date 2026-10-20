@@ -32,28 +32,31 @@ def _link(url: str, label: str) -> str:
 def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord.ui.LayoutView:
     """Startnachricht: was gleich passiert, darunter „Termin festlegen“ bzw. „Entwurf fortsetzen“."""
     esc = discord.utils.escape_markdown
-    # Etwas offener gestaltet, mit höchstens zwei Emojis (Dalyan, 20.10.2026)
+    # Persönlicher Ton, Emojis nur dort, wo man sie auch im Gespräch setzen würde (Dalyan, 20.10.2026)
     container = discord.ui.Container(accent_colour=START_COLOR)
-    container.add_item(discord.ui.TextDisplay(
+    intro = discord.ui.TextDisplay(
         f"-# {esc(guild.name)}\n"
-        "## 🕰️ Neue Runde anlegen\n"
-        "Schön, dass du eine Runde leitest. In drei kurzen Schritten steht sie im Event-Channel."))
+        "**Neue Runde anlegen**\n"
+        "Schön, dass du eine Runde leiten möchtest! Das dauert nur ein paar Minuten.")
+    icon = getattr(guild, "icon", None)
+    if icon:  # Server-Icon rechts neben dem Titel
+        container.add_item(discord.ui.Section(intro, accessory=discord.ui.Thumbnail(icon.url)))
+    else:
+        container.add_item(intro)
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
     container.add_item(discord.ui.TextDisplay(
-        "**1 · Termin und Optionen**\n"
-        "-# Datum, Uhrzeit und ob die Runde Academy, Casual oder aufgezeichnet ist\n"
-        "**2 · Skript**\n"
-        "-# Suche auf botcscripts.com, ein Basis-Skript oder dein eigenes JSON\n"
-        "**3 · Zusammenfassung**\n"
-        "-# Beschreibung ergänzen, alles prüfen und veröffentlichen"))
+        "**Erst** legst du Termin und Optionen fest, also Datum, Uhrzeit und ob es eine Academy-, "
+        "Casual- oder aufgezeichnete Runde ist.\n\n"
+        "**Dann** suchst du dir das Skript aus: über die Suche auf botcscripts.com, als Basis-Skript "
+        "oder als eigenes JSON.\n\n"
+        "**Zum Schluss** schaust du in der Zusammenfassung noch einmal über alles drüber, schreibst eine "
+        "kurze Beschreibung und veröffentlichst die Runde 🎉"))
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
     container.add_item(discord.ui.TextDisplay(
-        "📖 **Bevor du loslegst**\n"
-        "Was beim Leiten einer Runde wichtig ist, steht in den Hinweisen zum Storytellen:\n"
-        f"→ {_link(STORYTELLER_GUIDE_URL, 'Hinweise zum Storytellen')}\n"
-        "Für alle Runden gelten außerdem unsere Serverregeln:\n"
-        f"→ {_link(RULES_URL, 'Regeln')}\n"
-        "-# Dein Entwurf bleibt 24 Stunden gespeichert."))
+        "Neu im Storytelling? In den "
+        f"{_link(STORYTELLER_GUIDE_URL, 'Hinweisen zum Storytellen')} steht, worauf es ankommt.\n"
+        f"Und wie immer gelten unsere {_link(RULES_URL, 'Serverregeln')}.\n"
+        "-# Dein Entwurf bleibt 24 Stunden gespeichert, du kannst also auch später weitermachen."))
     if open_draft is not None:
         d = open_draft.data
         what = [d.script.display_name if d.script else None,

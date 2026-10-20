@@ -221,7 +221,8 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
     guild = bot.get_guild(draft.guild_id)
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
     head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
-    container.add_item(discord.ui.TextDisplay(f"{head}\n## 📜 Skript wählen"))
+    # Titel nur fett: Markdown-Überschriften wirken in der Karte zu groß (Dalyan, 20.10.2026)
+    container.add_item(discord.ui.TextDisplay(f"{head}\n**Skript wählen**"))
     if first_visit:
         # Erste Karte nach dem /botc-Modal: bestätigen, was steht, und sagen, was jetzt kommt (Dalyan, 20.10.2026)
         from events.parse import format_start

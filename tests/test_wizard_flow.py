@@ -441,6 +441,7 @@ def test_botc_in_channel_sends_start_message_per_dm(botc_env):
     assert inter.sent == ["Es geht in deinen DMs weiter."] and inter.response.modal is None
     start = dms[0]["view"]
     assert "Termin und Optionen" in _texts(start) and "Skript" in _texts(start) and "Zusammenfassung" in _texts(start)
+    assert "##" not in _texts(start)  # keine großen Überschriften
     assert "(Link folgt)" in _texts(start)  # Platzhalter für die Hinweise zum Storytellen und die Regeln
     assert _button_ids(start) == [f"botc:{GUILD}:new"]
 
