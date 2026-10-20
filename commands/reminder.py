@@ -101,6 +101,12 @@ class ReminderCog(commands.Cog):
         for event in self.store.list_events(start_until=cutoff):
             if event.data.custom_image:
                 delete_custom_image(event.data.custom_image)
+        # Eigene Bilder abgelaufener Entwürfe, die kein Event benutzt (sonst bleiben sie für immer liegen)
+        for draft in self.store.stale_drafts(int(t.timestamp()) - service.DRAFT_TTL_SECONDS):
+            name = draft.data.custom_image
+            event = self.store.get_event(draft.event_id) if draft.event_id is not None else None
+            if name and not (event and event.data.custom_image == name):
+                delete_custom_image(name)
         drafts, events = service.cleanup(self.store, t)
         if drafts or events:
             logger.info("Aufgeräumt: %d Entwürfe, %d Events", drafts, events)

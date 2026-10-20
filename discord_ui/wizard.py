@@ -59,7 +59,7 @@ from events.schema import (
 from events.store import Draft, Store
 from events.templates import BASE3_FULL_NAMES, base_title
 from logic import botcscripts
-from logic.event_images import ImageError, delete_custom_image, save_custom_image
+from logic.event_images import MAX_UPLOAD_BYTES, ImageError, delete_custom_image, save_custom_image
 from logic.script_cache import get_base_script, validate_script_json
 from logic.script_flags import is_teensy, special_reasons
 from testserver import hooks as testserver_hooks  # TESTSERVER
@@ -953,11 +953,13 @@ class ImageUploadModal(_WizardModal):
     def __init__(self, draft_id: int):
         super().__init__(draft_id, "Eigenes Bild")
         self.file = discord.ui.FileUpload(required=True, min_values=1, max_values=1)
-        self.add_item(discord.ui.Label(text="Bild", description="PNG, JPG, WEBP oder GIF, bis 10 MB",
+        self.add_item(discord.ui.Label(text="Bild", description="PNG, JPG, WEBP oder GIF, bis 8 MB",
                                        component=self.file))
 
     async def handle(self, interaction, ctx: WizardContext):
         attachment = self.file.values[0]
+        if attachment.size > MAX_UPLOAD_BYTES:  # vor dem Herunterladen prüfen, nicht erst danach
+            raise service.ServiceError("Das Bild ist größer als 8 MB.")
         await interaction.response.defer()
         try:
             name = save_custom_image(await attachment.read())

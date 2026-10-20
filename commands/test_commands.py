@@ -26,6 +26,7 @@ class TestCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    @app_commands.default_permissions(manage_guild=True)  # nur Admins (ENV=dev)
     @app_commands.command(
         name="create_test_event",
         description="[DEV] Erstellt ein Mock-Event im Event-Channel"
@@ -76,6 +77,7 @@ class TestCommands(commands.Cog):
             ephemeral=True,
         )
 
+    @app_commands.default_permissions(manage_guild=True)  # nur Admins (ENV=dev)
     @app_commands.command(
         name="clear_test_events",
         description="[DEV] Löscht alle Test-Events aus dem Event-Channel"
@@ -108,6 +110,7 @@ class TestCommands(commands.Cog):
             f"{deleted} Test-Event(s) gelöscht.", ephemeral=True
         )
 
+    @app_commands.default_permissions(manage_guild=True)  # nur Admins (ENV=dev)
     @app_commands.command(
         name="clear_past_events",
         description="[DEV] Löscht alle Events aus dem Event-Channel, deren Startzeit in der Vergangenheit liegt"
