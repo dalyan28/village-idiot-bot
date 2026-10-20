@@ -53,9 +53,9 @@ class BotcModal(discord.ui.Modal):
 
         self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
         choices = [
-            (OPTION_CASUAL, "Casual", "Mehr Zeit, besonders rücksichtsvoll"),
-            (OPTION_ACADEMY, "Academy", "Lernrunde der Clocktower Academy"),
-            (OPTION_RECORDED, "Aufzeichnung", "Die Runde wird aufgezeichnet"),
+            (OPTION_ACADEMY, "🎓 Academy", "Lernrunde der Clocktower Academy"),
+            (OPTION_CASUAL, "🕊️ Casual", "Mehr Zeit, besonders rücksichtsvoll"),
+            (OPTION_RECORDED, "🎦 Aufzeichnung", "Die Runde wird aufgezeichnet"),
             (OPTION_CAMERA, "Kamera-Pflicht", "Alle spielen mit Kamera"),
         ]
         for value, label, desc in choices:

@@ -417,9 +417,10 @@ async def _screen_image(bot, store, draft: Draft, head: discord.Embed, view: dis
 
 
 OPEN = "offen"
+# Symbole der Server-Regeln bleiben überall stehen (Dalyan, 20.10.2026)
 RATING_BUTTON_LABELS = {
-    "green": "Grün", "yellow": "Gelb", "red": "Rot",
-    "green_yellow": "Grün bis Gelb", "yellow_red": "Gelb bis Rot", "any": "Alle drei",
+    "green": "💚 Grün", "yellow": "🟡 Gelb", "red": "🟥 Rot",
+    "green_yellow": "💚/🟡 Grün bis Gelb", "yellow_red": "🟡/🟥 Gelb bis Rot", "any": "💚/🟡/🟥 Alle drei",
 }
 
 
@@ -480,7 +481,7 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
         else:
             source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_MANUAL: "von dir gewählt"}.get(
                 d.rating_source, "")
-        rating_text = f"**{RATING_WORDS[d.rating].capitalize()}** ({source})"
+        rating_text = f"{LABEL_EMOJI[d.rating]} **{RATING_WORDS[d.rating].capitalize()}** ({source})"
         if d.rating_source == RATING_SOURCE_RATER:
             rating_text += "\n" + rating_explanation(ui, limit=3)
     else:
@@ -504,8 +505,8 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
                     value=_code(d.co_storyteller.name if d.co_storyteller else "—"), inline=True)
     embed.add_field(name="7 · Level", value=_code(d.level), inline=True)
 
-    labels = [name for flag, name in ((d.is_casual, "Casual"), (d.is_academy, "Academy"),
-                                      (d.is_recorded, "Aufzeichnung"), (d.is_special, "Abweichung")) if flag]
+    labels = [name for flag, name in ((d.is_academy, "🎓 Academy"), (d.is_casual, "🕊️ Casual"),
+                                      (d.is_recorded, "🎦 Aufzeichnung"), (d.is_special, "⭐ Abweichung")) if flag]
     embed.add_field(name="8 · Labels", value=_code(", ".join(labels) or "—"), inline=True)
     embed.add_field(name="9 · Kamera", value=_code(CAMERA_LABELS[d.camera]), inline=True)
     embed.add_field(name="10 · Max Spieler", value=_code(str(d.max_players)), inline=True)
@@ -1019,9 +1020,9 @@ class LabelsModal(_WizardModal):
     def __init__(self, draft_id: int, data: EventData, allow_academy: bool):
         super().__init__(draft_id, "Labels & Kamera")
         self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
-        choices = [("casual", "Casual", data.is_casual), ("academy", "Academy", data.is_academy),
-                   ("recorded", "Aufzeichnung", data.is_recorded),
-                   ("special", "Abweichung vom klassischen Clocktower (⭐)", data.is_special)]
+        choices = [("academy", "🎓 Academy", data.is_academy), ("casual", "🕊️ Casual", data.is_casual),
+                   ("recorded", "🎦 Aufzeichnung", data.is_recorded),
+                   ("special", "⭐ Abweichung vom klassischen Clocktower", data.is_special)]
         for value, label, on in choices:
             if value == "academy" and not allow_academy:
                 continue

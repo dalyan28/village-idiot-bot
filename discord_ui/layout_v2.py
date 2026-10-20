@@ -80,7 +80,8 @@ def to_layout(embeds: list[discord.Embed], view: discord.ui.View, draft_id: int,
     for item in view.children:
         if getattr(item, "custom_id", "").endswith(":edit"):
             continue
-        rows.setdefault(item.row or 0, []).append(item)
+        # Selects speichern ihre Zeile anders als Buttons: am inneren Element nachsehen
+        rows.setdefault(getattr(item, "item", item).row or 0, []).append(item)
     for row in sorted(rows):
         action_row = discord.ui.ActionRow()
         for item in rows[row]:

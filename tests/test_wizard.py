@@ -176,8 +176,8 @@ def test_open_fields_and_rating_options(store):
     summary = {f.name: f.value for f in screen.embeds[0].fields}
     assert summary["4 · Beschreibung"] == "```offen```"
     modal = asyncio.run(_rating_modal(make_draft(store, "preview").data))
-    assert [o.label for o in modal.rating.options] == ["Grün", "Gelb", "Rot", "Grün bis Gelb", "Gelb bis Rot",
-                                                       "Alle drei"]
+    assert [o.label for o in modal.rating.options] == ["💚 Grün", "🟡 Gelb", "🟥 Rot", "💚/🟡 Grün bis Gelb",
+                                                       "🟡/🟥 Gelb bis Rot", "💚/🟡/🟥 Alle drei"]
     assert [o.value for o in modal.rating.options if o.default] == ["green"]
 
 

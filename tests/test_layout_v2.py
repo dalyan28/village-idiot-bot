@@ -2,6 +2,8 @@
 
 import asyncio
 
+import discord
+
 import pytest
 
 from discord_ui import wizard
@@ -37,6 +39,19 @@ def test_summary_has_edit_button_per_section(store):
     ids = [getattr(i, "custom_id", "") for i in layout.walk_children()]
     assert not any(c.endswith(":edit") for c in ids)
     assert any(c.endswith(":publish") for c in ids)
+
+
+def test_script_step_with_search_results_and_versions(store):
+    """Regression: Selects landeten in Zeile 0 bei den Skript-Buttons → ActionRow lief über."""
+    from events.schema import ScriptRef
+    draft = make_draft(store, "script", script=ScriptRef(kind="botcscripts", name="Boozling", version="9.0.0",
+                                                         botcscripts_id="173", characters=["imp"]))
+    store.set_draft_ui(draft.id, {"query": "boo", "search_results": [
+        {"id": str(i), "version": "1", "name": f"Skript {i}", "author": "A"} for i in range(10)],
+        "versions": [{"id": "173", "version": "9.0.0"}]})
+    layout = layout_for(store, store.get_draft(draft.id))
+    rows = [c for c in layout.children if isinstance(c, discord.ui.ActionRow)]
+    assert [len(r.children) for r in rows] == [4, 3, 1, 1, 1]
 
 
 def test_long_academy_description_is_shortened(store):

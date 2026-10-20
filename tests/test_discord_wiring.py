@@ -39,7 +39,7 @@ def test_modal_has_five_components_and_hides_academy():
 
     with_academy, without = run(go())
     assert len(with_academy.children) == 5
-    assert [o.value for o in with_academy.options.options] == ["casual", "academy", "recorded", "camera"]
+    assert [o.value for o in with_academy.options.options] == ["academy", "casual", "recorded", "camera"]
     assert "academy" not in [o.value for o in without.options.options]
     assert without.options.max_values == 3
 
