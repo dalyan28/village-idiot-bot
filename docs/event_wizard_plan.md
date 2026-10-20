@@ -530,6 +530,12 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
   einstellbar wie `/set_event_roles`), der Template-Text (einer oder mehrere zur Auswahl, wer pflegt sie), Icon und
   Titel, ob es RSVP-Buttons und eine Spielerzahl braucht, und ob Briefings in der Übersicht auftauchen.
 
+## Vor dem Merge nach main
+
+- `docs/agents/` enthält Aufträge für andere Agenten (z. B. `testserver.md` für den Testserver der Admins).
+  Nur für die Entwicklung, vor dem Merge nach `main` löschen. Der Testserver selbst lebt auf dem Branch
+  `testserver` und wird nicht gemergt.
+
 ## Offene Fragen
 
 - Academy-Berechtigung im Detail (z. B. Verhältnis zur Storyteller-Rolle). Kann später geklärt werden.
