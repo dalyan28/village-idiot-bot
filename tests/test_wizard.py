@@ -85,7 +85,7 @@ def render(store, draft):
     return asyncio.run(wizard.build_screen(FakeBot(store=store), store, draft))
 
 
-@pytest.mark.parametrize("step", [*wizard.STEPS, wizard.STEP_REMINDERS])
+@pytest.mark.parametrize("step", wizard.STEPS)
 def test_every_step_renders_within_discord_limits(store, step):
     screen = render(store, make_draft(store, step))
     check_limits(screen)
@@ -163,7 +163,7 @@ def test_summary_is_numbered_with_code_blocks(store):
     screen = render(store, make_draft(store, "preview"))
     embed = screen.embeds[0]
     names = [f.name for f in embed.fields]
-    assert names[0] == "1 · Titel (automatisch)" and "11 · Termin" in names and "13 · Erinnerungen" in names
+    assert names[0] == "1 · Titel (automatisch)" and "11 · Termin" in names and not any("Erinnerung" in n for n in names)
     assert embed.fields[0].value == "```💚 Trouble Brewing mit Dalyan```"
     termin = next(f.value for f in embed.fields if f.name == "11 · Termin")
     assert termin == "```Donnerstag, der 22.10.2026, 12:00 Uhr – 14:30 Uhr```"

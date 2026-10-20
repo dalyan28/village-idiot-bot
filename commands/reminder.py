@@ -14,8 +14,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from discord_ui.event_post import fetch_event_message
-from discord_ui.members import actor_from_member
-from events import guild_lock, permissions, reminders, service
+from events import guild_lock, reminders, service
 from events.schema import BERLIN_TZ, SCRIPT_BASE, SCRIPT_FREE, ScriptRef
 from events.store import EventRecord, Store
 from events.templates import full_title
@@ -81,7 +80,7 @@ class ReminderCog(commands.Cog):
         for guild_id in guild_lock.allowed_guild_ids():
             settings = self.store.get_guild_settings(guild_id)
             for event in self.store.list_events(guild_id, start_from=ts, start_until=horizon):
-                configs = reminders.effective(settings, event.data)
+                configs = reminders.server_defaults(settings)  # nur global, keine Anpassung je Event
                 for cfg in reminders.due(configs, event.data.start, t, self.store.sent_reminders(event.id)):
                     # Erst als gesendet markieren: lieber ein Reminder zu wenig als Spam bei Fehlern
                     self.store.mark_reminder_sent(event.id, cfg.key, ts)
@@ -147,20 +146,21 @@ class ReminderCog(commands.Cog):
     # ── Commands ─────────────────────────────────────────────────────────
 
     async def _check(self, interaction: discord.Interaction) -> bool:
-        actor = actor_from_member(interaction.user)
-        if permissions.can(actor, permissions.CONFIGURE, service.get_access(self.store, interaction.guild_id)):
+        """Erinnerungen legen nur Server-Admins fest, global für alle Runden (Dalyan, 20.10.2026)."""
+        if interaction.user.guild_permissions.manage_guild:
             return True
-        await interaction.response.send_message("Das dürfen nur Event-Team und Admins.", ephemeral=True)
+        await interaction.response.send_message("Das dürfen nur Admins (Server verwalten).", ephemeral=True)
         return False
 
     def _summary(self, guild_id: int) -> str:
         cfgs = reminders.server_defaults(self.store.get_guild_settings(guild_id))
         lines = ["**Reminder-Standard für diesen Server**"]
         lines += [f"{i}. {reminders.describe(cfgs[k])}" for i, k in enumerate(reminders.KEYS, 1)]
-        lines.append("-# Storyteller können das im Wizard für ihr Event anpassen (Schritt „Leitung & Details“).")
+        lines.append("-# Gilt für alle Runden dieses Servers. Ändern können das nur Admins.")
         return "\n".join(lines)
 
-    @app_commands.command(name="set_reminders", description="Standard-Reminder für alle Runden festlegen")
+    @app_commands.command(name="set_reminders", description="Reminder für alle Runden festlegen (nur Admins)")
+    @app_commands.default_permissions(manage_guild=True)
     @app_commands.describe(
         reminder="Welcher Reminder",
         aktiv="Reminder senden?",

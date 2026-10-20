@@ -489,6 +489,10 @@ Dritte Runde Feedback (20.10.2026):
 - Weniger Emojis in der Oberfläche (nur 🎉 an „Veröffentlichen“), Event-Post mit Ersteller:in nur in der Fußzeile,
   Academy für Server-Admins automatisch, Academy und Casual kombinierbar (🎓 vor 🕊️).
 
+- **Erinnerungen nur global**: Nur Server-Admins legen sie mit `/set_reminders` für alle Runden fest. Im Wizard und in
+  der Zusammenfassung tauchen sie nicht mehr auf; die Reminder-Schleife nutzt nur die Server-Einstellung
+  (`EventData.reminder_overrides` bleibt im Schema, wird aber nicht mehr gelesen). Reminder-Texte ohne Emojis.
+
 ## Offene Fragen
 
 - Academy-Berechtigung im Detail (z. B. Verhältnis zur Storyteller-Rolle). Kann später geklärt werden.

@@ -291,28 +291,14 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     assert "wirklich" in delete.sent[0]
 
 
-def test_reminder_subpage(env):
+def test_reminders_are_not_editable_in_wizard(env):
+    """Erinnerungen legen nur Admins global fest (/set_reminders), nicht der Storyteller."""
     bot = env
     draft = new_draft(bot)
     click(bot, draft.id, "pick", "trouble_brewing")
-    choose(bot, draft.id, "edit", "reminders")
-    assert step(bot, draft.id) == "reminders"
-    choose(bot, draft.id, "rem_to_first", "accepted")
-    inter = FakeInteraction(bot, bot.guild.get_member(USER), values=["accepted", "waitlist"])
-    run(WizardSelect(draft.id, "rem_to_second", [], "x").callback(inter))
-    click(bot, draft.id, "rem_mode", "first")
-    click(bot, draft.id, "rem_toggle", "second")
-    d = bot.store.get_draft(draft.id).data
-    assert d.reminder_overrides == {"first": {"mode": "names"},
-                                    "second": {"enabled": False, "recipients": ["accepted", "waitlist"]}}
-    # Leere Auswahl = niemand benachrichtigen
-    inter = FakeInteraction(bot, bot.guild.get_member(USER), values=[])
-    run(WizardSelect(draft.id, "rem_to_first", [], "x").callback(inter))
-    assert bot.store.get_draft(draft.id).data.reminder_overrides["first"]["recipients"] == []
-    click(bot, draft.id, "rem_reset")
-    assert bot.store.get_draft(draft.id).data.reminder_overrides == {}
-    click(bot, draft.id, "rem_done")
-    assert step(bot, draft.id) == "preview"
+    inter = click(bot, draft.id, "rem_toggle", "first")
+    assert inter.sent == ["Diese Aktion gibt es nicht mehr."]
+    assert "reminders" not in wizard.EDIT_CHOICES
 
 
 def test_edit_title_and_rating_range(env):

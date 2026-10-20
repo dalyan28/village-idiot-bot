@@ -22,7 +22,7 @@ from datetime import datetime
 import discord
 
 from discord_ui.members import actor_from_member, fetch_member
-from events import guild_lock, permissions, reminders, service
+from events import guild_lock, permissions, service
 from events.intake import parse_players
 from events.parse import ParseError, format_termin, parse_start
 from events.permissions import Actor
@@ -85,9 +85,6 @@ STEP_LABELS = {
     STEP_IMAGE: "Bild",
     STEP_PREVIEW: "Zusammenfassung",
 }
-# Unterseite der Zusammenfassung, kein eigener Schritt in der Reihenfolge
-STEP_REMINDERS = "reminders"
-STEP_LABELS[STEP_REMINDERS] = "Erinnerungen"
 RETURN_SUFFIX = ":p"
 
 
@@ -131,8 +128,6 @@ def previous_step(data: EventData, step: str) -> str:
 def step_number(data: EventData, step: str) -> tuple[int, int]:
     order = steps_for(data)
     current = base_step(step)
-    if current == STEP_REMINDERS:
-        current = STEP_PREVIEW
     return (order.index(current) + 1 if current in order else 1), len(order)
 
 
@@ -319,7 +314,7 @@ async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: 
     guild = bot.get_guild(draft.guild_id)
     view = discord.ui.View(timeout=None)
     step = base_step(draft.step)
-    if step not in STEPS and step != STEP_REMINDERS:
+    if step not in STEPS:
         step = STEP_PREVIEW  # Entwurf aus einer älteren Version mit inzwischen entferntem Schritt
     if step == STEP_PREVIEW:
         embeds, files = await _screen_preview(bot, store, draft, view, guild.name if guild else None, notice)
@@ -333,7 +328,6 @@ async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: 
         STEP_DESCRIPTION: _screen_description,
         STEP_IMAGE: _screen_image,
         STEP_PREVIEW: _screen_preview,
-        STEP_REMINDERS: _screen_reminders,
     }[step]
     extra_embeds, files = await builder(bot, store, draft, head, view)
     return Screen([summary, head, *extra_embeds], view, files)
@@ -377,33 +371,6 @@ async def _screen_script(bot, store, draft: Draft, head: discord.Embed, view: di
         view.add_item(WizardButton(draft.id, "next", "Zurück zur Zusammenfassung", discord.ButtonStyle.success,
                                    row=4))
     _cancel_button(view, draft, row=4)
-    return [], []
-
-
-async def _screen_reminders(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
-    d = draft.data
-    cfgs = reminders.effective(store.get_guild_settings(draft.guild_id), d)
-    head.add_field(
-        name="Erinnerungen für diese Runde",
-        value="\n".join(f"{i}. {reminders.describe(c)}" for i, c in enumerate(cfgs.values(), 1))
-              + "\n-# Zeitpunkt und Skript-JSON legt der Server fest (`/set_reminders`).",
-        inline=False,
-    )
-    for row, (key, cfg) in enumerate(cfgs.items()):
-        view.add_item(WizardSelect(draft.id, f"rem_to_{key}", [
-            discord.SelectOption(label=f"{cfg.label}: {label}", value=value, default=value in cfg.recipients)
-            for value, label in reminders.RECIPIENT_LABELS.items()
-        ], f"{cfg.label}: an wen?", row=row, min_values=0, max_values=len(reminders.RECIPIENTS)))
-    for key, cfg in cfgs.items():
-        view.add_item(WizardButton(draft.id, "rem_toggle", f"{cfg.label}: {'aus' if cfg.enabled else 'an'}schalten",
-                                   arg=key, row=2))
-        view.add_item(WizardButton(draft.id, "rem_mode", f"{cfg.label}: "
-                                   f"{'nur Namen' if cfg.mode == reminders.MODE_PING else 'mit Ping'}",
-                                   arg=key, row=2, disabled=not cfg.enabled))
-    view.add_item(WizardButton(draft.id, "rem_done", "Zurück zur Zusammenfassung", discord.ButtonStyle.success,
-                               row=3))
-    view.add_item(WizardButton(draft.id, "rem_reset", "Server-Standard verwenden", row=3,
-                               disabled=not d.reminder_overrides))
     return [], []
 
 
@@ -481,7 +448,6 @@ EDIT_CHOICES = {
     "basics": "7, 10, 11 · Level, Max Spieler, Termin & Dauer",
     "labels": "8–9 · Labels (inkl. ⭐) & Kamera",
     "image": "12 · Bild",
-    "reminders": "13 · Erinnerungen",
 }
 
 
@@ -548,9 +514,6 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
     image_text = {IMAGE_AUTO: "Aus dem Skript" if has_auto_image(d) else "Keins (freie Skriptwahl)",
                   IMAGE_CUSTOM: "Eigenes Bild", IMAGE_NONE: "Kein Bild"}[d.image_mode]
     embed.add_field(name="12 · Bild", value=_code(image_text), inline=True)
-    cfgs = reminders.effective(store.get_guild_settings(draft.guild_id), d)
-    embed.add_field(name="13 · Erinnerungen",
-                    value=_code("\n".join(reminders.describe(c) for c in cfgs.values())), inline=False)
     return embed
 
 
@@ -747,59 +710,6 @@ async def _upload(interaction, ctx: WizardContext, arg):
     await interaction.response.send_modal(ScriptUploadModal(ctx.draft.id))
 
 
-# ── Aktionen: Erinnerungen (Unterseite der Zusammenfassung) ──────────────────
-
-
-@action("rem_done")
-async def _rem_done(interaction, ctx: WizardContext, arg):
-    await goto(interaction, ctx, STEP_PREVIEW)
-
-
-def _change_reminder(ctx: WizardContext, key: str, change):
-    if key not in reminders.KEYS:
-        return
-    settings = ctx.store.get_guild_settings(ctx.draft.guild_id)
-    d = ctx.data
-    cfg = reminders.copy_of(reminders.effective(settings, d)[key])
-    change(cfg)
-    reminders.store_event_choice(settings, d, cfg)
-    ctx.save(d)
-
-
-@action("rem_toggle")
-async def _rem_toggle(interaction, ctx: WizardContext, arg):
-    _change_reminder(ctx, arg, lambda c: setattr(c, "enabled", not c.enabled))
-    await show(interaction, ctx)
-
-
-@action("rem_mode")
-async def _rem_mode(interaction, ctx: WizardContext, arg):
-    def flip(c):
-        c.mode = reminders.MODE_NAMES if c.mode == reminders.MODE_PING else reminders.MODE_PING
-    _change_reminder(ctx, arg, flip)
-    await show(interaction, ctx)
-
-
-@action("rem_reset")
-async def _rem_reset(interaction, ctx: WizardContext, arg):
-    d = ctx.data
-    d.reminder_overrides = {}
-    ctx.save(d)
-    await show(interaction, ctx)
-
-
-def _recipients_select(key: str):
-    async def handler(interaction, ctx: WizardContext, values):
-        chosen = [r for r in reminders.RECIPIENTS if r in values]
-        _change_reminder(ctx, key, lambda c: setattr(c, "recipients", chosen))
-        await show(interaction, ctx)
-    return handler
-
-
-for _key in reminders.KEYS:
-    select_action(f"rem_to_{_key}")(_recipients_select(_key))
-
-
 # ── Aktionen: Beschreibung und Bild ──────────────────────────────────────────
 
 
@@ -879,8 +789,6 @@ async def _edit(interaction, ctx: WizardContext, values):
             return
         step = {"script": STEP_SCRIPT, "image": STEP_IMAGE}[choice]
         await goto(interaction, ctx, step + RETURN_SUFFIX)
-    elif choice == "reminders":
-        await goto(interaction, ctx, STEP_REMINDERS)
     elif choice == "description":
         await interaction.response.send_modal(DescriptionModal(ctx.draft.id, d.description))
     elif choice == "title":
