@@ -171,6 +171,13 @@ def parse_start(date_text: str, time_text: str, now: datetime | None = None) -> 
     return start
 
 
+def format_termin(start: datetime, duration_minutes: int) -> str:
+    """„Sonntag, der 26.04.2026, 14:00 Uhr – 16:30 Uhr“ (Zusammenfassung, wie auf dem alten Branch)."""
+    s = start.astimezone(BERLIN_TZ)
+    end = s + timedelta(minutes=duration_minutes)
+    return f"{WEEKDAY_NAMES[s.weekday()]}, der {s:%d.%m.%Y}, {s:%H:%M} Uhr – {end:%H:%M} Uhr"
+
+
 def format_start(start: datetime, duration_minutes: int | None = None) -> str:
     """„Samstag, 24.10.2026, 20:00“ bzw. mit Dauer „Samstag, 24.10.2026, 20:00–22:30“."""
     s = start.astimezone(BERLIN_TZ)

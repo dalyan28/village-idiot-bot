@@ -25,7 +25,7 @@ Die Event-Erstellung aus Branch `event-creation` wird ohne KI neu gebaut: determ
 | Academy | Nur konfigurierbare Rollen oder User dürfen Academy-Events erstellen (siehe „Rollen und Berechtigungen“). |
 | botcscripts.com | Die Anbindung bleibt zentral: Suche, Versionen, Skript-JSON für den Reminder. Sie wird aus `event-creation` übernommen und nicht vereinfacht. |
 | Bestandsdaten | `event-creation` lief nie produktiv. Keine Migration von `events.json`, die Datenbank startet leer. |
-| Skript-Bild | Nur die Papier-Variante. Starfield, Neon und `script_image_v2.py` werden für dieses Projekt verworfen und nicht übernommen. |
+| Skript-Bild | Nur das schlichte Design (weißer Hintergrund, normale Icons, = `plain_white` vom alten Branch, pixelgleich). Papier, Starfield, Neon und `script_image_v2.py` verworfen (Dalyan, 20.10.2026). |
 | Co-ST | Darf das Event weder bearbeiten noch Teilnehmer verwalten. |
 | Gäste | Sehen auf der Website nichts. Ohne Login und Servermitgliedschaft gibt es keine Termine. |
 | Event-Team | Eine eigene Rolle neben „Server verwalten“, die alle Events des Servers verwalten darf. |
@@ -176,7 +176,8 @@ Prüfung im Bot ist deshalb maßgeblich, die Discord-Einstellung ist nur ein Fil
 
 **Academy-Angebote** (Dalyan, 19.10.2026): Nur bestimmte Rollen oder einzelne User dürfen Academy-Events erstellen.
 Konfigurierbar über `/set_academy_access` (Rollen und/oder User hinzufügen und entfernen), nur Event-Team bzw. „Server
-verwalten“. Das Event-Team darf es immer.
+verwalten“. **Auch Admins und Event-Team nur mit Freigabe** (Dalyan, 20.10.2026: nur wer den Academy-Titel hat);
+Admins können sich selbst freigeben.
 - Im Modal erscheint die Checkbox „Academy“ nur für Berechtigte (das Modal wird je Aufruf gebaut, das geht).
 - Wer nicht berechtigt ist, kann Academy auch beim Bearbeiten nicht einschalten. Ein bestehendes Academy-Event bleibt
   Academy, auch wenn der Ersteller die Berechtigung später verliert.
@@ -210,6 +211,9 @@ Modal erneut, vorbelegt mit der alten Eingabe.
 - Umfangreich getestet, ohne Discord.
 
 ## DM-Wizard
+
+> Stand 20.10.2026: Ablauf und Zusammenfassung wurden nach dem ersten Test umgebaut, siehe „Umbau nach dem ersten Test“.
+> Die folgende Beschreibung ist der ursprüngliche Plan.
 
 Eine Wizard-Nachricht pro Session, die bei jedem Schritt **bearbeitet** statt neu gesendet wird. Jeder Schritt hat
 „Zurück“ und „Abbrechen“. Texteingaben laufen über kleine Modals statt über freie Chat-Nachrichten. Damit fällt die
@@ -308,9 +312,8 @@ Grundsätze:
 Damit die Website später ohne Umbau drauf passt, gilt schon ab Phase 1:
 - `storyteller` und `co_storyteller` speichern eine **Discord-User-ID** (wenn bekannt) und zusätzlich den Anzeigenamen.
   Der Co-ST bekommt dadurch keine Rechte; die ID dient der Anzeige („Meine Events“) und künftigen Erinnerungen.
-  Im Wizard tippt der User den Namen des Co-ST in ein Modal. Der Bot sucht ihn unter den Mitgliedern der Guild
-  (`guild.query_members`) und bietet die Treffer als Select an. Ein User-Select in DMs würde die Servermitglieder nicht
-  kennen. Wird niemand gefunden, bleibt der Name als Freitext ohne Rechte.
+  Der Co-ST wird als **einfacher Text** eingegeben, ohne Mitgliedersuche (Dalyan, 20.10.2026: „zu umständlich“);
+  eine User-ID gibt es dann nur für den Storyteller, wenn er der Ersteller ist.
 - RSVPs als eigene Tabelle (`event_id`, `user_id`, `display_name`, `status`, `created_at`) statt Listen im Event. So geht die Warteliste
   nach Anmeldezeit.
 - `events/permissions.py` gibt es schon in Phase 2 und 3, für `/botc` und die Buttons „Bearbeiten“ und „Löschen“.
@@ -343,7 +346,7 @@ discord_ui/
 web/
   app.py, auth.py, routes.py, templates/, static/
 logic/                    aus event-creation übernommen: botcscripts.py, script_cache.py,
-                          script_image.py (nur Papier-Variante), event_builder.py
+                          script_image.py (nur Plain White), event_builder.py
 commands/                 overview/settings (main, + /set_event_roles), reminder.py (aus event-creation)
 ```
 
@@ -421,7 +424,7 @@ Nicht getestet: ein echter Durchlauf in Discord. Dafür braucht es den Bot mit `
 
 Gebaut:
 - `discord_ui/wizard.py`: alle sechs Schritte plus Unterseite „Erinnerungen“. Die Wizard-Nachricht wird bei jedem
-  Klick bearbeitet; Texteingaben laufen über Modals (Suche, JSON-Upload, Mitgliedersuche, Beschreibung, Bild-Upload).
+  Klick bearbeitet; Texteingaben laufen über Modals (Suche, JSON-Upload, Beschreibung, Bild-Upload).
   Zwischenstände (Suchergebnisse, Kandidaten) liegen in `drafts.ui`.
 - Skript: Basis-3, freie Wahl, botcscripts.com-Suche (10 Treffer im Select) mit Versionswahl, JSON-Upload. Das
   Skript-JSON wird im Event gespeichert (Bild, Homebrew-Namen, Reminder ohne Netz).
@@ -447,6 +450,21 @@ Gefunden und behoben:
 
 Tests: 229 grün, darunter ein kompletter Durchlauf mit Discord-Attrappen (`tests/test_wizard_flow.py`) und jeder
 Schritt gegen die Discord-Grenzen (`tests/test_wizard.py`). Ein echter Durchlauf in Discord steht noch aus.
+
+## Umbau nach dem ersten Test (20.10.2026)
+
+Feedback von Dalyan nach dem ersten echten Durchlauf in Discord:
+- **Ablauf**: Skript → Einschätzung → Beschreibung → Bild → Zusammenfassung. Standardwerte (Dauer, Kamera, Co-ST,
+  Labels, Erinnerungen) werden nicht abgefragt, sondern nur in der Zusammenfassung über „Feld ändern“ geändert.
+  Der Schritt „Leitung & Details“ ist entfallen.
+- **Zusammenfassung** wie auf `event-creation`: nummerierte Felder 1–13, Werte in Code-Blöcken, Einschätzung als Zitat
+  neben dem Skript, Skript-Bild unten. „Feld ändern“ öffnet je nach Feld einen Schritt (Skript, Einschätzung, Bild,
+  Erinnerungen) oder ein kurzes Modal (Beschreibung; Storyteller & Co-ST; Datum, Uhrzeit, Dauer, Spieler, Level;
+  Labels & Kamera). Ein unveränderter Termin bleibt erhalten, auch wenn er schon vorbei ist.
+- **Co-ST** als Freitext, keine Mitgliedersuche mehr.
+- **Academy** nur mit Freigabe (siehe „Rollen und Berechtigungen“).
+- **Skript-Bild** Plain White; dauert 0,8 statt ~8 Sekunden (die Wartezeit wirkte wie ein Hänger).
+- Behoben: `restore_auto_tasks` stürzte bei Altlasten auf oberster Ebene von `config.json` ab.
 
 ## Offene Fragen
 

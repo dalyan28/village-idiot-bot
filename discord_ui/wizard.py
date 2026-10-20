@@ -22,18 +22,19 @@ from datetime import datetime
 import discord
 
 from discord_ui.members import actor_from_member, fetch_member
-from events import guild_lock, reminders, service
-from events.parse import format_start
+from events import guild_lock, permissions, reminders, service
+from events.intake import parse_players
+from events.parse import ParseError, format_start, format_termin, parse_start
 from events.permissions import Actor
 from events.rating import rate_script
 from events.schema import (
     BERLIN_TZ,
     CAMERA_LABELS,
     DESCRIPTION_MAX_LENGTH,
-    DURATION_CHOICES,
     IMAGE_AUTO,
     IMAGE_CUSTOM,
     IMAGE_NONE,
+    LEVELS,
     RATING_SOURCE_FIXED,
     RATING_SOURCE_MANUAL,
     RATING_SOURCE_RATER,
@@ -67,20 +68,20 @@ PREVIEW_IMAGE = "vorschau.png"
 
 STEP_SCRIPT = "script"
 STEP_RATING = "rating"
-STEP_DETAILS = "details"
 STEP_DESCRIPTION = "description"
 STEP_IMAGE = "image"
 STEP_PREVIEW = "preview"
-STEPS = (STEP_SCRIPT, STEP_RATING, STEP_DETAILS, STEP_DESCRIPTION, STEP_IMAGE, STEP_PREVIEW)
+# Standardwerte (Dauer, Kamera, Co-ST, Erinnerungen …) werden nicht abgefragt, sondern nur in der
+# Zusammenfassung geändert (Dalyan, 20.10.2026).
+STEPS = (STEP_SCRIPT, STEP_RATING, STEP_DESCRIPTION, STEP_IMAGE, STEP_PREVIEW)
 STEP_LABELS = {
     STEP_SCRIPT: "Skript",
     STEP_RATING: "Einschätzung",
-    STEP_DETAILS: "Leitung & Details",
     STEP_DESCRIPTION: "Beschreibung",
     STEP_IMAGE: "Bild",
-    STEP_PREVIEW: "Vorschau",
+    STEP_PREVIEW: "Zusammenfassung",
 }
-# Unterseite von „Leitung & Details“, kein eigener Schritt in der Reihenfolge
+# Unterseite der Zusammenfassung, kein eigener Schritt in der Reihenfolge
 STEP_REMINDERS = "reminders"
 STEP_LABELS[STEP_REMINDERS] = "Erinnerungen"
 RETURN_SUFFIX = ":p"
@@ -130,7 +131,7 @@ def step_number(data: EventData, step: str) -> tuple[int, int]:
     order = steps_for(data)
     current = base_step(step)
     if current == STEP_REMINDERS:
-        current = STEP_DETAILS
+        current = STEP_PREVIEW
     return (order.index(current) + 1 if current in order else 1), len(order)
 
 
@@ -328,13 +329,17 @@ def _cancel_button(view: discord.ui.View, draft: Draft, row: int):
 
 async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: str | None = None) -> Screen:
     guild = bot.get_guild(draft.guild_id)
-    head = summary_embed(draft, guild.name if guild else None, notice)
     view = discord.ui.View(timeout=None)
     step = base_step(draft.step)
+    if step not in STEPS and step != STEP_REMINDERS:
+        step = STEP_PREVIEW  # Entwurf aus einer älteren Version mit inzwischen entferntem Schritt
+    if step == STEP_PREVIEW:
+        embeds, files = await _screen_preview(bot, store, draft, view, guild.name if guild else None, notice)
+        return Screen(embeds, view, files)
+    head = summary_embed(draft, guild.name if guild else None, notice)
     builder = {
         STEP_SCRIPT: _screen_script,
         STEP_RATING: _screen_rating,
-        STEP_DETAILS: _screen_details,
         STEP_DESCRIPTION: _screen_description,
         STEP_IMAGE: _screen_image,
         STEP_PREVIEW: _screen_preview,
@@ -419,46 +424,6 @@ async def _screen_rating(bot, store, draft: Draft, head: discord.Embed, view: di
     return [], []
 
 
-async def _screen_details(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
-    d, ui = draft.data, draft.ui or {}
-    st = _esc(d.storyteller.name) if d.storyteller else "-"
-    co = _esc(d.co_storyteller.name) if d.co_storyteller else "keine:r"
-    head.add_field(name="Storytelling", value=st, inline=True)
-    head.add_field(name="Co-Storytelling", value=co, inline=True)
-    head.add_field(name="Dauer", value=f"{d.duration_minutes} Minuten", inline=True)
-    head.add_field(name="Kamera", value=CAMERA_LABELS[d.camera], inline=True)
-
-    durations = sorted(set(DURATION_CHOICES) | {d.duration_minutes})
-    view.add_item(WizardSelect(draft.id, "duration", [
-        discord.SelectOption(label=f"Dauer: {m // 60}:{m % 60:02d} h ({m} Min.)", value=str(m),
-                             default=m == d.duration_minutes)
-        for m in durations
-    ], "Dauer", row=0))
-    view.add_item(WizardSelect(draft.id, "camera", [
-        discord.SelectOption(label=f"Kamera: {label}", value=key, default=key == d.camera)
-        for key, label in CAMERA_LABELS.items()
-    ], "Kamera", row=1))
-
-    candidates = ui.get("person_candidates") or []
-    if candidates:
-        role = "Storyteller" if ui.get("person_role") == "st" else "Co-Storyteller"
-        options = [discord.SelectOption(label=c["name"][:100], value=str(c["id"])) for c in candidates[:24]]
-        options.append(discord.SelectOption(label=f"„{ui.get('person_query', '')}“ als Text übernehmen"[:100],
-                                            value="text"))
-        view.add_item(WizardSelect(draft.id, "person", options, f"{role} auswählen", row=2))
-    else:
-        view.add_item(WizardButton(draft.id, "person", "Storyteller ändern", arg="st", row=2))
-        view.add_item(WizardButton(draft.id, "person", "Co-ST festlegen" if not d.co_storyteller else "Co-ST ändern",
-                                   arg="co", row=2))
-        if d.co_storyteller:
-            view.add_item(WizardButton(draft.id, "remove_co", "Co-ST entfernen", row=2))
-        view.add_item(WizardButton(draft.id, "rem_open", "Erinnerungen anpassen", emoji="⏰", row=2))
-    cfgs = reminders.effective(store.get_guild_settings(draft.guild_id), d)
-    head.add_field(name="Erinnerungen", value="\n".join(reminders.describe(c) for c in cfgs.values()), inline=False)
-    _nav(view, draft, row=3)
-    return [], []
-
-
 async def _screen_reminders(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
     d = draft.data
     cfgs = reminders.effective(store.get_guild_settings(draft.guild_id), d)
@@ -479,7 +444,8 @@ async def _screen_reminders(bot, store, draft: Draft, head: discord.Embed, view:
         view.add_item(WizardButton(draft.id, "rem_mode", f"{cfg.label}: "
                                    f"{'nur Namen' if cfg.mode == reminders.MODE_PING else 'mit Ping'}",
                                    arg=key, row=2, disabled=not cfg.enabled))
-    view.add_item(WizardButton(draft.id, "rem_done", "Fertig", discord.ButtonStyle.success, row=3))
+    view.add_item(WizardButton(draft.id, "rem_done", "Zurück zur Zusammenfassung", discord.ButtonStyle.success,
+                               row=3))
     view.add_item(WizardButton(draft.id, "rem_reset", "Server-Standard verwenden", row=3,
                                disabled=not d.reminder_overrides))
     return [], []
@@ -526,40 +492,129 @@ async def _screen_image(bot, store, draft: Draft, head: discord.Embed, view: dis
     return [preview], [discord.File(io.BytesIO(image), filename=PREVIEW_IMAGE)]
 
 
-async def _screen_preview(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
+def _code(text: str) -> str:
+    """Wert als Code-Block wie in der Zusammenfassung des alten Branches."""
+    return f"```{(text or '—').replace('`', 'ˋ')}```"
+
+
+# „Feld ändern“: Wert → (Beschriftung, Nummern im Embed)
+EDIT_CHOICES = {
+    "script": "2 · Skript",
+    "rating": "3 · Einschätzung",
+    "description": "4 · Beschreibung",
+    "people": "5–6 · Storyteller:in & Co-Storyteller:in",
+    "basics": "7, 10, 11 · Level, Max Spieler, Termin & Dauer",
+    "labels": "8–9 · Labels & Kamera",
+    "image": "12 · Bild",
+    "reminders": "13 · Erinnerungen",
+}
+
+
+def summary_fields(store: Store, draft: Draft) -> discord.Embed:
+    """Nummerierte Zusammenfassung (Aufbau wie `_show_final_review` auf Branch event-creation)."""
+    d, ui = draft.data, draft.ui or {}
+    color = {"green": 0x78B159, "yellow": 0xFDCB58, "red": 0xDD2E44}.get(d.rating, 0xFDCB58)
+    if d.is_homebrew:
+        color = 0xF4900C
+    embed = discord.Embed(title="📋 Event-Zusammenfassung", color=color)
+
+    embed.add_field(name="1 · Titel", value=_code(full_title(d)), inline=False)
+
+    s = d.script
+    if s is None:
+        script_info = "—"
+    else:
+        script_info = s.display_name
+        if s.author and s.kind != SCRIPT_BASE:
+            script_info += f" von {s.author}"
+        if s.version and s.kind != SCRIPT_BASE:
+            script_info += f" · v{s.version}"
+        if s.characters:
+            script_info += f" · {len(s.characters)} Charaktere"
+    embed.add_field(name="2 · Skript", value=_code(script_info), inline=True)
+
+    if s is not None and s.kind == SCRIPT_FREE:
+        rating_text = "Freie Skriptwahl: keine Einschätzung."
+    elif d.rating:
+        source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_FIXED: "Basis-Skript",
+                  RATING_SOURCE_MANUAL: "von dir gewählt"}.get(d.rating_source, "")
+        rating_text = f"{LABEL_EMOJI[d.rating]} **{RATING_WORDS[d.rating]}** ({source})"
+        if d.is_homebrew:
+            rating_text += f"\n{LABEL_EMOJI['homebrew']} Enthält unbekannte Charaktere (Homebrew)."
+        reasons = (ui.get("rating_detail") or {}).get("reasons") or []
+        if d.rating_source == RATING_SOURCE_RATER and reasons:
+            rating_text += "\n" + "\n".join(f"• {_esc(r)}" for r in reasons[:3])
+    else:
+        rating_text = "—"
+    quoted = "\n".join(f"> {line}" for line in rating_text.split("\n"))
+    embed.add_field(name=f"{LABEL_EMOJI.get(d.rating, '')} 3 · Einschätzung".strip(), value=quoted[:1024], inline=True)
+
+    description = d.description.strip() or "—"
+    if d.is_academy:
+        description += "\n\n(+ fester Academy-Text)"
+    if len(description) + 6 <= 1024:
+        embed.add_field(name="4 · Beschreibung", value=_code(description), inline=False)
+    else:
+        embed.add_field(name="4 · Beschreibung", value=description[:1024], inline=False)
+
+    embed.add_field(name="5 · Storyteller:in", value=_code(d.storyteller.name if d.storyteller else "—"), inline=True)
+    embed.add_field(name="6 · Co-Storyteller:in",
+                    value=_code(d.co_storyteller.name if d.co_storyteller else "—"), inline=True)
+    embed.add_field(name="7 · Level", value=_code(d.level), inline=True)
+
+    labels = [name for flag, name in ((d.is_casual, "🕊️ Casual"), (d.is_academy, "🎓 Academy"),
+                                      (d.is_recorded, "🎦 Aufzeichnung")) if flag]
+    embed.add_field(name="8 · Labels", value=_code(", ".join(labels) or "—"), inline=True)
+    embed.add_field(name="9 · Kamera", value=_code(CAMERA_LABELS[d.camera]), inline=True)
+    embed.add_field(name="10 · Max Spieler", value=_code(str(d.max_players)), inline=True)
+    embed.add_field(name="11 · Termin",
+                    value=_code(format_termin(d.start, d.duration_minutes) if d.start else "—"), inline=False)
+
+    image_text = {IMAGE_AUTO: "Aus dem Skript" if has_auto_image(d) else "Keins (freie Skriptwahl)",
+                  IMAGE_CUSTOM: "Eigenes Bild", IMAGE_NONE: "Kein Bild"}[d.image_mode]
+    embed.add_field(name="12 · Bild", value=_code(image_text), inline=True)
+    cfgs = reminders.effective(store.get_guild_settings(draft.guild_id), d)
+    embed.add_field(name="13 · Erinnerungen",
+                    value=_code("\n".join(reminders.describe(c) for c in cfgs.values())), inline=False)
+    return embed
+
+
+async def _screen_preview(bot, store, draft: Draft, view: discord.ui.View, guild_name: str | None,
+                          notice: str | None):
     from discord_ui.event_post import build_files  # zirkulären Import vermeiden
-    from logic.event_builder import build_event_embed
     from logic.event_images import THUMB_FILENAME
 
     d = draft.data
     missing = missing_for_publish(d)
-    head.add_field(
-        name="Vorschau",
-        value=("So sieht dein Event im Channel aus. Über „Schritt ändern“ kannst du alles anpassen."
-               if not missing else f"Es fehlt noch: {', '.join(missing)}."),
-        inline=False,
-    )
-    rsvps = service.RsvpLists([], [], [], [])
-    if draft.event_id is not None:
-        event = store.get_event(draft.event_id)
-        if event is not None:
-            rsvps = service.rsvp_lists(store, event)
+    embed = summary_fields(store, draft)
+    lines = []
+    if guild_name:
+        lines.append(f"für **{_esc(guild_name)}**")
+    lines.append("Schau in Ruhe drüber. Wenn alles passt: **Veröffentlichen**. "
+                 "Zum Ändern wähle unten das Feld aus.")
+    if missing:
+        lines.append(f"⚠️ Es fehlt noch: {', '.join(missing)}.")
+    if notice:
+        lines.append(notice)
+    embed.description = "\n".join(lines)
+    embed.set_footer(text="Entwürfe bleiben 24 Stunden gespeichert. Die Buttons funktionieren auch später noch.")
+
     files = await build_files(d)
     names = {f.filename for f in files}
-    embed = build_event_embed(d, draft_creator_name(bot, draft), rsvps,
-                              thumbnail_url=f"attachment://{THUMB_FILENAME}" if THUMB_FILENAME in names else None)
     if IMAGE_FILENAME in names:
         embed.set_image(url=f"attachment://{IMAGE_FILENAME}")
+    if THUMB_FILENAME in names:
+        embed.set_thumbnail(url=f"attachment://{THUMB_FILENAME}")
 
+    options = [discord.SelectOption(label=label, value=value) for value, label in EDIT_CHOICES.items()
+               if not (value == "rating" and d.script is not None and d.script.kind == SCRIPT_FREE)]
+    view.add_item(WizardSelect(draft.id, "edit", options, "Feld ändern …", row=0))
     publish_label = "Veröffentlichen" if draft.event_id is None else "Änderungen speichern"
     view.add_item(WizardButton(draft.id, "publish", publish_label, discord.ButtonStyle.success, emoji="🎉",
-                               row=0, disabled=bool(missing)))
-    _cancel_button(view, draft, row=0)
-    view.add_item(WizardSelect(draft.id, "jump", [
-        discord.SelectOption(label=f"{i}. {STEP_LABELS[s]}", value=s)
-        for i, s in enumerate(steps_for(d)[:-1], 1)
-    ], "Schritt ändern …", row=1))
+                               row=1, disabled=bool(missing)))
+    _cancel_button(view, draft, row=1)
     return [embed], files
+
 
 
 def draft_creator_name(bot: discord.Client, draft: Draft) -> str:
@@ -615,13 +670,6 @@ async def _back(interaction, ctx: WizardContext, arg):
     await goto(interaction, ctx, previous_step(ctx.data, ctx.draft.step))
 
 
-@select_action("jump")
-async def _jump(interaction, ctx: WizardContext, values):
-    if values[0] not in STEPS:
-        return
-    await goto(interaction, ctx, values[0] + RETURN_SUFFIX)
-
-
 @action("cancel")
 async def _cancel(interaction, ctx: WizardContext, arg):
     d = ctx.draft.data
@@ -640,7 +688,7 @@ def _after_script(ctx: WizardContext) -> str:
     """Nach der Skriptwahl: Einschätzung (außer freie Wahl), beim Bearbeiten zurück zur Vorschau."""
     d = ctx.draft.data
     if d.script.kind == SCRIPT_FREE:
-        return STEP_PREVIEW if returns_to_preview(ctx.draft.step) else STEP_DETAILS
+        return STEP_PREVIEW if returns_to_preview(ctx.draft.step) else STEP_DESCRIPTION
     return STEP_RATING + (RETURN_SUFFIX if returns_to_preview(ctx.draft.step) else "")
 
 
@@ -735,80 +783,12 @@ async def _rate(interaction, ctx: WizardContext, arg):
     await show(interaction, ctx)
 
 
-# ── Aktionen: Details ────────────────────────────────────────────────────────
-
-
-@select_action("duration")
-async def _duration(interaction, ctx: WizardContext, values):
-    d = ctx.data
-    d.duration_minutes = int(values[0])
-    ctx.save(d)
-    await show(interaction, ctx)
-
-
-@select_action("camera")
-async def _camera(interaction, ctx: WizardContext, values):
-    d = ctx.data
-    d.camera = values[0]
-    ctx.save(d)
-    await show(interaction, ctx)
-
-
-@action("person")
-async def _person(interaction, ctx: WizardContext, arg):
-    await interaction.response.send_modal(PersonModal(ctx.draft.id, arg or "co"))
-
-
-@action("remove_co")
-async def _remove_co(interaction, ctx: WizardContext, arg):
-    d = ctx.data
-    d.co_storyteller = None
-    ctx.save(d)
-    await show(interaction, ctx)
-
-
-def _apply_person(ctx: WizardContext, choice: str):
-    """Übernimmt die Auswahl aus der Mitgliedersuche ("text" = Suchbegriff als Freitext)."""
-    ui = ctx.ui
-    role = ui.get("person_role", "co")
-    if choice == "text":
-        person = Person(name=ui.get("person_query", "").strip())
-    else:
-        chosen = next((c for c in ui.get("person_candidates", []) if str(c["id"]) == choice), None)
-        if chosen is None:
-            return
-        person = Person(name=chosen["name"], user_id=int(chosen["id"]))
-    for key in ("person_candidates", "person_role", "person_query"):
-        ui.pop(key, None)
-    ctx.set_ui(ui)
-    d = ctx.data
-    if person.name:
-        if role == "st":
-            d.storyteller = person
-        else:
-            d.co_storyteller = person
-    ctx.save(d)
-
-
-@select_action("person")
-async def _person_pick(interaction, ctx: WizardContext, values):
-    _apply_person(ctx, values[0])
-    await show(interaction, ctx)
-
-
-# ── Aktionen: Erinnerungen (Unterseite von „Leitung & Details“) ──────────────
-
-
-@action("rem_open")
-async def _rem_open(interaction, ctx: WizardContext, arg):
-    suffix = RETURN_SUFFIX if returns_to_preview(ctx.draft.step) else ""
-    await goto(interaction, ctx, STEP_REMINDERS + suffix)
+# ── Aktionen: Erinnerungen (Unterseite der Zusammenfassung) ──────────────────
 
 
 @action("rem_done")
 async def _rem_done(interaction, ctx: WizardContext, arg):
-    suffix = RETURN_SUFFIX if returns_to_preview(ctx.draft.step) else ""
-    await goto(interaction, ctx, STEP_DETAILS + suffix)
+    await goto(interaction, ctx, STEP_PREVIEW)
 
 
 def _change_reminder(ctx: WizardContext, key: str, change):
@@ -922,6 +902,30 @@ async def _publish(interaction, ctx: WizardContext, arg):
     await interaction.edit_original_response(content=text, embeds=[], view=None, attachments=[])
 
 
+# ── Aktion: Feld ändern (aus der Zusammenfassung) ────────────────────────────
+
+
+@select_action("edit")
+async def _edit(interaction, ctx: WizardContext, values):
+    choice = values[0] if values else ""
+    d = ctx.draft.data
+    if choice in ("script", "rating", "image"):
+        step = {"script": STEP_SCRIPT, "rating": STEP_RATING, "image": STEP_IMAGE}[choice]
+        await goto(interaction, ctx, step + RETURN_SUFFIX)
+    elif choice == "reminders":
+        await goto(interaction, ctx, STEP_REMINDERS)
+    elif choice == "description":
+        await interaction.response.send_modal(DescriptionModal(ctx.draft.id, d.description))
+    elif choice == "people":
+        await interaction.response.send_modal(PeopleModal(ctx.draft.id, d))
+    elif choice == "basics":
+        await interaction.response.send_modal(BasicsModal(ctx.draft.id, d))
+    elif choice == "labels":
+        allow_academy = d.is_academy or permissions.can(
+            ctx.actor, permissions.CREATE_ACADEMY, service.get_access(ctx.store, ctx.draft.guild_id))
+        await interaction.response.send_modal(LabelsModal(ctx.draft.id, d, allow_academy))
+
+
 # ── Modals ───────────────────────────────────────────────────────────────────
 
 
@@ -993,34 +997,106 @@ class ScriptUploadModal(_WizardModal):
         ))
 
 
-class PersonModal(_WizardModal):
-    def __init__(self, draft_id: int, role: str):
-        super().__init__(draft_id, "Storyteller ändern" if role == "st" else "Co-Storyteller festlegen")
-        self.role = role
-        self.name = discord.ui.TextInput(placeholder="Anfang des Namens auf dem Server", min_length=1, max_length=50)
-        self.add_item(discord.ui.Label(text="Name", description="Ich suche passende Mitglieder auf dem Server",
-                                       component=self.name))
+class PeopleModal(_WizardModal):
+    """Storyteller:in und Co-Storyteller:in als einfacher Text (keine Mitgliedersuche)."""
+
+    def __init__(self, draft_id: int, data: EventData):
+        super().__init__(draft_id, "Storyteller:in & Co-Storyteller:in")
+        self.st = discord.ui.TextInput(default=data.storyteller.name if data.storyteller else None,
+                                       min_length=1, max_length=50)
+        self.co = discord.ui.TextInput(default=data.co_storyteller.name if data.co_storyteller else None,
+                                       required=False, max_length=50, placeholder="leer lassen, wenn es keine:n gibt")
+        self.add_item(discord.ui.Label(text="Storyteller:in", component=self.st))
+        self.add_item(discord.ui.Label(text="Co-Storyteller:in", component=self.co))
 
     async def handle(self, interaction, ctx: WizardContext):
-        query = self.name.value.strip()
-        await interaction.response.defer()
-        guild = ctx.bot.get_guild(ctx.draft.guild_id)
-        members = []
-        if guild is not None:
-            try:
-                members = await guild.query_members(query=query, limit=20)
-            except (discord.ClientException, TimeoutError):
-                members = []
-        ui = ctx.ui
-        ui["person_role"] = self.role
-        ui["person_query"] = query
-        ui["person_candidates"] = [{"id": m.id, "name": m.display_name} for m in members if not m.bot]
-        ctx.set_ui(ui)
-        if not ui["person_candidates"]:
-            _apply_person(ctx, "text")
-            await show(interaction, ctx, notice=f"Kein Mitglied „{_esc(query)}“ gefunden, ich habe den Namen als "
-                                                f"Text übernommen.")
-            return
+        d = ctx.data
+        st_name = self.st.value.strip()
+        old_st = d.storyteller
+        if old_st is not None and old_st.name == st_name:
+            pass  # unverändert, User-ID bleibt
+        elif st_name == ctx.member.display_name:
+            d.storyteller = Person(name=st_name, user_id=ctx.member.id)
+        else:
+            d.storyteller = Person(name=st_name)
+        co_name = (self.co.value or "").strip()
+        if not co_name:
+            d.co_storyteller = None
+        elif d.co_storyteller is None or d.co_storyteller.name != co_name:
+            d.co_storyteller = Person(name=co_name)
+        ctx.save(d)
+        await show(interaction, ctx)
+
+
+class BasicsModal(_WizardModal):
+    """Eckdaten aus dem /botc-Modal plus Dauer: Datum, Uhrzeit, Dauer, Max Spieler, Level."""
+
+    def __init__(self, draft_id: int, data: EventData):
+        super().__init__(draft_id, "Termin, Spieler & Level")
+        start = data.start.astimezone(BERLIN_TZ) if data.start else None
+        self.prefill = (f"{start:%d.%m.%Y}" if start else "", f"{start:%H:%M}" if start else "")
+        self.date = discord.ui.TextInput(default=self.prefill[0] or None, placeholder="z. B. Sa, morgen, 24.10.",
+                                         max_length=30)
+        self.time = discord.ui.TextInput(default=self.prefill[1] or None, placeholder="z. B. 20:00", max_length=10)
+        self.duration = discord.ui.TextInput(default=str(data.duration_minutes), max_length=4)
+        self.players = discord.ui.TextInput(default=str(data.max_players), max_length=3)
+        self.level = discord.ui.RadioGroup()
+        for lvl in LEVELS:
+            self.level.add_option(label=lvl, value=lvl, default=lvl == data.level)
+        self.add_item(discord.ui.Label(text="Datum", component=self.date))
+        self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
+        self.add_item(discord.ui.Label(text="Dauer in Minuten", component=self.duration))
+        self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200", component=self.players))
+        self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        d = ctx.data
+        try:
+            # Unveränderter Termin bleibt, auch wenn er schon vorbei ist (Bearbeiten einer laufenden Runde)
+            if (self.date.value.strip(), self.time.value.strip()) != self.prefill:
+                d.start = parse_start(self.date.value, self.time.value, now())
+            d.max_players = parse_players(self.players.value)
+        except ParseError as e:
+            raise service.ServiceError(str(e)) from None
+        duration = self.duration.value.strip()
+        if not duration.isdigit() or not 15 <= int(duration) <= 24 * 60:
+            raise service.ServiceError("Die Dauer muss eine Zahl zwischen 15 und 1440 Minuten sein.")
+        d.duration_minutes = int(duration)
+        d.level = self.level.value or d.level
+        ctx.save(d)
+        await show(interaction, ctx)
+
+
+class LabelsModal(_WizardModal):
+    """Labels (Casual, Academy nur mit Berechtigung, Aufzeichnung) und Kamera."""
+
+    def __init__(self, draft_id: int, data: EventData, allow_academy: bool):
+        super().__init__(draft_id, "Labels & Kamera")
+        self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
+        choices = [("casual", "Casual 🕊️", data.is_casual), ("academy", "Academy 🎓", data.is_academy),
+                   ("recorded", "Aufzeichnung 🎦", data.is_recorded)]
+        for value, label, on in choices:
+            if value == "academy" and not allow_academy:
+                continue
+            self.options.add_option(label=label, value=value, default=on)
+        self.options.max_values = len(self.options.options)
+        self.camera = discord.ui.RadioGroup()
+        for key, label in CAMERA_LABELS.items():
+            self.camera.add_option(label=label, value=key, default=key == data.camera)
+        self.add_item(discord.ui.Label(text="Labels", description="Casual und Academy schließen sich aus",
+                                       component=self.options))
+        self.add_item(discord.ui.Label(text="Kamera", component=self.camera))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        d = ctx.data
+        chosen = set(self.options.values)
+        offered = {o.value for o in self.options.options}
+        d.is_recorded = "recorded" in chosen
+        if "academy" in offered:
+            d.is_academy = "academy" in chosen
+        d.is_casual = "casual" in chosen and not d.is_academy
+        d.camera = self.camera.value or d.camera
+        ctx.save(d)  # prüft die Academy-Berechtigung
         await show(interaction, ctx)
 
 

@@ -1,20 +1,20 @@
 """Script-Bild-Generierung mit Pillow.
 
-Erzeugt ein PNG im Stil der botcscripts.com PDFs, im Papier-Design
-(Textur, Sticker-Titel und Sticker-Icons). Andere Designs gibt es nicht mehr.
+Erzeugt ein PNG im Stil der botcscripts.com PDFs: weißer Hintergrund, normale Icons
+(Wunsch Dalyan, 20.10.2026; Papier, Starfield und Neon sind verworfen).
 Layout-Zentrierung über _draw_row() Helper — kein manuelles Pixel-Shifting.
 """
 
 import asyncio
 import io
 import logging
-import math
+
 import os
 import re
 import textwrap
 
 import requests
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from logic.script_cache import (
     get_character_icon_path,
@@ -40,19 +40,16 @@ HEADER_HEIGHT = 28 * SCALE
 ABILITY_LINE_HEIGHT = 13 * SCALE
 JINX_LINE_HEIGHT = 14 * SCALE
 FOOTER_HEIGHT = 22 * SCALE
-VERSION_LINE_HEIGHT = 16 * SCALE  # eigene Zeile für die Version zwischen Titel und Autor
+TITLE_HEIGHT = 42 * SCALE
+AUTHOR_HEIGHT = 18 * SCALE
 TEXT_PADDING = 0 * SCALE
 DIVIDER_THICKNESS = 1 * SCALE
 DJINN_ID = "djinn"
 
-# ── Papier-Hintergrund ───────────────────────────────────────────────────────
-
-PAPER_TEXTURE_PATH = os.path.join(STATIC_DIR, "images", "paper_texture.jpg")  # Texturelabs_Paper_331S
-PAPER_CROP_MARGIN = 0.20  # 20% oben/unten abschneiden (dunkle Ränder)
-PAPER_BLEND_HEIGHT = 100  # Pixel für Überblendung an Tile-Nähten
-
 # ── Farben ───────────────────────────────────────────────────────────────────
 
+BG_COLOR = (255, 255, 255)
+TITLE_COLOR = (4, 4, 4)
 SUBTITLE_COLOR = (100, 100, 100)
 HEADER_COLOR = (4, 4, 4)
 ABILITY_COLOR = (4, 4, 4)
@@ -73,7 +70,7 @@ NAME_COLORS = {
 # ── Fonts ────────────────────────────────────────────────────────────────────
 
 FONT_DIR = os.path.join(STATIC_DIR, "fonts")
-_F_TITLE_STYLED = os.path.join(FONT_DIR, "Thesead.ttf")
+_F_TITLE = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_AUTHOR = os.path.join(FONT_DIR, "Inter.ttf")
 _F_HEADER = os.path.join(FONT_DIR, "Dumbledor.ttf")
 _F_NAME = os.path.join(FONT_DIR, "TradeGothic-BoldCond.otf")
@@ -274,185 +271,6 @@ def _categorize(char_ids, chars_db, content_data=None):
     return cats
 
 
-# ── Icon Color Manipulation ──────────────────────────────────────────────────
-
-def _colorize_icon(icon, target_hue):
-    """Färbt farbige Pixel eines Icons um (Hue-Shift). Weiß bleibt erhalten."""
-    import colorsys
-    result = icon.copy()
-    pixels = result.load()
-    w, h = result.size
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = pixels[x, y]
-            if a == 0:
-                continue
-            hue, sat, val = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
-            if sat > 0.1:
-                nr, ng, nb = colorsys.hsv_to_rgb(target_hue, sat, val)
-                pixels[x, y] = (int(nr * 255), int(ng * 255), int(nb * 255), a)
-    return result
-
-
-# ── Sticker-Style Effects (Mystic Paper) ─────────────────────────────────────
-
-def _offset_alpha(alpha, x, y, cw, ch):
-    """Hilfsfunktion: Alpha-Kanal an Position (x, y) auf Canvas (cw, ch) platzieren."""
-    canvas = Image.new("L", (cw, ch), 0)
-    canvas.paste(alpha, (x, y))
-    return canvas
-
-
-def _stylize_icon(icon, outline_color=(60, 20, 100)):
-    """Sticker-Style: Shadow + weiße Outline + dunkle Outline + Original Icon."""
-    w, h = icon.size
-    pad = 12 * SCALE
-    cw, ch = w + pad * 2, h + pad * 2
-    ox, oy = pad, pad
-
-    _, _, _, alpha = icon.split()
-
-    # Shadow
-    shadow_a = Image.new("L", (cw, ch), 0)
-    shadow_a.paste(alpha, (ox + 3 * SCALE, oy + 3 * SCALE))
-    shadow = Image.new("RGBA", (cw, ch), (0, 0, 0, 80))
-    shadow.putalpha(shadow_a)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(4 * SCALE))
-
-    # White outline (outer)
-    white_a = Image.new("L", (cw, ch), 0)
-    r_outer = 5 * SCALE
-    for angle in range(0, 360, 15):
-        dx = int(r_outer * math.cos(math.radians(angle)))
-        dy = int(r_outer * math.sin(math.radians(angle)))
-        white_a = ImageChops.lighter(white_a, _offset_alpha(alpha, ox + dx, oy + dy, cw, ch))
-    white_ol = Image.new("RGBA", (cw, ch), (255, 255, 255, 255))
-    white_ol.putalpha(white_a)
-
-    # Dark outline (inner)
-    dark_a = Image.new("L", (cw, ch), 0)
-    r_inner = 3 * SCALE
-    for angle in range(0, 360, 15):
-        dx = int(r_inner * math.cos(math.radians(angle)))
-        dy = int(r_inner * math.sin(math.radians(angle)))
-        dark_a = ImageChops.lighter(dark_a, _offset_alpha(alpha, ox + dx, oy + dy, cw, ch))
-    dark_ol = Image.new("RGBA", (cw, ch), outline_color + (255,))
-    dark_ol.putalpha(dark_a)
-
-    # Composite
-    result = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    result = Image.alpha_composite(result, shadow)
-    result = Image.alpha_composite(result, white_ol)
-    result = Image.alpha_composite(result, dark_ol)
-    icon_layer = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
-    icon_layer.paste(icon, (ox, oy), icon)
-    result = Image.alpha_composite(result, icon_layer)
-    return result
-
-
-# ── Styled Title (Mystic Paper) ──────────────────────────────────────────────
-
-def _render_styled_title(text, font_size=SZ_TITLE):
-    """Rendert einen Sticker-Style Titel: Shadow + weiße Outline + dunkle Outline + Gradient Fill."""
-    font = _font(_F_TITLE_STYLED, font_size)
-
-    dummy = Image.new("RGBA", (1, 1))
-    dd = ImageDraw.Draw(dummy)
-    bb = dd.textbbox((0, 0), text, font=font)
-    tw, th = bb[2] - bb[0], bb[3] - bb[1]
-    ox, oy = bb[0], bb[1]
-
-    pad = 20 * SCALE
-    w, h = tw + pad * 2, th + pad * 2
-    tx, ty = pad - ox, pad - oy
-
-    # Shadow
-    shadow = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).text((tx + 3 * SCALE, ty + 3 * SCALE), text, fill=(0, 0, 0, 100), font=font)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(4 * SCALE))
-
-    # White outline (outer)
-    white_ol = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    wd = ImageDraw.Draw(white_ol)
-    for angle in range(0, 360, 10):
-        dx = int(4 * SCALE * math.cos(math.radians(angle)))
-        dy = int(4 * SCALE * math.sin(math.radians(angle)))
-        wd.text((tx + dx, ty + dy), text, fill=(255, 255, 255, 255), font=font)
-
-    # Dark outline (inner)
-    dark_ol = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    dkd = ImageDraw.Draw(dark_ol)
-    for angle in range(0, 360, 10):
-        dx = int(2 * SCALE * math.cos(math.radians(angle)))
-        dy = int(2 * SCALE * math.sin(math.radians(angle)))
-        dkd.text((tx + dx, ty + dy), text, fill=(60, 20, 100, 255), font=font)
-
-    # Gradient fill
-    gradient = Image.new("RGBA", (w, h))
-    for row in range(h):
-        t = row / h
-        r = int(220 + (140 - 220) * t)
-        g = int(80 + (40 - 80) * t)
-        b = int(180 + (120 - 180) * t)
-        ImageDraw.Draw(gradient).line([(0, row), (w, row)], fill=(r, g, b, 255))
-
-    text_mask = Image.new("L", (w, h), 0)
-    ImageDraw.Draw(text_mask).text((tx, ty), text, fill=255, font=font)
-    gradient.putalpha(text_mask)
-
-    result = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    result = Image.alpha_composite(result, shadow)
-    result = Image.alpha_composite(result, white_ol)
-    result = Image.alpha_composite(result, dark_ol)
-    result = Image.alpha_composite(result, gradient)
-    return result
-
-
-# ── Paper Background ─────────────────────────────────────────────────────────
-
-def _tile_paper_background(width, height):
-    """Erzeugt einen gekachelten Pergament-Hintergrund (Mystic Paper Design)."""
-    paper = Image.open(PAPER_TEXTURE_PATH).convert("RGB")
-    pw, ph = paper.size
-    scale = width / pw
-    new_ph = int(ph * scale)
-    paper_scaled = paper.resize((width, new_ph), Image.Resampling.LANCZOS)
-
-    crop_px = int(new_ph * PAPER_CROP_MARGIN)
-    middle = paper_scaled.crop((0, crop_px, width, new_ph - crop_px))
-    mid_h = middle.size[1]
-    blend_h = PAPER_BLEND_HEIGHT
-
-    bg = Image.new("RGB", (width, height))
-    bg.paste(paper_scaled, (0, 0))
-
-    y = new_ph
-    flip = False
-    while y < height:
-        tile = middle.copy()
-        if flip:
-            tile = tile.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
-
-        for row in range(min(blend_h, height - y + blend_h)):
-            a = row / blend_h
-            src_y = y - blend_h + row
-            if src_y < 0 or src_y >= height:
-                continue
-            row_old = bg.crop((0, src_y, width, src_y + 1))
-            row_new = tile.crop((0, row, width, row + 1))
-            bg.paste(Image.blend(row_old, row_new, a), (0, src_y))
-
-        rest_top = blend_h
-        remaining = min(mid_h - rest_top, height - y)
-        if remaining > 0:
-            bg.paste(tile.crop((0, rest_top, width, rest_top + remaining)), (0, y))
-
-        y += mid_h - blend_h
-        flip = not flip
-
-    return bg
-
-
 # ── Main Generation ──────────────────────────────────────────────────────────
 
 def _generate_sync(script_name, author, char_ids, version="", meta=None, content=None, show_fabled=True):
@@ -512,12 +330,10 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     jinx_wrap_chars = max(40, jinx_icon_text_w // (7 * SCALE))
     boot_wrap_chars = max(40, (jinx_text_w - 12 * SCALE) // (7 * SCALE))
 
-    title_img = _render_styled_title(script_name)
+    f_title = _font(_F_TITLE, SZ_TITLE)
 
     # ── Höhe berechnen ────────────────────────────────────────────────
-    height = PADDING + title_img.height + 8 * SCALE + 18 * SCALE  # styled title + author
-    if version:
-        height += VERSION_LINE_HEIGHT
+    height = PADDING + TITLE_HEIGHT + AUTHOR_HEIGHT
     if fabled_loric:
         height += 40 * SCALE  # fabled row
     height += SECTION_GAP
@@ -548,38 +364,29 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
     height += FOOTER_HEIGHT + PADDING
 
     # ── Zeichnen ──────────────────────────────────────────────────────
-    img = _tile_paper_background(img_width, height).convert("RGBA")
+    img = Image.new("RGB", (img_width, height), BG_COLOR)
     draw = ImageDraw.Draw(img)
     y = PADDING
 
-    # Titel + Version (zentriert)
-    _paste(img, title_img, (img_width - title_img.width) // 2, y)
+    # Titel + Version (links, Version rechts neben dem Titel)
+    draw.text((PADDING, y), script_name, fill=TITLE_COLOR, font=f_title)
     if version:
-        vt = f"v{version}"
-        vb = draw.textbbox((0, 0), vt, font=f_author)
-        draw.text(((img_width - (vb[2] - vb[0])) // 2, y + title_img.height), vt,
+        tb = draw.textbbox((PADDING, y), script_name, font=f_title)
+        mid = (tb[1] + tb[3]) // 2
+        vb = draw.textbbox((0, 0), f"v{version}", font=f_author)
+        draw.text((tb[2] + 12 * SCALE, mid - (vb[3] - vb[1]) // 2), f"v{version}",
                   fill=SUBTITLE_COLOR, font=f_author)
-        y += VERSION_LINE_HEIGHT
-    y += title_img.height + 8 * SCALE
+    y += TITLE_HEIGHT
 
-    # Autor (zentriert)
+    # Autor
     if author:
-        at = f"by {author}"
-        ab = draw.textbbox((0, 0), at, font=f_author)
-        draw.text(((img_width - (ab[2] - ab[0])) // 2, y), at, fill=SUBTITLE_COLOR, font=f_author)
-    y += 18 * SCALE
+        draw.text((PADDING, y), f"by {author}", fill=SUBTITLE_COLOR, font=f_author)
+    y += AUTHOR_HEIGHT
 
-    # Fabled/Loric Icons unter Autor (zentriert)
+    # Fabled/Loric Icons unter Autor
     if fabled_loric:
         fabled_h = 40 * SCALE
-        total_w = 0
-        for i, fl in enumerate(fabled_loric):
-            total_w += ICON_SMALL + 5 * SCALE
-            nb = draw.textbbox((0, 0), fl["name"], font=f_fabled_t)
-            total_w += nb[2] - nb[0]
-            if i < len(fabled_loric) - 1:
-                total_w += 15 * SCALE
-        fx = (img_width - total_w) // 2
+        fx = PADDING
         for fl in fabled_loric:
             icon = _load_icon(fl["id"], size=ICON_SMALL, icon_urls=fl.get("icon_urls")) or ph_sm
             icon_y = y + (fabled_h - ICON_SMALL) // 2
@@ -615,15 +422,8 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
             for col, char in enumerate(row):
                 x = PADDING + col * CHAR_WIDTH
                 icon = _load_icon(char["id"], evil=is_evil, icon_urls=char.get("icon_urls")) or ph
-                if is_evil:
-                    icon = _stylize_icon(icon, outline_color=(120, 20, 20))
-                else:
-                    icon = _colorize_icon(icon, 0.92)
-                    icon = _stylize_icon(icon, outline_color=(120, 20, 80))
-
                 _draw_row(draw, img, x, y, icon, char["name"], char["ability"],
-                          name_color, fonts, text_area_width,
-                          icon_size=icon.size[0], ability_color=ABILITY_COLOR)
+                          name_color, fonts, text_area_width, ability_color=ABILITY_COLOR)
             y += row_h
         y += SECTION_GAP
 
@@ -718,5 +518,5 @@ def _draw_section_header(draw, text, y, img_width, font):
 
 async def generate_script_image(script_name, author, char_ids,
                                 version="", meta=None, content=None, show_fabled=True):
-    """Generiert ein Script-Bild (Papier-Design) als PNG."""
+    """Generiert ein Script-Bild (weißer Hintergrund) als PNG."""
     return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, version, meta, content, show_fabled)

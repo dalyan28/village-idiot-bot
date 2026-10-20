@@ -83,9 +83,10 @@ def can(actor: Actor, action: str, settings: AccessSettings, creator_id: int | N
         # Ohne gesetzte Storyteller-Rolle dürfen nur Event-Team und Admins erstellen.
         return team or is_storyteller(actor, settings)
     if action == CREATE_ACADEMY:
+        # Nur mit Academy-Rolle oder persönlicher Freigabe, auch nicht automatisch für Admins
+        # (Dalyan, 20.10.2026). Admins können sich mit /set_academy_access selbst freigeben.
         return (
-            team
-            or actor.user_id in settings.academy_user_ids
+            actor.user_id in settings.academy_user_ids
             or any(r in actor.role_ids for r in settings.academy_role_ids)
         )
     if action in (EDIT, DELETE, MANAGE_PARTICIPANTS):

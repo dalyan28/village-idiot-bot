@@ -42,12 +42,12 @@ class TestCreate:
 
 
 class TestAcademy:
-    def test_by_role_user_or_team(self):
+    def test_only_by_academy_role_or_user(self):
         assert not can(storyteller, CREATE_ACADEMY, SETTINGS)
         assert can(academy_st, CREATE_ACADEMY, SETTINGS)
         assert can(academy_user, CREATE_ACADEMY, SETTINGS)
-        assert can(team, CREATE_ACADEMY, SETTINGS)
-        assert can(admin, CREATE_ACADEMY, SETTINGS)
+        assert not can(team, CREATE_ACADEMY, SETTINGS)
+        assert not can(admin, CREATE_ACADEMY, SETTINGS)
 
 
 class TestEventActions:

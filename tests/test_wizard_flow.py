@@ -191,22 +191,9 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     click(bot, draft.id, "rate", "yellow")
     assert bot.store.get_draft(draft.id).data.rating_source == "manual"
     click(bot, draft.id, "next")
-    assert step(bot, draft.id) == "details"
+    assert step(bot, draft.id) == "description"
 
-    # 3. Details: Dauer, Kamera, Co-ST über Mitgliedersuche
-    choose(bot, draft.id, "duration", "180")
-    choose(bot, draft.id, "camera", "required")
-    inter = click(bot, draft.id, "person", "co")
-    modal = inter.response.modal
-    modal.name._value = "ros"
-    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
-    assert bot.store.get_draft(draft.id).ui["person_candidates"] == [{"id": 2, "name": "Rosanna"}]
-    choose(bot, draft.id, "person", "2")
-    d = bot.store.get_draft(draft.id)
-    assert d.data.co_storyteller.user_id == 2 and d.data.duration_minutes == 180 and d.data.camera == "required"
-    click(bot, draft.id, "next")
-
-    # 4. Beschreibung: Weiter ohne Text geht nicht, mit Text schon
+    # 3. Beschreibung: Weiter ohne Text geht nicht, mit Text schon
     inter = click(bot, draft.id, "next")
     assert step(bot, draft.id) == "description"
     modal = DescriptionModal(draft.id, "")
@@ -215,9 +202,31 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     click(bot, draft.id, "next")
     assert step(bot, draft.id) == "image"
 
-    # 5. Bild: automatisch, weiter zur Vorschau
+    # 4. Bild: automatisch, weiter zur Zusammenfassung
     click(bot, draft.id, "next")
     assert step(bot, draft.id) == "preview"
+
+    # 5. Standardwerte nur über „Feld ändern“: Co-ST als Text, Dauer, Kamera
+    inter = choose(bot, draft.id, "edit", "people")
+    modal = inter.response.modal
+    modal.st._value, modal.co._value = "Dalyan", "Rosanna"
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    inter = choose(bot, draft.id, "edit", "basics")
+    modal = inter.response.modal
+    modal.duration._value = "180"
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    inter = choose(bot, draft.id, "edit", "labels")
+    modal = inter.response.modal
+    assert "academy" not in [o.value for o in modal.options.options]  # keine Academy-Freigabe
+    modal.camera._value = "required"
+    modal.options._values = []
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    d = bot.store.get_draft(draft.id)
+    assert d.step == "preview"
+    assert d.data.co_storyteller.name == "Rosanna" and d.data.co_storyteller.user_id is None
+    assert d.data.storyteller.user_id == USER  # Name unverändert → ID bleibt
+    assert d.data.duration_minutes == 180 and d.data.camera == "required"
+    assert d.data.start == NOW + timedelta(days=5)  # Termin unverändert
 
     # 6. Veröffentlichen
     inter = click(bot, draft.id, "publish")
@@ -253,12 +262,15 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     edit_draft = bot.store.list_drafts(USER)[0]
     assert edit_draft.event_id == event.id and edit_draft.step == "preview" and sent_dm
 
-    # In der Vorschau zu „Beschreibung“ springen, ändern, „Weiter“ führt zurück zur Vorschau
-    choose(bot, edit_draft.id, "jump", "description")
-    assert step(bot, edit_draft.id) == "description:p"
-    modal = DescriptionModal(edit_draft.id, "")
+    # In der Zusammenfassung „4 · Beschreibung“ ändern: Modal, danach wieder die Zusammenfassung
+    inter = choose(bot, edit_draft.id, "edit", "description")
+    modal = inter.response.modal
     modal.text._value = "Neue Beschreibung."
     run(modal.on_submit(FakeInteraction(bot, owner)))
+    assert step(bot, edit_draft.id) == "preview"
+    # Skript-Schritt aus der Zusammenfassung: „Weiter“ führt zurück
+    choose(bot, edit_draft.id, "edit", "rating")
+    assert step(bot, edit_draft.id) == "rating:p"
     click(bot, edit_draft.id, "next")
     assert step(bot, edit_draft.id) == "preview"
     inter = click(bot, edit_draft.id, "publish")
@@ -277,8 +289,7 @@ def test_reminder_subpage(env):
     bot = env
     draft = new_draft(bot)
     click(bot, draft.id, "pick", "trouble_brewing")
-    click(bot, draft.id, "next")
-    click(bot, draft.id, "rem_open")
+    choose(bot, draft.id, "edit", "reminders")
     assert step(bot, draft.id) == "reminders"
     choose(bot, draft.id, "rem_to_first", "accepted")
     inter = FakeInteraction(bot, bot.guild.get_member(USER), values=["accepted", "waitlist"])
@@ -295,7 +306,7 @@ def test_reminder_subpage(env):
     click(bot, draft.id, "rem_reset")
     assert bot.store.get_draft(draft.id).data.reminder_overrides == {}
     click(bot, draft.id, "rem_done")
-    assert step(bot, draft.id) == "details"
+    assert step(bot, draft.id) == "preview"
 
 
 def test_free_choice_skips_rating_and_has_no_auto_image(env):
@@ -303,7 +314,7 @@ def test_free_choice_skips_rating_and_has_no_auto_image(env):
     draft = new_draft(bot)
     click(bot, draft.id, "pick", "free")
     d = bot.store.get_draft(draft.id)
-    assert d.step == "details" and d.data.rating is None
+    assert d.step == "description" and d.data.rating is None
 
 
 def test_cancel_removes_draft(env):

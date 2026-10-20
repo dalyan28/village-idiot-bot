@@ -40,7 +40,7 @@ class FakeBot(SimpleNamespace):
 @pytest.fixture
 def store():
     s = Store(":memory:")
-    service.set_access(s, GUILD, AccessSettings())
+    service.set_access(s, GUILD, AccessSettings(academy_user_ids=[1]))
     yield s
     s.close()
 
@@ -102,13 +102,6 @@ def test_script_step_with_search_results(store):
     assert any(getattr(i, "custom_id", "") == f"wizs:{draft.id}:result" for i in screen.view.children)
 
 
-def test_details_step_with_member_candidates(store):
-    draft = make_draft(store, "details")
-    store.set_draft_ui(draft.id, {"person_role": "co", "person_query": "ro",
-                                  "person_candidates": [{"id": i, "name": f"Rosa {i}"} for i in range(30)]})
-    check_limits(render(store, store.get_draft(draft.id)))
-
-
 def test_rating_step_without_rating_disables_next(store):
     draft = make_draft(store, "rating", rating=None, rating_source=None,
                        script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="X", version="1", botcscripts_id="5",
@@ -139,7 +132,7 @@ def test_preview_disables_publish_when_incomplete(store):
     screen = render(store, make_draft(store, "preview", description=""))
     publish = next(i for i in screen.view.children if i.custom_id.endswith(":publish"))
     assert publish.item.disabled
-    assert "Beschreibung" in screen.embeds[0].fields[-1].value
+    assert "Es fehlt noch: Beschreibung" in screen.embeds[0].description
 
 
 class TestNavigation:
@@ -149,19 +142,32 @@ class TestNavigation:
     def test_linear_order(self):
         d = self.data()
         assert wizard.next_step(d, "script") == "rating"
-        assert wizard.next_step(d, "rating") == "details"
+        assert wizard.next_step(d, "rating") == "description"
+        assert wizard.next_step(d, "description") == "image"
         assert wizard.next_step(d, "image") == "preview"
-        assert wizard.previous_step(d, "details") == "rating"
+        assert wizard.previous_step(d, "description") == "rating"
         assert wizard.previous_step(d, "script") == "script"
 
     def test_free_choice_skips_rating(self):
         d = self.data(SCRIPT_FREE)
-        assert wizard.next_step(d, "script") == "details"
-        assert wizard.previous_step(d, "details") == "script"
-        assert wizard.step_number(d, "details") == (2, 5)
+        assert wizard.next_step(d, "script") == "description"
+        assert wizard.previous_step(d, "description") == "script"
+        assert wizard.step_number(d, "description") == (2, 4)
 
     def test_jump_from_preview_returns_to_preview(self):
         d = self.data()
-        assert wizard.next_step(d, "details:p") == "preview"
-        assert wizard.previous_step(d, "details:p") == "preview"
-        assert wizard.base_step("details:p") == "details"
+        assert wizard.next_step(d, "rating:p") == "preview"
+        assert wizard.previous_step(d, "rating:p") == "preview"
+        assert wizard.base_step("rating:p") == "rating"
+
+
+def test_summary_is_numbered_with_code_blocks(store):
+    screen = render(store, make_draft(store, "preview"))
+    embed = screen.embeds[0]
+    names = [f.name for f in embed.fields]
+    assert names[0] == "1 · Titel" and "11 · Termin" in names and "13 · Erinnerungen" in names
+    assert embed.fields[0].value == "```💚 Trouble Brewing mit Dalyan```"
+    termin = next(f.value for f in embed.fields if f.name == "11 · Termin")
+    assert termin == "```Donnerstag, der 22.10.2026, 12:00 Uhr – 14:30 Uhr```"
+    edit = next(i for i in screen.view.children if i.custom_id.endswith(":edit"))
+    assert [o.value for o in edit.item.options][:3] == ["script", "rating", "description"]

@@ -109,6 +109,9 @@ async def restore_auto_tasks():
     cfg = load_config()
 
     for guild_id_str, guild_cfg in cfg.items():
+        # config.json kann Altlasten auf oberster Ebene enthalten (z. B. "auto_interval_hours": 0)
+        if not isinstance(guild_cfg, dict) or not guild_id_str.isdigit():
+            continue
         if not guild_cfg.get("auto_active"):
             continue
 

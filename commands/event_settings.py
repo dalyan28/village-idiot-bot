@@ -73,7 +73,8 @@ class EventSettings(commands.Cog):
         service.set_access(store, interaction.guild_id, access)
         await interaction.response.send_message(await self._summary(interaction.guild), ephemeral=True)
 
-    @app_commands.command(name="set_academy_access", description="Legt fest, wer Academy-Runden anlegen darf")
+    @app_commands.command(name="set_academy_access",
+                          description="Legt fest, wer Academy-Runden anlegen darf (auch Admins nur mit Freigabe)")
     @app_commands.describe(aktion="Freigabe hinzufügen oder entfernen", rolle="Rolle", mitglied="Einzelne Person")
     @app_commands.choices(aktion=[
         app_commands.Choice(name="hinzufügen", value="add"),
@@ -115,7 +116,7 @@ class EventSettings(commands.Cog):
             "**Rechte für Runden**",
             f"Storyteller-Rolle (darf `/botc` nutzen): {_role_text(guild, access.storyteller_role_id)}",
             f"Event-Team-Rolle (verwaltet alle Runden): {_role_text(guild, access.event_team_role_id)}",
-            f"Academy-Freigabe: {', '.join(academy) if academy else 'niemand außer Event-Team und Admins'}",
+            f"Academy-Freigabe: {', '.join(academy) if academy else 'niemand'}",
             "-# Admins (Server verwalten) zählen immer zum Event-Team.",
         ]
         if access.storyteller_role_id is None:
