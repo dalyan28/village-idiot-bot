@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from discord_ui.botc_start import start_layout, start_problem
-from discord_ui.members import fetch_member
+from discord_ui.members import actor_from_member, fetch_member
 from discord_ui.wizard import now
 from events import guild_lock, service
 
@@ -45,6 +45,10 @@ class GuildPickView(discord.ui.View):
 class Botc(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        await take_chat_text(self.bot, message)
 
     @app_commands.command(name="botc", description="Neue Runde anlegen")
     @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
@@ -88,6 +92,42 @@ class Botc(commands.Cog):
                 "(Servereinstellungen → Privatsphäre) und starte `/botc` dann erneut.", ephemeral=True)
             return
         await interaction.response.send_message("Es geht in deinen DMs weiter.", ephemeral=True)
+
+
+async def take_chat_text(bot, message: discord.Message) -> bool:
+    """DM-Nachricht als Titel bzw. Beschreibung übernehmen, wenn ein Entwurf darauf wartet."""
+    from discord_ui import wizard
+
+    if message.guild is not None or message.author.bot:
+        return False
+    store = bot.store
+    draft = next((d for d in store.list_drafts(message.author.id) if (d.ui or {}).get(wizard.AWAIT_KEY)), None)
+    if draft is None:
+        return False
+    member = await fetch_member(bot, draft.guild_id, message.author.id)
+    if member is None or not guild_lock.is_allowed(draft.guild_id):
+        return False
+    wait = dict(draft.ui[wizard.AWAIT_KEY])
+    ctx = wizard.WizardContext(bot, store, draft, actor_from_member(member), member)
+    try:
+        notice = wizard.apply_chat_text(ctx, message.content)
+    except service.ServiceError as e:
+        notice = str(e)
+    layout, files = await wizard.render(bot, ctx.draft, notice)
+    try:
+        target = await message.channel.fetch_message(wait["message_id"]) if wait.get("message_id") else None
+    except discord.HTTPException:
+        target = None
+    if target is not None:
+        await target.edit(view=layout, attachments=files)
+    else:
+        await message.channel.send(view=layout, files=files)
+    if notice is None:
+        try:
+            await message.add_reaction("✅")
+        except discord.HTTPException:
+            pass
+    return True
 
 
 async def setup(bot):

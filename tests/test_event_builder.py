@@ -97,7 +97,7 @@ def test_demons_field_lists_demons_including_homebrew():
     d = data()
     d.script.content = content
     f = fields(build_event_embed(d, "Dalyan", lists()))
-    assert f["Dämonen"] == "Imp, Fang Gu, Boo"
+    assert f["Demons"] == "Imp, Fang Gu, Boo"
 
 
 def test_character_emojis_prefix_names(monkeypatch):
@@ -112,7 +112,7 @@ def test_character_emojis_prefix_names(monkeypatch):
     try:
         assert character_emojis.emoji_for("unbekannt") == ""  # nur bekannte Charaktere
         f = fields(build_event_embed(data(), "Dalyan", lists()))
-        assert f["Dämonen"] == "<:imp:1> Imp, <:fanggu:1> Fang Gu"
+        assert f["Demons"] == "<:imp:1> Imp, <:fanggu:1> Fang Gu"
         assert "<:imp:1> **Imp**" in f["Highlights"] or "<:imp:1> Imp" in f["Highlights"]
     finally:
         character_emojis.set_emojis([])

@@ -131,3 +131,12 @@ def test_worst_case_missing_items_fit(store):
     assert sum(1 for _ in layout.walk_children()) <= 40
     ids = _custom_ids(layout)
     assert len(ids) == len(set(ids))
+
+
+def test_sections_with_missing_items_have_red_buttons(store):
+    """Fehlt eine Pflichtangabe, ist der „Ändern“-Button am Abschnitt rot (Dalyan, 20.10.2026)."""
+    layout, _ = summary_for(store, make_draft(store, "preview", description="", rating=None, rating_source=None))
+    styles = {s.accessory.custom_id.split(":")[3]: s.accessory.item.style
+              for s in layout.walk_children() if isinstance(s, discord.ui.Section) and hasattr(s.accessory, "item")}
+    assert styles["description"] == discord.ButtonStyle.danger and styles["rating"] == discord.ButtonStyle.danger
+    assert styles["people"] == discord.ButtonStyle.secondary and styles["title"] == discord.ButtonStyle.secondary

@@ -93,9 +93,13 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     esc = discord.utils.escape_markdown
     guild = bot.get_guild(draft.guild_id)
 
+    # Abschnitte mit fehlender Pflichtangabe bekommen einen roten Button (Dalyan, 20.10.2026)
+    missing_targets = {MISSING_TARGETS[n][0] for n in missing_for_publish(d) if n in MISSING_TARGETS}
+
     def section(text: str, target: str, label: str = "Ändern") -> discord.ui.Section:
+        style = discord.ButtonStyle.danger if target in missing_targets else discord.ButtonStyle.secondary
         return discord.ui.Section(discord.ui.TextDisplay(text),
-                                  accessory=wz.WizardButton(draft.id, "edit_field", label, arg=target))
+                                  accessory=wz.WizardButton(draft.id, "edit_field", label, style, arg=target))
 
     container = discord.ui.Container(accent_colour=embed_color(d))
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
@@ -175,7 +179,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     # Bild: kleine Vorschau rechts; geändert wird es über „Bild ändern“ unten
     files = await build_files(d)
     has_image = any(f.filename == IMAGE_FILENAME for f in files)
-    image_text = {IMAGE_AUTO: "aus dem Skript" if has_auto_image(d) else "keins (freie Skriptwahl)",
+    image_text = {IMAGE_AUTO: "aus der Skript-JSON" if has_auto_image(d) else "keins (freie Skriptwahl)",
                   IMAGE_CUSTOM: "eigenes Bild"}.get(d.image_mode, "kein Bild")
     container.add_item(discord.ui.Separator())
     image_block = discord.ui.TextDisplay(_block("Bild", f"Quelle: {_value(image_text)}"))
@@ -285,6 +289,8 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
         start = discord.ui.ActionRow()
         start.add_item(wz.WizardButton(draft.id, "script_dialog", "Skript suchen oder wählen",
                                        discord.ButtonStyle.primary))
+        if d.script is None:  # Skriptwahl überspringen, in der Zusammenfassung steht es dann als fehlend
+            start.add_item(wz.WizardButton(draft.id, "skip_script", "Später wählen"))
         layout.add_item(start)
 
     versions = ui.get("versions") or []
@@ -319,7 +325,7 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
     d = draft.data
     auto_possible = has_auto_image(d)
     mode_text = {
-        IMAGE_AUTO: "Automatisch aus dem Skript" if auto_possible else "Automatisch (bei diesem Skript gibt es keins)",
+        IMAGE_AUTO: "Automatisch aus der Skript-JSON" if auto_possible else "Automatisch (bei diesem Skript gibt es keins)",
         IMAGE_CUSTOM: "Eigenes Bild",
         IMAGE_NONE: "Kein Bild",
     }[d.image_mode]
@@ -341,7 +347,7 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
     choices = discord.ui.ActionRow()
-    choices.add_item(wz.WizardButton(draft.id, "img", "Aus dem Skript", style(IMAGE_AUTO), arg="auto",
+    choices.add_item(wz.WizardButton(draft.id, "img", "Aus der Skript-JSON", style(IMAGE_AUTO), arg="auto",
                                      disabled=not auto_possible))
     choices.add_item(wz.WizardButton(draft.id, "upload_img", "Eigenes Bild hochladen", style(IMAGE_CUSTOM)))
     choices.add_item(wz.WizardButton(draft.id, "img", "Kein Bild", style(IMAGE_NONE), arg="none"))
@@ -355,6 +361,34 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
     testserver_hooks.wizard_card(layout, draft, "image")  # TESTSERVER
     _shorten(layout)
     return layout, files
+
+
+def chat_wait_layout(bot: discord.Client, draft, notice: str | None = None) -> discord.ui.LayoutView:
+    """Wartet auf Titel bzw. Beschreibung als nächste Chat-Nachricht."""
+    from discord_ui import wizard as wz  # zirkulären Import vermeiden
+    from events.templates import full_title
+
+    esc = discord.utils.escape_markdown
+    field = ((draft.ui or {}).get(wz.AWAIT_KEY) or {}).get("field", "description")
+    name = wz.CHAT_FIELDS.get(field, "Text")
+    guild = bot.get_guild(draft.guild_id)
+    heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
+    head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
+    current = full_title(draft.data) if field == "title" else draft.data.description.strip()
+    text = (f"{head}\n\n**{name} im Chat schreiben**\n"
+            f"Schreib {'den Titel' if field == 'title' else 'die Beschreibung'} jetzt einfach als nächste Nachricht "
+            "hier in den Chat, ich übernehme sie dann automatisch.")
+    if current:
+        text += "\n-# Bisher: " + esc(current[:300]) + (" …" if len(current) > 300 else "")
+    if notice:
+        text += f"\n\n{notice}"
+    container = discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=WIZARD_COLOR)
+    layout = discord.ui.LayoutView(timeout=None)
+    layout.add_item(container)
+    row = discord.ui.ActionRow()
+    row.add_item(wz.WizardButton(draft.id, "chat_cancel", "Abbrechen"))
+    layout.add_item(row)
+    return layout
 
 
 def text_layout(text: str) -> discord.ui.LayoutView:

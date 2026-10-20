@@ -226,7 +226,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     # 3. Fehlende Beschreibung: roter Button öffnet einen Dialog NUR mit dem Beschreibungsfeld
     inter = click(bot, draft.id, "fix_field", "description")
     modal = inter.response.modal
-    assert isinstance(modal, DescriptionModal) and len(modal.children) == 1
+    assert isinstance(modal, DescriptionModal) and len(modal.children) == 2  # Text + „im Chat schreiben“
     modal.text._value = "Gemütliche Runde Trouble Brewing."
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
 
@@ -649,3 +649,55 @@ def test_dev_reminder_button(env, monkeypatch):
     inter = FakeInteraction(bot, bot.guild.get_member(3), guild_id=GUILD)
     run(EventButton(event.id, "testreminder").callback(inter))
     assert sent == [(event.id, "first", True)] and "Thread" in inter.sent[0]
+
+
+def test_skip_script_goes_to_summary(env):
+    """„Später wählen“: Skriptwahl überspringen, in der Zusammenfassung fehlt das Skript (Dalyan, 20.10.2026)."""
+    bot = env
+    draft = new_draft(bot)
+    inter = click(bot, draft.id, "skip_script")
+    assert step(bot, draft.id) == "preview"
+    assert "Skript" in screen_text(inter) and "fehlt noch" in screen_text(inter)
+
+
+def test_description_via_chat_message(env):
+    """„Lieber im Chat schreiben“: Der Bot wartet auf die nächste DM und übernimmt sie (für Emojis)."""
+    from commands.botc import take_chat_text
+    from discord_ui.wizard import DescriptionModal
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "pick", "trouble_brewing")
+    user = bot.guild.get_member(USER)
+
+    modal = DescriptionModal(draft.id, "")
+    modal.chat._values = ["chat"]
+    card = SimpleNamespace(id=555)
+    inter = FakeInteraction(bot, user, message=card)
+    inter.channel_id = 99
+    run(modal.on_submit(inter))
+    assert "Beschreibung im Chat schreiben" in screen_text(inter)
+    assert bot.store.get_draft(draft.id).ui["await_text"]["message_id"] == 555
+
+    edited, reactions = [], []
+
+    class Card:
+        async def edit(self, **kw):
+            edited.append(kw)
+
+    class Channel:
+        async def fetch_message(self, mid):
+            assert mid == 555
+            return Card()
+
+    msg = SimpleNamespace(guild=None, author=SimpleNamespace(id=USER, bot=False), channel=Channel(),
+                          content="Gemütliche Runde 🎉 <:imp:1>")
+
+    async def react(emoji):
+        reactions.append(emoji)
+    msg.add_reaction = react
+    assert run(take_chat_text(bot, msg))
+    d = bot.store.get_draft(draft.id)
+    assert d.data.description == "Gemütliche Runde 🎉 <:imp:1>" and "await_text" not in d.ui
+    assert edited and reactions == ["✅"]
+    # Danach wartet nichts mehr: weitere Nachrichten werden ignoriert
+    assert not run(take_chat_text(bot, msg))

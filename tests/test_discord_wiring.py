@@ -71,7 +71,7 @@ def test_botc_modal_is_slim_with_date_choices():
     m = run(go())
     assert len(m.children) == 5  # Datum-Auswahl, anderes Datum, Uhrzeit-Auswahl, andere Uhrzeit, Optionen
     labels = [o.label for o in m.date_choice.options]
-    assert labels[0].startswith("Heute") and labels[1].startswith("Morgen") and len(labels) == 10
+    assert labels[0].startswith("Heute") and labels[1].startswith("Morgen") and len(labels) == 6  # 5 Tage + „Anderes Datum“
     assert m.date_choice.options[-1].value == "other"
     assert [o.value for o in m.time_choice.options] == ["13:00", "14:00", "19:00", "20:00", "other"]
     m.date_choice._value = m.date_choice.options[1].value
