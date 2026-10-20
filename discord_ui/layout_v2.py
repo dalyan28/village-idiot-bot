@@ -53,8 +53,21 @@ def _missing_buttons(missing: list[str]) -> list[tuple[str, str]]:
 
 
 def _block(label: str, *lines: str) -> str:
-    """Abschnitt: kleine graue Überschrift, darunter die Werte."""
-    return "\n".join([f"-# {label}", *lines])
+    """Abschnitt: fette Überschrift, darunter je Wert eine Zeile (Dalyan, 20.10.2026)."""
+    return "\n".join([f"**{label}**", *lines])
+
+
+def _value(text: str) -> str:
+    """Wert als Inline-Code, damit er sich klar von der Bezeichnung abhebt (wie früher die Code-Zeilen).
+    Fehlende Pflichtangaben bleiben als rote Markierung stehen."""
+    if text == MISSING_MARK:
+        return text
+    return f"`{text.replace('`', 'ˋ')}`"
+
+
+def _small(text: str) -> str:
+    """Erläuterung klein und grau, Zeile für Zeile."""
+    return "\n".join(f"-# {line}" for line in text.split("\n") if line.strip())
 
 
 async def summary_layout(bot: discord.Client, store, draft, notice: str | None = None):
@@ -95,74 +108,72 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
         status += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(status))
 
-    # Beschreibung (eigener Dialog, nur das Textfeld)
-    if d.description.strip():
-        description = esc(d.description.strip())
-    else:
-        description = MISSING_MARK
+    # Beschreibung (eigener Dialog, nur das Textfeld); Fließtext ohne Code-Markierung
+    description = esc(d.description.strip()) if d.description.strip() else MISSING_MARK
     if d.is_academy:
         description += "\n-# Darunter folgt der feste Academy-Text."
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("BESCHREIBUNG", description), "description",
+    container.add_item(section(_block("Beschreibung", description), "description",
                                "Ändern" if d.description.strip() else "Schreiben"))
 
-    # Skript mit Schwierigkeit
+    # Skript
     s = d.script
     if s is None:
-        lines = [MISSING_MARK]
+        lines = [f"Skript: {MISSING_MARK}"]
     else:
-        script_line = f"**{esc(s.display_name)}**"
+        lines = [f"Skript: {_value(s.display_name)}"]
         if s.author and s.kind != SCRIPT_BASE:
-            script_line += f" von {esc(s.author)}"
+            lines.append(f"Autor: {_value(s.author)}")
         if s.version and s.kind != SCRIPT_BASE:
-            script_line += f" · v{esc(s.version)}"
+            lines.append(f"Version: {_value('v' + s.version)}")
         if s.teensy:
-            script_line += " · Teensyville"
-        lines = [script_line]
+            lines.append(f"Größe: {_value('Teensyville')}")
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("SKRIPT", *lines), "script", "Ändern" if s else "Wählen"))
+    container.add_item(section(_block("Skript", *lines), "script", "Ändern" if s else "Wählen"))
 
-    # Schwierigkeit (eigener Abschnitt, gleich unter dem Skript – ohne Trennlinie, gehört zusammen)
+    # Schwierigkeit (gehört zum Skript, deshalb ohne Trennlinie); Begründung klein darunter
     if d.rating:
-        rating_lines = [f"{LABEL_EMOJI[d.rating]} {RATING_WORDS[d.rating].capitalize()}"]
+        rating_lines = [f"Einstufung: {_value(f'{LABEL_EMOJI[d.rating]} {RATING_WORDS[d.rating].capitalize()}')}"]
         if d.rating_source == RATING_SOURCE_RATER:
             explanation = wz.rating_explanation(draft.ui or {}, limit=2)
             if explanation:
-                rating_lines.append(explanation)
+                rating_lines.append(_small(explanation))
     else:
-        rating_lines = [MISSING_MARK if s is not None else "Ergibt sich aus dem Skript"]
+        rating_lines = [f"Einstufung: {MISSING_MARK if s is not None else _value('ergibt sich aus dem Skript')}"]
         if (draft.ui or {}).get("rating_error"):
-            rating_lines.append(esc(draft.ui["rating_error"]))
+            rating_lines.append(_small(esc(draft.ui["rating_error"])))
     if d.is_special:
         why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
-        rating_lines.append(f"⭐ {esc(why)}")
-    container.add_item(section(_block("SCHWIERIGKEIT", *rating_lines), "rating"))
+        rating_lines.append(f"⭐ Abweichung: {_value(why)}")
+    container.add_item(section(_block("Schwierigkeit", *rating_lines), "rating"))
 
     # Leitung
-    st = esc(d.storyteller.name) if d.storyteller else MISSING_MARK
-    co = esc(d.co_storyteller.name) if d.co_storyteller else "–"
+    st = _value(d.storyteller.name) if d.storyteller else MISSING_MARK
+    co = _value(d.co_storyteller.name if d.co_storyteller else "keins")
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("LEITUNG", f"{st} · Co-ST: {co}"), "people"))
+    container.add_item(section(_block("Leitung", f"Storyteller: {st}", f"Co-Storyteller: {co}"), "people"))
 
     # Auswahl: Labels, Level, Kamera
     labels = [name for flag, name in ((d.is_academy, "🎓 Academy"), (d.is_casual, "🕊️ Casual"),
                                       (d.is_recorded, "🎦 Aufzeichnung"), (d.is_special, "⭐ Abweichung")) if flag]
-    selection = " · ".join([*labels, f"Level {d.level}", f"Kamera: {CAMERA_LABELS[d.camera]}"])
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("AUSWAHL", selection), "selection"))
+    container.add_item(section(_block("Auswahl", f"Labels: {_value(', '.join(labels) or 'keine')}",
+                                      f"Level: {_value(d.level)}",
+                                      f"Kamera: {_value(CAMERA_LABELS[d.camera])}"), "selection"))
 
     # Termin & Rahmen
-    termin = format_start(d.start, d.duration_minutes) if d.start else MISSING_MARK
+    termin = _value(format_start(d.start, d.duration_minutes)) if d.start else MISSING_MARK
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("TERMIN", f"{termin} · max. {d.max_players} Spieler"), "frame"))
+    container.add_item(section(_block("Termin", f"Wann: {termin}", f"Spieler: {_value(f'max. {d.max_players}')}"),
+                               "frame"))
 
     # Bild: kleine Vorschau rechts; geändert wird es über „Bild ändern“ unten
     files = await build_files(d)
     has_image = any(f.filename == IMAGE_FILENAME for f in files)
-    image_text = {IMAGE_AUTO: "Aus dem Skript" if has_auto_image(d) else "Keins (freie Skriptwahl)",
-                  IMAGE_CUSTOM: "Eigenes Bild"}.get(d.image_mode, "Kein Bild")
+    image_text = {IMAGE_AUTO: "aus dem Skript" if has_auto_image(d) else "keins (freie Skriptwahl)",
+                  IMAGE_CUSTOM: "eigenes Bild"}.get(d.image_mode, "kein Bild")
     container.add_item(discord.ui.Separator())
-    image_block = discord.ui.TextDisplay(_block("BILD", image_text))
+    image_block = discord.ui.TextDisplay(_block("Bild", f"Quelle: {_value(image_text)}"))
     if has_image:
         container.add_item(discord.ui.Section(
             image_block, accessory=discord.ui.Thumbnail(f"attachment://{IMAGE_FILENAME}")))

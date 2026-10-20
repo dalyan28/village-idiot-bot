@@ -85,7 +85,7 @@ def test_every_page_renders_within_discord_limits(store, step):
 def test_old_step_falls_back_to_summary(store):
     """Entwürfe aus älteren Versionen (z. B. Schritt „description“) landen in der Zusammenfassung."""
     layout, _ = render(store, make_draft(store, "description"))
-    assert "BESCHREIBUNG" in texts(layout)
+    assert "**Beschreibung**" in texts(layout)
 
 
 def test_image_page_attaches_preview(store):
@@ -108,7 +108,7 @@ async def _rating_modal(data):
 
 def test_special_reasons_shown_in_summary(store):
     layout, _ = render(store, make_draft(store, "preview", is_special=True, special_reasons=["Loric: Bootlegger"]))
-    assert "⭐ Loric: Bootlegger" in texts(layout) and "## ⭐ 💚 Trouble Brewing" in texts(layout)
+    assert "⭐ Abweichung: `Loric: Bootlegger`" in texts(layout) and "## ⭐ 💚 Trouble Brewing" in texts(layout)
 
 
 def test_verdict_text_is_preferred(store):
