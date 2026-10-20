@@ -68,9 +68,12 @@ def time_choice_radio(previous: str = "") -> discord.ui.RadioGroup:
 class BotcModal(discord.ui.Modal):
     """Fünf Felder (Discord-Grenze): Datum, Uhrzeit, Spieler, Level, Optionen."""
 
-    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput | None = None, v2: bool = False):
+    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput | None = None, v2: bool = False,
+                 guild: discord.Guild | None = None, member: discord.Member | None = None):
         super().__init__(title="Neue Runde anlegen", timeout=15 * 60)
         self.store = store
+        # Server und Mitglied: in den DMs kennt die Interaktion beides nicht, /botc gibt sie mit
+        self.guild, self.member = guild, member
         self.v2 = v2  # /botc2: Wizard mit Components V2
         raw = raw or ModalInput()
 
@@ -142,15 +145,17 @@ class BotcModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         raw = self.raw_input()
-        member = interaction.user
+        member = self.member or interaction.user
+        guild_id = self.guild.id if self.guild else interaction.guild_id
         actor = actor_from_member(member)
         try:
             data = parse_modal_input(raw, wizard.now())
-            draft = service.start_draft(self.store, interaction.guild_id, actor, display_name(member), data, wizard.now())
+            draft = service.start_draft(self.store, guild_id, actor, display_name(member), data, wizard.now())
         except (ParseError, service.ServiceError) as e:
             allow_academy = OPTION_ACADEMY in [o.value for o in self.options.options]
             await interaction.response.send_message(
-                str(e), view=RetryView(self.store, allow_academy, raw, self.v2), ephemeral=True
+                str(e), view=RetryView(self.store, allow_academy, raw, self.v2, self.guild, self.member),
+                ephemeral=True
             )
             return
         if self.v2:
@@ -159,7 +164,7 @@ class BotcModal(discord.ui.Modal):
 
         await interaction.response.send_message(
             f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n"
-            f"Check deine DMs, dort geht es weiter.",
+            ("Check deine DMs, dort geht es weiter." if interaction.guild_id else "Weiter geht es hier unten."),
             ephemeral=True,
         )
         await deliver_wizard(interaction, draft)
@@ -187,21 +192,26 @@ async def deliver_wizard(interaction: discord.Interaction, draft, intro: str | N
 class RetryView(discord.ui.View):
     """Nach einem Eingabefehler: Modal mit den alten Eingaben neu öffnen."""
 
-    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput, v2: bool = False):
+    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput, v2: bool = False,
+                 guild: discord.Guild | None = None, member: discord.Member | None = None):
         super().__init__(timeout=15 * 60)
         self.store, self.allow_academy, self.raw, self.v2 = store, allow_academy, raw, v2
+        self.guild, self.member = guild, member
 
     @discord.ui.button(label="Nochmal", style=discord.ButtonStyle.primary)
     async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw, self.v2))
+        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw, self.v2,
+                                                        self.guild, self.member))
 
 
 class ResumeOrNewView(discord.ui.View):
     """/botc mit offenem Entwurf: weitermachen oder neu beginnen."""
 
-    def __init__(self, store: Store, draft, allow_academy: bool):
+    def __init__(self, store: Store, draft, allow_academy: bool, guild: discord.Guild | None = None,
+                 member: discord.Member | None = None):
         super().__init__(timeout=15 * 60)
         self.store, self.draft, self.allow_academy = store, draft, allow_academy
+        self.guild, self.member = guild, member
 
     @discord.ui.button(label="Weitermachen", style=discord.ButtonStyle.primary)
     async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -216,4 +226,5 @@ class ResumeOrNewView(discord.ui.View):
     @discord.ui.button(label="Neu beginnen", style=discord.ButtonStyle.secondary)
     async def new(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Der alte Entwurf wird erst ersetzt, wenn das neue Modal abgeschickt ist (service.start_draft)
-        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy))
+        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy,
+                                                        guild=self.guild, member=self.member))

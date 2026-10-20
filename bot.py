@@ -27,6 +27,9 @@ class LockedCommandTree(app_commands.CommandTree):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if guild_lock.is_allowed(interaction.guild_id):
             return True
+        # /botc in den DMs: der Command prüft selbst, auf welchem freigeschalteten Server der User ist
+        if interaction.guild_id is None and guild_lock.is_configured():
+            return True
         await interaction.response.send_message(
             "Dieser Bot ist auf diesem Server nicht freigeschaltet.", ephemeral=True
         )
@@ -56,11 +59,20 @@ async def sync_commands():
             guild_lock.ENV_VAR,
         )
         return
+    from commands.botc import DM_COMMANDS
+
     guilds = [discord.Object(id=gid) for gid in allowed]
+    # /botc und /botc2 bleiben global (auch in den DMs nutzbar); alles andere nur je Server
+    dm_commands = [c for c in bot.tree.get_commands() if c.name in DM_COMMANDS]
     for g in guilds:
         bot.tree.copy_global_to(guild=g)
+        for c in dm_commands:
+            bot.tree.remove_command(c.name, guild=g)
     bot.tree.clear_commands(guild=None)
-    await bot.tree.sync()
+    for c in dm_commands:
+        bot.tree.add_command(c)
+    synced_global = await bot.tree.sync()
+    print(f"Synced global (auch DMs): {[c.name for c in synced_global]}")
     for g in guilds:
         try:
             synced = await bot.tree.sync(guild=g)

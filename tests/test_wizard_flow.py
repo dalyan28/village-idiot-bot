@@ -67,6 +67,11 @@ class FakeChannel:
         return self.messages[mid]
 
 
+class _NotFound(discord.NotFound):
+    def __init__(self):  # ohne HTTP-Antwort
+        Exception.__init__(self, "Unknown Member")
+
+
 class FakeGuild:
     def __init__(self, members):
         self.id, self.name = GUILD, "Testserver"
@@ -76,6 +81,8 @@ class FakeGuild:
         return self.members.get(uid)
 
     async def fetch_member(self, uid):
+        if uid not in self.members:
+            raise _NotFound()  # wie Discord bei Nicht-Mitgliedern
         return self.members[uid]
 
     async def query_members(self, query, limit):
@@ -403,3 +410,23 @@ def test_publish_without_event_channel_keeps_draft(env, monkeypatch):
     assert bot.store.get_draft(draft.id) is not None
     assert bot.store.list_events(GUILD) == []
     assert "Event-Channel" in inter.screen["embeds"][0].description
+
+
+def test_botc_works_in_dms(env, monkeypatch):
+    """/botc in den DMs: Server über die Mitgliedschaft, Modal bekommt Server und Mitglied mit."""
+    from commands import botc as botc_cmd
+    bot = env
+    monkeypatch.setattr(botc_cmd, "get_guild_config", lambda gid: {"event_channel_id": CHANNEL})
+    bot.guild.get_channel = lambda cid: bot.channel if cid == CHANNEL else None
+    cog = botc_cmd.Botc(bot)
+    inter = FakeInteraction(bot, SimpleNamespace(id=USER, display_name="Dalyan"))
+    inter.guild = None
+    run(cog._start(inter, v2=True))
+    modal = inter.response.modal
+    assert modal is not None and modal.guild is bot.guild and modal.member.id == USER
+
+    # Nicht Mitglied eines freigeschalteten Servers → Hinweis statt Modal
+    stranger = FakeInteraction(bot, SimpleNamespace(id=999, display_name="X"))
+    stranger.guild = None
+    run(cog._start(stranger, v2=True))
+    assert stranger.response.modal is None and "keinem Server" in stranger.sent[0]
