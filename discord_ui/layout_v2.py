@@ -100,7 +100,9 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
     # Titel fett statt als Überschrift (wirkte zu groß, Dalyan, 20.10.2026), direkt änderbar
     title_note = "" if d.title.strip() else "\n-# Titel wird automatisch erstellt"
-    container.add_item(section(f"{head}\n\n**{esc(full_title(d))}**{title_note}", "title"))
+    # Servername als eigener Text darüber, damit „Ändern“ neben dem Titel steht und nicht oben am Rand
+    container.add_item(discord.ui.TextDisplay(head))
+    container.add_item(section(f"**{esc(full_title(d))}**{title_note}", "title"))
     missing = missing_for_publish(d)
     status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
               else "Alle Pflichtangaben sind vollständig. Wenn alles passt: **"
