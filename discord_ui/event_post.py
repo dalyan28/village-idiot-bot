@@ -10,12 +10,12 @@ from __future__ import annotations
 import io
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 import discord
 
 from config import get_guild_config
-from discord_ui.members import actor_from_member
+from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, service
 from events.schema import BERLIN_TZ, Person
 from events.store import RSVP_ACCEPTED, RSVP_DECLINED, RSVP_TENTATIVE, EventRecord, Store
@@ -48,10 +48,12 @@ def _name_resolver(guild: discord.Guild | None):
     return name_for
 
 
-def build_embed(bot: discord.Client, store: Store, event: EventRecord,
-                has_image: bool, has_thumbnail: bool) -> discord.Embed:
+async def build_embed(bot: discord.Client, store: Store, event: EventRecord,
+                      has_image: bool, has_thumbnail: bool) -> discord.Embed:
     guild = bot.get_guild(event.guild_id)
-    creator = guild.get_member(event.creator_id) if guild else None
+    # Ohne Members-Intent ist der Cache oft leer: Mitglied dann bei Discord abfragen,
+    # sonst fehlt das Profilbild in der Fußzeile.
+    creator = await fetch_member(bot, event.guild_id, event.creator_id)
     embed = build_event_embed(
         event.data,
         creator.display_name if creator else event.creator_name,
@@ -59,6 +61,7 @@ def build_embed(bot: discord.Client, store: Store, event: EventRecord,
         creator_avatar_url=creator.display_avatar.url if creator else None,
         thumbnail_url=f"attachment://{THUMB_FILENAME}" if has_thumbnail else None,
         name_for=_name_resolver(guild),
+        created_at=datetime.fromtimestamp(event.created_at, tz=timezone.utc),
     )
     if has_image:
         embed.set_image(url=f"attachment://{IMAGE_FILENAME}")
@@ -102,7 +105,7 @@ async def post_event(bot: discord.Client, store: Store, event: EventRecord) -> d
     if channel is None:
         raise service.ServiceError("Es ist kein Event-Channel eingerichtet (`/set_event_channel`).")
     files = await build_files(event.data)
-    embed = build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+    embed = await build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
     msg = await channel.send(embed=embed, files=files, view=event_view(event))
     store.set_event_message(event.id, msg.channel.id, msg.id)
     logger.info("Event %s gepostet (msg %s)", event.id, msg.id)
@@ -129,10 +132,10 @@ async def update_event_message(bot: discord.Client, store: Store, event: EventRe
         return await post_event(bot, store, event)
     if images_changed:
         files = await build_files(event.data)
-        embed = build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+        embed = await build_embed(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
         await msg.edit(embed=embed, attachments=files, view=event_view(event))
     else:
-        embed = build_embed(bot, store, event, _has(msg.attachments, IMAGE_FILENAME),
+        embed = await build_embed(bot, store, event, _has(msg.attachments, IMAGE_FILENAME),
                             _has(msg.attachments, THUMB_FILENAME))
         await msg.edit(embed=embed, view=event_view(event))
     return msg
@@ -176,8 +179,9 @@ class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<
 
 async def handle_rsvp(interaction: discord.Interaction, store: Store, event: EventRecord, status: str):
     service.toggle_rsvp(store, event, interaction.user.id, interaction.user.display_name, status, now())
-    embed = build_embed(interaction.client, store, event, _has(interaction.message.attachments, IMAGE_FILENAME),
-                        _has(interaction.message.attachments, THUMB_FILENAME))
+    embed = await build_embed(interaction.client, store, event,
+                              _has(interaction.message.attachments, IMAGE_FILENAME),
+                              _has(interaction.message.attachments, THUMB_FILENAME))
     await interaction.response.edit_message(embed=embed)
 
 
@@ -191,7 +195,7 @@ async def handle_edit(interaction: discord.Interaction, store: Store, event: Eve
         await interaction.response.send_message("Bearbeiten dürfen nur der Ersteller und das Event-Team.",
                                                 ephemeral=True)
         return
-    await interaction.response.send_message("Check deine DMs, dort kannst du das Event bearbeiten. 📩",
+    await interaction.response.send_message("Check deine DMs, dort kannst du das Event bearbeiten.",
                                             ephemeral=True)
     try:
         await wizard.send_wizard(interaction.client, interaction.user, draft)
@@ -233,7 +237,7 @@ class DeleteConfirmView(discord.ui.View):
             await self.message.delete()
         except discord.HTTPException:
             logger.warning("Event-Nachricht %s konnte nicht gelöscht werden", self.message.id)
-        await interaction.response.edit_message(content="Event gelöscht. 🗑️", view=None)
+        await interaction.response.edit_message(content="Event gelöscht.", view=None)
 
     @discord.ui.button(label="Abbrechen", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):

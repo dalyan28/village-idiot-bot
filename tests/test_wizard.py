@@ -89,7 +89,7 @@ def render(store, draft):
 def test_every_step_renders_within_discord_limits(store, step):
     screen = render(store, make_draft(store, step))
     check_limits(screen)
-    assert screen.embeds[0].title == "📋 Event-Zusammenfassung"  # auf jeder Seite oben
+    assert screen.embeds[0].title == "Event-Zusammenfassung"  # auf jeder Seite oben
     if step != "preview":
         assert wizard.STEP_LABELS[step] in screen.embeds[1].title
 
@@ -135,7 +135,7 @@ def test_preview_disables_publish_when_incomplete(store):
     screen = render(store, make_draft(store, "preview", description=""))
     publish = next(i for i in screen.view.children if i.custom_id.endswith(":publish"))
     assert publish.item.disabled
-    assert "Es fehlt noch: Beschreibung" in screen.embeds[0].description
+    assert "**Es fehlt noch:** Beschreibung" in screen.embeds[0].description
 
 
 class TestNavigation:
@@ -182,7 +182,7 @@ def test_open_fields_and_rating_options(store):
     assert summary["4 · Beschreibung"] == "```offen```"
     screen = render(store, make_draft(store, "rating"))
     rates = [i.item.label for i in screen.view.children if i.custom_id.split(":")[2] == "rate"]
-    assert rates == ["💚", "🟡", "🟥", "💚/🟡", "🟡/🟥", "💚/🟡/🟥"]
+    assert rates == ["Grün", "Gelb", "Rot", "Grün bis Gelb", "Gelb bis Rot", "Alle drei"]
 
 
 def test_verdict_text_is_preferred(store):

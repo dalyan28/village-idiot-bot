@@ -229,7 +229,7 @@ async def _run(interaction: discord.Interaction, ctx: WizardContext, coro):
     try:
         await coro
     except service.ServiceError as e:
-        await show(interaction, ctx, notice=f"⚠️ {e}")
+        await show(interaction, ctx, notice=str(e))
 
 
 class WizardButton(discord.ui.DynamicItem[discord.ui.Button],
@@ -330,7 +330,7 @@ async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: 
         embeds, files = await _screen_preview(bot, store, draft, view, guild.name if guild else None, notice)
         return Screen(embeds, view, files)
     summary = summary_fields(store, draft)
-    heading = "📝 Neue Runde" if draft.event_id is None else "✏️ Runde bearbeiten"
+    heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
     summary.description = f"{heading} für **{_esc(guild.name)}**" if guild else heading
     head = step_embed(draft, notice)
     builder = {
@@ -354,8 +354,8 @@ async def _screen_script(bot, store, draft: Draft, head: discord.Embed, view: di
     for key, name in BASE3_FULL_NAMES.items():
         view.add_item(WizardButton(draft.id, "pick", name, discord.ButtonStyle.primary, arg=key, row=0))
     view.add_item(WizardButton(draft.id, "pick", "Freie Skriptwahl", arg="free", row=0))
-    view.add_item(WizardButton(draft.id, "search", "Auf botcscripts.com suchen", emoji="🔎", row=1))
-    view.add_item(WizardButton(draft.id, "upload", "Skript-JSON hochladen", emoji="📄", row=1))
+    view.add_item(WizardButton(draft.id, "search", "Auf botcscripts.com suchen", row=1))
+    view.add_item(WizardButton(draft.id, "upload", "Skript-JSON hochladen", row=1))
 
     results = ui.get("search_results") or []
     if results:
@@ -408,7 +408,7 @@ async def _screen_rating(bot, store, draft: Draft, head: discord.Embed, view: di
     for row, options in ((0, SINGLE_RATINGS), (1, (RATING_GREEN_YELLOW, RATING_YELLOW_RED, RATING_ANY))):
         for rating in options:
             style = discord.ButtonStyle.primary if d.rating == rating else discord.ButtonStyle.secondary
-            view.add_item(WizardButton(draft.id, "rate", LABEL_EMOJI[rating], style, arg=rating, row=row))
+            view.add_item(WizardButton(draft.id, "rate", RATING_BUTTON_LABELS[rating], style, arg=rating, row=row))
     if s.kind == SCRIPT_BOTCSCRIPTS:
         view.add_item(WizardButton(draft.id, "versions", "Andere Version", row=2))
         versions = ui.get("versions") or []
@@ -458,7 +458,7 @@ async def _screen_description(bot, store, draft: Draft, head: discord.Embed, vie
         text += "\n-# Bei Academy-Runden folgt darunter automatisch der feste Academy-Text."
     head.add_field(name="Beschreibung", value=text[:1024], inline=False)
     label = "Beschreibung bearbeiten" if d.description.strip() else "Beschreibung schreiben"
-    view.add_item(WizardButton(draft.id, "describe", label, discord.ButtonStyle.primary, emoji="✍️", row=0))
+    view.add_item(WizardButton(draft.id, "describe", label, discord.ButtonStyle.primary, row=0))
     missing = not d.description.strip() and not d.is_academy
     _nav(view, draft, row=1, next_disabled=missing)
     return [], []
@@ -476,7 +476,7 @@ async def _screen_image(bot, store, draft: Draft, head: discord.Embed, view: dis
     view.add_item(WizardButton(draft.id, "img", "Aus dem Skript", arg="auto", row=0,
                                style=discord.ButtonStyle.primary if d.image_mode == IMAGE_AUTO else discord.ButtonStyle.secondary,
                                disabled=not auto_possible))
-    view.add_item(WizardButton(draft.id, "upload_img", "Eigenes Bild hochladen", emoji="🖼️", row=0,
+    view.add_item(WizardButton(draft.id, "upload_img", "Eigenes Bild hochladen", row=0,
                                style=discord.ButtonStyle.primary if d.image_mode == IMAGE_CUSTOM else discord.ButtonStyle.secondary))
     view.add_item(WizardButton(draft.id, "img", "Kein Bild", arg="none", row=0,
                                style=discord.ButtonStyle.primary if d.image_mode == IMAGE_NONE else discord.ButtonStyle.secondary))
@@ -490,6 +490,10 @@ async def _screen_image(bot, store, draft: Draft, head: discord.Embed, view: dis
 
 
 OPEN = "offen"
+RATING_BUTTON_LABELS = {
+    "green": "Grün", "yellow": "Gelb", "red": "Rot",
+    "green_yellow": "Grün bis Gelb", "yellow_red": "Gelb bis Rot", "any": "Alle drei",
+}
 
 
 def rating_explanation(ui: dict, limit: int = 4) -> str:
@@ -528,7 +532,7 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
     color = {"green": 0x78B159, "yellow": 0xFDCB58, "red": 0xDD2E44}.get(d.rating, 0xFDCB58)
     if d.is_homebrew:
         color = 0xF4900C
-    embed = discord.Embed(title="📋 Event-Zusammenfassung", color=color)
+    embed = discord.Embed(title="Event-Zusammenfassung", color=color)
 
     embed.add_field(name="1 · Titel" + ("" if d.title.strip() else " (automatisch)"),
                     value=_code(full_title(d)), inline=False)
@@ -552,15 +556,15 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
         else:
             source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_MANUAL: "von dir gewählt"}.get(
                 d.rating_source, "")
-        rating_text = f"{LABEL_EMOJI[d.rating]} **{RATING_WORDS[d.rating]}** ({source})"
+        rating_text = f"**{RATING_WORDS[d.rating].capitalize()}** ({source})"
         if d.is_homebrew:
-            rating_text += f"\n{LABEL_EMOJI['homebrew']} Enthält unbekannte Charaktere (Homebrew)."
+            rating_text += "\nEnthält unbekannte Charaktere (Homebrew)."
         if d.rating_source == RATING_SOURCE_RATER:
             rating_text += "\n" + rating_explanation(ui, limit=3)
     else:
         rating_text = OPEN
     quoted = "\n".join(f"> {line}" for line in rating_text.split("\n"))
-    embed.add_field(name=f"{LABEL_EMOJI.get(d.rating, '')} 3 · Einschätzung".strip(), value=quoted[:1024], inline=True)
+    embed.add_field(name="3 · Einschätzung", value=quoted[:1024], inline=True)
 
     description = d.description.strip() or (OPEN if not d.is_academy else "—")
     if d.is_academy:
@@ -575,8 +579,8 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
                     value=_code(d.co_storyteller.name if d.co_storyteller else "—"), inline=True)
     embed.add_field(name="7 · Level", value=_code(d.level), inline=True)
 
-    labels = [name for flag, name in ((d.is_casual, "🕊️ Casual"), (d.is_academy, "🎓 Academy"),
-                                      (d.is_recorded, "🎦 Aufzeichnung")) if flag]
+    labels = [name for flag, name in ((d.is_casual, "Casual"), (d.is_academy, "Academy"),
+                                      (d.is_recorded, "Aufzeichnung")) if flag]
     embed.add_field(name="8 · Labels", value=_code(", ".join(labels) or "—"), inline=True)
     embed.add_field(name="9 · Kamera", value=_code(CAMERA_LABELS[d.camera]), inline=True)
     embed.add_field(name="10 · Max Spieler", value=_code(str(d.max_players)), inline=True)
@@ -606,7 +610,7 @@ async def _screen_preview(bot, store, draft: Draft, view: discord.ui.View, guild
     lines.append("Schau in Ruhe drüber. Wenn alles passt: **Veröffentlichen**. "
                  "Zum Ändern wähle unten das Feld aus.")
     if missing:
-        lines.append(f"⚠️ Es fehlt noch: {', '.join(missing)}.")
+        lines.append(f"**Es fehlt noch:** {', '.join(missing)}.")
     if notice:
         lines.append(notice)
     embed.description = "\n".join(lines)
@@ -688,7 +692,7 @@ async def _cancel(interaction, ctx: WizardContext, arg):
     if d.image_mode == IMAGE_CUSTOM and not _image_used_by_event(ctx, d.custom_image):
         delete_custom_image(d.custom_image)
     service.discard_draft(ctx.store, ctx.draft, ctx.actor)
-    text = ("Event-Erstellung abgebrochen. ✌️ Mit `/botc` kannst du jederzeit neu starten."
+    text = ("Event-Erstellung abgebrochen. Mit `/botc` kannst du jederzeit neu starten."
             if ctx.draft.event_id is None else "Bearbeitung verworfen, das Event bleibt unverändert.")
     await interaction.response.edit_message(content=text, embeds=[], view=None, attachments=[])
 
@@ -907,13 +911,13 @@ async def _publish(interaction, ctx: WizardContext, arg):
     result = service.publish_draft(ctx.store, ctx.draft, ctx.actor, ctx.member.display_name, now())
     if result.created:
         msg = await post_event(ctx.bot, ctx.store, result.event)
-        text = f"Dein Event ist online! 🎉\n{msg.jump_url}"
+        text = f"Dein Event ist online.\n{msg.jump_url}"
     else:
         msg = await update_event_message(ctx.bot, ctx.store, result.event,
                                          images_changed(old.data, result.event.data) if old else True)
         if old and old.data.custom_image and old.data.custom_image != result.event.data.custom_image:
             delete_custom_image(old.data.custom_image)
-        text = f"Änderungen gespeichert. ✏️\n{msg.jump_url}" if msg else "Änderungen gespeichert. ✏️"
+        text = f"Änderungen gespeichert.\n{msg.jump_url}" if msg else "Änderungen gespeichert."
     await interaction.edit_original_response(content=text, embeds=[], view=None, attachments=[])
 
 
@@ -1022,7 +1026,7 @@ class TitleModal(_WizardModal):
         self.text = discord.ui.TextInput(default=data.title or None, placeholder=base_title(data)[:100],
                                          required=False, max_length=TITLE_MAX_LENGTH)
         self.add_item(discord.ui.Label(text="Titel", description="Leer = automatischer Titel. "
-                                       "Die Symbole (z. B. 💚) kommen immer davor.", component=self.text))
+                                       "Die Symbole (Labels, Schwierigkeit) kommen immer davor.", component=self.text))
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
@@ -1107,8 +1111,8 @@ class LabelsModal(_WizardModal):
     def __init__(self, draft_id: int, data: EventData, allow_academy: bool):
         super().__init__(draft_id, "Labels & Kamera")
         self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
-        choices = [("casual", "Casual 🕊️", data.is_casual), ("academy", "Academy 🎓", data.is_academy),
-                   ("recorded", "Aufzeichnung 🎦", data.is_recorded)]
+        choices = [("casual", "Casual", data.is_casual), ("academy", "Academy", data.is_academy),
+                   ("recorded", "Aufzeichnung", data.is_recorded)]
         for value, label, on in choices:
             if value == "academy" and not allow_academy:
                 continue

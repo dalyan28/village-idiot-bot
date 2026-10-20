@@ -236,6 +236,10 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     msg = bot.channel.messages[event.message_id]
     assert msg.embed.title == "🟡 Trouble Brewing mit Dalyan und Rosanna"
     assert {a.filename for a in msg.attachments} == {"event_image.png", "thumbnail.png"}
+    # Ersteller:in nur unten: Profilbild, Name, Erstellungsdatum
+    assert msg.embed.author.name is None
+    assert msg.embed.footer.text == "Dalyan" and msg.embed.footer.icon_url == "https://cdn/avatar.png"
+    assert msg.embed.timestamp is not None
 
     # RSVP: Anna sagt zu, Name als Text im Embed, Bilder bleiben referenziert
     rsvp = FakeInteraction(bot, bot.guild.get_member(3), message=msg, guild_id=GUILD)

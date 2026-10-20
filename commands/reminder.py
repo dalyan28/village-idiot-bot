@@ -210,7 +210,7 @@ class ReminderCog(commands.Cog):
             cfg.post_script = skript_json
         errors = reminders.validate(cfg)
         if errors:
-            await interaction.response.send_message("⚠️ " + " ".join(errors), ephemeral=True)
+            await interaction.response.send_message(" ".join(errors), ephemeral=True)
             return
         self.store.set_guild_settings(interaction.guild_id, reminders.store_server_choice(settings, cfg))
         await interaction.response.send_message(self._summary(interaction.guild_id), ephemeral=True)

@@ -52,9 +52,9 @@ class BotcModal(discord.ui.Modal):
 
         self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
         choices = [
-            (OPTION_CASUAL, "Casual 🕊️", "Mehr Zeit, besonders rücksichtsvoll"),
-            (OPTION_ACADEMY, "Academy 🎓", "Lernrunde der Clocktower Academy"),
-            (OPTION_RECORDED, "Aufzeichnung 🎦", "Die Runde wird aufgezeichnet"),
+            (OPTION_CASUAL, "Casual", "Mehr Zeit, besonders rücksichtsvoll"),
+            (OPTION_ACADEMY, "Academy", "Lernrunde der Clocktower Academy"),
+            (OPTION_RECORDED, "Aufzeichnung", "Die Runde wird aufgezeichnet"),
             (OPTION_CAMERA, "Kamera-Pflicht", "Alle spielen mit Kamera"),
         ]
         for value, label, desc in choices:
@@ -89,7 +89,7 @@ class BotcModal(discord.ui.Modal):
         except (ParseError, service.ServiceError) as e:
             allow_academy = OPTION_ACADEMY in [o.value for o in self.options.options]
             await interaction.response.send_message(
-                f"⚠️ {e}", view=RetryView(self.store, allow_academy, raw), ephemeral=True
+                str(e), view=RetryView(self.store, allow_academy, raw), ephemeral=True
             )
             return
 
@@ -98,7 +98,7 @@ class BotcModal(discord.ui.Modal):
             note = "\n-# Academy und Casual schließen sich aus, ich habe Academy übernommen."
         await interaction.response.send_message(
             f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n"
-            f"Check deine DMs, dort geht es weiter. 📩{note}",
+            f"Check deine DMs, dort geht es weiter.{note}",
             ephemeral=True,
         )
         await deliver_wizard(interaction, draft)
@@ -149,7 +149,7 @@ class ResumeOrNewView(discord.ui.View):
             await interaction.response.edit_message(content="Der Entwurf ist inzwischen weg. Starte bitte neu.",
                                                     view=None)
             return
-        await interaction.response.edit_message(content="Check deine DMs, dort geht es weiter. 📩", view=None)
+        await interaction.response.edit_message(content="Check deine DMs, dort geht es weiter.", view=None)
         await deliver_wizard(interaction, draft, intro="Hier geht es mit deinem Entwurf weiter:")
 
     @discord.ui.button(label="Neu beginnen", style=discord.ButtonStyle.secondary)

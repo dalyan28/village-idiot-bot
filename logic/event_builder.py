@@ -13,6 +13,7 @@ import json
 import logging
 import os
 from collections.abc import Callable
+from datetime import datetime
 
 import discord
 
@@ -173,17 +174,17 @@ def build_event_embed(
     creator_avatar_url: str | None = None,
     thumbnail_url: str | None = None,
     name_for: Callable[[Person], str] | None = None,
+    created_at: datetime | None = None,
 ) -> discord.Embed:
-    """Baut das Event-Embed. `thumbnail_url`/Bild setzt der Aufrufer (Attachments)."""
-    embed = discord.Embed(title=full_title(data), color=embed_color(data))
+    """Baut das Event-Embed. `thumbnail_url`/Bild setzt der Aufrufer (Attachments).
+
+    Ersteller:in steht nur unten in der Fußzeile (Profilbild, Name, Erstellungsdatum),
+    wie beim alten Event-Post (Dalyan, 20.10.2026).
+    """
+    embed = discord.Embed(title=full_title(data), color=embed_color(data), timestamp=created_at)
 
     if thumbnail_url:
         embed.set_thumbnail(url=thumbnail_url)
-
-    if creator_avatar_url:
-        embed.set_author(name=creator_name, icon_url=creator_avatar_url)
-    else:
-        embed.set_author(name=creator_name)
 
     # ── Storytelling + Kamera + Level (inline, eine Reihe) ───────────
     st = _name(data.storyteller, name_for) if data.storyteller else "-"
