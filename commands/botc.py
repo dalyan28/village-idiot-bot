@@ -27,6 +27,14 @@ class Botc(commands.Cog):
     @app_commands.command(name="botc", description="Neue Runde anlegen")
     @app_commands.guild_only()
     async def botc(self, interaction: discord.Interaction):
+        await self._start(interaction, v2=False)
+
+    @app_commands.command(name="botc2", description="Neue Runde anlegen (Test: Bearbeiten-Button je Feld)")
+    @app_commands.guild_only()
+    async def botc2(self, interaction: discord.Interaction):
+        await self._start(interaction, v2=True)
+
+    async def _start(self, interaction: discord.Interaction, v2: bool):
         store = self.bot.store
         member = interaction.user
         actor = actor_from_member(member)
@@ -47,7 +55,7 @@ class Botc(commands.Cog):
 
         allow_academy = permissions.can(actor, permissions.CREATE_ACADEMY, access)
         draft = service.open_draft(store, interaction.guild_id, member.id, now())
-        if draft is not None:
+        if draft is not None and not v2:  # /botc2 (Test) startet immer neu
             await interaction.response.send_message(
                 "Du hast noch einen offenen Entwurf. Weitermachen oder neu beginnen?",
                 view=ResumeOrNewView(store, draft, allow_academy),
@@ -55,7 +63,7 @@ class Botc(commands.Cog):
             )
             return
 
-        await interaction.response.send_modal(BotcModal(store, allow_academy))
+        await interaction.response.send_modal(BotcModal(store, allow_academy, v2=v2))
 
 
 async def setup(bot):

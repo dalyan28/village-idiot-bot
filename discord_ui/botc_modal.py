@@ -34,9 +34,10 @@ LEVEL_DESCRIPTIONS = {
 class BotcModal(discord.ui.Modal):
     """Fünf Felder (Discord-Grenze): Datum, Uhrzeit, Spieler, Level, Optionen."""
 
-    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput | None = None):
+    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput | None = None, v2: bool = False):
         super().__init__(title="Neue Runde anlegen", timeout=15 * 60)
         self.store = store
+        self.v2 = v2  # /botc2: Wizard mit Components V2
         raw = raw or ModalInput()
 
         self.date = discord.ui.TextInput(placeholder="z. B. Sa, morgen, 24.10.", default=raw.date_text or None,
@@ -88,9 +89,12 @@ class BotcModal(discord.ui.Modal):
         except (ParseError, service.ServiceError) as e:
             allow_academy = OPTION_ACADEMY in [o.value for o in self.options.options]
             await interaction.response.send_message(
-                str(e), view=RetryView(self.store, allow_academy, raw), ephemeral=True
+                str(e), view=RetryView(self.store, allow_academy, raw, self.v2), ephemeral=True
             )
             return
+        if self.v2:
+            self.store.set_draft_ui(draft.id, {"v2": True})
+            draft.ui = {"v2": True}
 
         await interaction.response.send_message(
             f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n"
@@ -122,13 +126,13 @@ async def deliver_wizard(interaction: discord.Interaction, draft, intro: str | N
 class RetryView(discord.ui.View):
     """Nach einem Eingabefehler: Modal mit den alten Eingaben neu öffnen."""
 
-    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput):
+    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput, v2: bool = False):
         super().__init__(timeout=15 * 60)
-        self.store, self.allow_academy, self.raw = store, allow_academy, raw
+        self.store, self.allow_academy, self.raw, self.v2 = store, allow_academy, raw, v2
 
     @discord.ui.button(label="Nochmal", style=discord.ButtonStyle.primary)
     async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw))
+        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw, self.v2))
 
 
 class ResumeOrNewView(discord.ui.View):

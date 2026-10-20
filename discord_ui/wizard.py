@@ -21,6 +21,7 @@ from datetime import datetime
 
 import discord
 
+from discord_ui.layout_v2 import text_layout, to_layout
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.intake import parse_players
@@ -567,7 +568,19 @@ def draft_creator_name(bot: discord.Client, draft: Draft) -> str:
 async def send_wizard(bot: discord.Client, user: discord.abc.User, draft: Draft, intro: str | None = None):
     """Schickt die Wizard-Nachricht per DM. Wirft discord.Forbidden, wenn DMs geschlossen sind."""
     screen = await build_screen(bot, bot.store, draft)
+    if is_v2(draft):
+        embeds = screen.embeds
+        if intro:
+            embeds = [discord.Embed(description=intro), *embeds]
+        await user.send(view=to_layout(embeds, screen.view, draft.id, base_step(draft.step) == STEP_PREVIEW),
+                        files=screen.files)
+        return
     await user.send(content=intro, embeds=screen.embeds, view=screen.view, files=screen.files)
+
+
+def is_v2(draft: Draft) -> bool:
+    """Entwurf aus /botc2: Darstellung mit Components V2 (Bearbeiten-Button je Abschnitt)."""
+    return bool((draft.ui or {}).get("v2"))
 
 
 async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str | None = None,
@@ -576,6 +589,11 @@ async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str
     if not interaction.response.is_done():
         await interaction.response.defer()
     screen = await build_screen(ctx.bot, ctx.store, ctx.draft, notice)
+    if is_v2(ctx.draft):
+        editable = base_step(ctx.draft.step) == STEP_PREVIEW
+        await interaction.edit_original_response(view=to_layout(screen.embeds, screen.view, ctx.draft.id, editable),
+                                                 attachments=screen.files)
+        return
     await interaction.edit_original_response(content=content, embeds=screen.embeds, view=screen.view,
                                              attachments=screen.files)
 
@@ -613,6 +631,9 @@ async def _cancel(interaction, ctx: WizardContext, arg):
     service.discard_draft(ctx.store, ctx.draft, ctx.actor)
     text = ("Event-Erstellung abgebrochen. Mit `/botc` kannst du jederzeit neu starten."
             if ctx.draft.event_id is None else "Bearbeitung verworfen, das Event bleibt unverändert.")
+    if is_v2(ctx.draft):
+        await interaction.response.edit_message(view=text_layout(text), attachments=[])
+        return
     await interaction.response.edit_message(content=text, embeds=[], view=None, attachments=[])
 
 
@@ -773,6 +794,9 @@ async def _publish(interaction, ctx: WizardContext, arg):
         if old and old.data.custom_image and old.data.custom_image != result.event.data.custom_image:
             delete_custom_image(old.data.custom_image)
         text = f"Änderungen gespeichert.\n{msg.jump_url}" if msg else "Änderungen gespeichert."
+    if is_v2(ctx.draft):
+        await interaction.edit_original_response(view=text_layout(text), attachments=[])
+        return
     await interaction.edit_original_response(content=text, embeds=[], view=None, attachments=[])
 
 
@@ -781,7 +805,16 @@ async def _publish(interaction, ctx: WizardContext, arg):
 
 @select_action("edit")
 async def _edit(interaction, ctx: WizardContext, values):
-    choice = values[0] if values else ""
+    await open_edit(interaction, ctx, values[0] if values else "")
+
+
+@action("edit_field")
+async def _edit_field(interaction, ctx: WizardContext, arg):
+    """„Bearbeiten“-Button neben einem Abschnitt der Zusammenfassung (/botc2)."""
+    await open_edit(interaction, ctx, arg or "")
+
+
+async def open_edit(interaction, ctx: WizardContext, choice: str):
     d = ctx.draft.data
     if choice in ("script", "rating", "image"):
         if choice == "rating":
