@@ -141,6 +141,11 @@ class ReminderCog(commands.Cog):
                 data = json.dumps(content, indent=2, ensure_ascii=False).encode("utf-8")
                 await thread.send(f"Hier ist das Skript **{discord.utils.escape_markdown(name)}** zum Laden:",
                                   file=discord.File(io.BytesIO(data), filename=f"{safe}.json"))
+
+        if cfg.post_attendance and people:
+            data = reminders.attendance_txt(event.data, people).encode("utf-8")
+            await thread.send("Anwesenheitsliste zum Abhaken:",
+                              file=discord.File(io.BytesIO(data), filename=reminders.ATTENDANCE_FILENAME))
         logger.info("Reminder %s für Event %s gesendet (%d Empfänger)", cfg.key, event.id, len(people))
 
     # ── Commands ─────────────────────────────────────────────────────────
@@ -171,6 +176,7 @@ class ReminderCog(commands.Cog):
         vorlaeufig="Vorläufige bzw. Auffüller benachrichtigen",
         co_st="Co-Storyteller benachrichtigen",
         skript_json="Skript-JSON in den Thread posten",
+        anwesenheitsliste="Anwesenheitsliste (anwesenheit.txt) zum Abhaken in den Thread posten",
         zuruecksetzen="Diesen Reminder auf den eingebauten Standard zurücksetzen",
     )
     @app_commands.choices(
@@ -186,7 +192,8 @@ class ReminderCog(commands.Cog):
                             benachrichtigung: app_commands.Choice[str] | None = None,
                             zusagen: bool | None = None, warteliste: bool | None = None,
                             vorlaeufig: bool | None = None, co_st: bool | None = None,
-                            skript_json: bool | None = None, zuruecksetzen: bool | None = None):
+                            skript_json: bool | None = None, anwesenheitsliste: bool | None = None,
+                            zuruecksetzen: bool | None = None):
         if not await self._check(interaction):
             return
         settings = self.store.get_guild_settings(interaction.guild_id)
@@ -208,6 +215,8 @@ class ReminderCog(commands.Cog):
         cfg.recipients = [r for r in reminders.RECIPIENTS if r in to]
         if skript_json is not None:
             cfg.post_script = skript_json
+        if anwesenheitsliste is not None:
+            cfg.post_attendance = anwesenheitsliste
         errors = reminders.validate(cfg)
         if errors:
             await interaction.response.send_message(" ".join(errors), ephemeral=True)

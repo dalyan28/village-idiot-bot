@@ -141,12 +141,18 @@ Einstellungen je Reminder:
 
 | Einstellung | Werte | Default |
 |---|---|---|
-| Aktiv | ja / nein | ja |
+| Aktiv | ja / nein | ja beim ersten, **nein beim zweiten** (Dalyan, 20.10.2026) |
 | Zeitpunkt | Minuten vor Start | 15 bzw. 5 |
 | Benachrichtigung | Ping / nur Namen | Ping |
 | Empfänger | Zusagen, Warteliste, Vorläufig/Auffüller, Co-ST (Mehrfachauswahl) | Zusagen ohne Warteliste |
 | Skript-JSON posten | ja / nein | ja beim ersten, nein beim zweiten |
+| Anwesenheitsliste (`anwesenheit.txt`) | ja / nein | ja beim ersten, nein beim zweiten |
 | Art | Erinnerung / Anwesenheitskontrolle (nummerierte Liste) | erster: Erinnerung, zweiter: Anwesenheitskontrolle |
+
+- **Alles auf einmal, wenn der Thread aufgeht** (Dalyan, 20.10.2026): Die erste Erinnerung bringt Ping, Skript-JSON
+  und `anwesenheit.txt` (UTF-8): oben Titel und Termin, darunter `[ ] Name` je Empfänger, nur Anzeigenamen, keine
+  Mentions. Ohne Empfänger keine Datei. Die zweite Erinnerung (Anwesenheitskontrolle 5 Min. vorher) ist deshalb
+  standardmäßig aus, über `/set_reminders` (Option `anwesenheitsliste` bzw. `aktiv`) wieder einschaltbar.
 
 - **Server-Default**: `/set_reminders` und `/see_reminders`, nur Event-Team bzw. „Server verwalten“. Gespeichert in der
   Guild-Konfiguration.

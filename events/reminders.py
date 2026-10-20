@@ -12,8 +12,10 @@ from datetime import datetime, timedelta
 
 import discord
 
-from events.schema import EventData, Person
+from events.parse import WEEKDAY_NAMES
+from events.schema import BERLIN_TZ, EventData, Person
 from events.service import RsvpLists
+from events.templates import base_title
 
 FIRST, SECOND = "first", "second"
 KEYS = (FIRST, SECOND)
@@ -47,17 +49,23 @@ class ReminderConfig:
     recipients: list[str] = field(default_factory=list)
     post_script: bool = False
     kind: str = KIND_REMINDER
+    post_attendance: bool = False  # anwesenheit.txt zum Abhaken mitschicken
 
     @property
     def label(self) -> str:
         return "Erinnerung" if self.kind == KIND_REMINDER else "Anwesenheitskontrolle"
 
 
+# Alles kommt auf einmal, wenn der Thread aufgeht: Ping, Skript-JSON, Anwesenheitsliste.
+# Die zweite Erinnerung (Anwesenheitskontrolle) ist standardmäßig aus (Dalyan, 20.10.2026).
 DEFAULTS = {
-    FIRST: ReminderConfig(FIRST, True, 15, MODE_PING, [TO_ACCEPTED], post_script=True, kind=KIND_REMINDER),
-    SECOND: ReminderConfig(SECOND, True, 5, MODE_PING, [TO_ACCEPTED], post_script=False, kind=KIND_ATTENDANCE),
+    FIRST: ReminderConfig(FIRST, True, 15, MODE_PING, [TO_ACCEPTED], post_script=True, kind=KIND_REMINDER,
+                          post_attendance=True),
+    SECOND: ReminderConfig(SECOND, False, 5, MODE_PING, [TO_ACCEPTED], post_script=False, kind=KIND_ATTENDANCE,
+                           post_attendance=False),
 }
-_FIELDS = ("enabled", "minutes_before", "mode", "recipients", "post_script")
+_FIELDS = ("enabled", "minutes_before", "mode", "recipients", "post_script", "post_attendance")
+ATTENDANCE_FILENAME = "anwesenheit.txt"
 
 
 def copy_of(cfg: ReminderConfig) -> ReminderConfig:
@@ -171,6 +179,19 @@ def message_text(cfg: ReminderConfig, start: datetime, people: list[Person], is_
     return text
 
 
+def attendance_txt(data: EventData, people: list[Person]) -> str:
+    """Anwesenheitsliste zum Abhaken: Titel und Termin, darunter je Person ein Kästchen.
+    Nur Anzeigenamen, keine Mentions oder IDs."""
+    title = data.title.strip() or base_title(data)
+    lines = [title]
+    if data.start:
+        start = data.start.astimezone(BERLIN_TZ)
+        lines.append(f"{WEEKDAY_NAMES[start.weekday()]}, {start:%d.%m.%Y, %H:%M}")
+    lines.append("")
+    lines += [f"[ ] {p.name}" for p in people]
+    return "\n".join(lines) + "\n"
+
+
 def describe(cfg: ReminderConfig) -> str:
     """Kurzbeschreibung für Wizard und /see_reminders."""
     if not cfg.enabled:
@@ -180,4 +201,6 @@ def describe(cfg: ReminderConfig) -> str:
     text = f"{cfg.label} {cfg.minutes_before} Min. vorher · {how} · an {who}"
     if cfg.post_script:
         text += " · mit Skript-JSON"
+    if cfg.post_attendance:
+        text += " · mit Anwesenheitsliste"
     return text

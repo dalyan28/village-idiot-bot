@@ -24,6 +24,10 @@ class TestSettings:
         assert cfgs[FIRST].minutes_before == 15 and cfgs[FIRST].post_script and cfgs[FIRST].mode == "ping"
         assert cfgs[SECOND].minutes_before == 5 and cfgs[SECOND].kind == "attendance"
         assert cfgs[FIRST].recipients == ["accepted"]  # Warteliste nicht mehr standardmäßig
+        # Anwesenheitsliste kommt mit der ersten Erinnerung, die zweite ist standardmäßig aus
+        assert cfgs[FIRST].post_attendance and not cfgs[SECOND].post_attendance
+        assert not cfgs[SECOND].enabled
+        assert "mit Anwesenheitsliste" in reminders.describe(cfgs[FIRST])
 
     def test_server_default_then_event_override(self):
         cfg = reminders.copy_of(reminders.DEFAULTS[FIRST])
@@ -63,7 +67,8 @@ class TestSettings:
 
 
 class TestDue:
-    cfgs = reminders.effective({}, EventData())
+    # beide Erinnerungen an (die zweite ist standardmäßig aus)
+    cfgs = reminders.effective({}, EventData(reminder_overrides={SECOND: {"enabled": True}}))
 
     def test_not_yet(self):
         assert reminders.due(self.cfgs, START, START - timedelta(minutes=16), set()) == []
@@ -78,8 +83,7 @@ class TestDue:
 
     def test_sent_and_disabled_are_skipped(self):
         assert reminders.due(self.cfgs, START, START - timedelta(minutes=1), {FIRST, SECOND}) == []
-        data = EventData(reminder_overrides={SECOND: {"enabled": False}})
-        cfgs = reminders.effective({}, data)
+        cfgs = reminders.effective({}, EventData())  # Standard: zweite Erinnerung aus
         assert [c.key for c in reminders.due(cfgs, START, START - timedelta(minutes=1), {FIRST})] == []
 
 
@@ -103,6 +107,14 @@ class TestText:
         cfg = reminders.copy_of(reminders.DEFAULTS[SECOND])
         assert "1. <@1>" in reminders.message_text(cfg, START, [Person("Anna", 1)])
         assert "keine Zusagen" in reminders.message_text(cfg, START, [])
+
+
+def test_attendance_txt():
+    data = EventData(start=START, storyteller=Person("Dalyan", 7), script=ScriptRef(kind="botcscripts",
+                                                                                     name="Boozling"))
+    text = reminders.attendance_txt(data, [Person("Anna", 1), Person("Rosanna", 2)])
+    assert text == "Boozling mit Dalyan\nSamstag, 24.10.2026, 20:00\n\n[ ] Anna\n[ ] Rosanna\n"
+    assert "<@" not in text
 
 
 def test_script_json_variants():
@@ -149,3 +161,32 @@ def test_send_reminder_posts_into_thread():
     assert "<@1> <@2>" in sent[0][0] and "<@3>" not in sent[0][0]
     assert sent[0][2].everyone is False and sent[0][2].roles is False
     assert sent[1][1] == "Trouble Brewing.json"
+    assert sent[2][1] == "anwesenheit.txt"  # Ping, Skript, Anwesenheitsliste: alles auf einmal
+
+
+def test_no_attendance_file_without_recipients():
+    sent = []
+
+    class Thread:
+        async def send(self, content=None, file=None, allowed_mentions=None):
+            sent.append(file.filename if file else None)
+
+    async def go():
+        cog = ReminderCog.__new__(ReminderCog)
+        cog.store = SimpleNamespace()
+        cog.bot = None
+
+        async def thread(event):
+            return Thread()
+        cog._thread = thread
+        import events.service as svc
+        orig = svc.rsvp_lists
+        svc.rsvp_lists = lambda store, event: RsvpLists(players=[], waitlist=[], tentative=[], declined=[])
+        try:
+            event = SimpleNamespace(id=1, data=EventData(start=START, script=ScriptRef(kind=SCRIPT_FREE)))
+            await cog.send_reminder(event, reminders.copy_of(reminders.DEFAULTS[FIRST]))
+        finally:
+            svc.rsvp_lists = orig
+
+    asyncio.run(go())
+    assert "anwesenheit.txt" not in sent
