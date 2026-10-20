@@ -22,7 +22,7 @@ from datetime import datetime
 
 import discord
 
-from discord_ui.layout_v2 import image_layout, script_layout, summary_layout, text_layout
+from discord_ui.layout_v2 import chat_wait_layout, image_layout, script_layout, summary_layout, text_layout
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.intake import parse_players
@@ -267,6 +267,8 @@ def draft_creator_name(bot: discord.Client, draft: Draft) -> str:
 
 async def render(bot: discord.Client, draft: Draft, notice: str | None = None):
     """Karte für den aktuellen Schritt: (LayoutView, Dateien)."""
+    if (draft.ui or {}).get(AWAIT_KEY):  # wartet auf Titel/Beschreibung als Chat-Nachricht
+        return chat_wait_layout(bot, draft, notice), []
     step = base_step(draft.step)
     if step == STEP_SCRIPT:
         return await script_layout(bot, bot.store, draft, notice)
@@ -391,6 +393,12 @@ async def _pick_base(interaction, ctx: WizardContext, key: str):
         raise service.ServiceError("Unbekanntes Basis-Skript.")
     await _set_script(interaction, ctx, ScriptRef(kind=SCRIPT_BASE, name=base["name"], author=base.get("author", ""),
                                                   base_key=key, characters=list(base["characters"])))
+
+
+@action("skip_script")
+async def _skip_script(interaction, ctx: WizardContext, arg):
+    """Skript später wählen: direkt zur Zusammenfassung, dort steht es als fehlend (Dalyan, 20.10.2026)."""
+    await goto(interaction, ctx, STEP_PREVIEW)
 
 
 @action("script_dialog")
@@ -666,6 +674,61 @@ async def _script_from_upload(attachment: discord.Attachment) -> ScriptRef:
     return script
 
 
+# ── Titel/Beschreibung als Chat-Nachricht ─────────────────────────────────────
+# Im Dialog gibt es keine Emoji-Auswahl; im Chat schon (Dalyan, 20.10.2026). Der Entwurf merkt sich in
+# drafts.ui, dass er auf die nächste DM-Nachricht wartet, und welche Wizard-Nachricht danach zu
+# aktualisieren ist (commands/botc.py, on_message).
+AWAIT_KEY = "await_text"
+CHAT_FIELDS = {"title": "Titel", "description": "Beschreibung"}
+CHAT_OPTION = "chat"
+
+
+def _chat_checkbox() -> discord.ui.CheckboxGroup:
+    group = discord.ui.CheckboxGroup(required=False, min_values=0, max_values=1)
+    group.add_option(label="Lieber im Chat schreiben", value=CHAT_OPTION,
+                     description="z. B. für Emojis; das Feld oben wird dann ignoriert")
+    return group
+
+
+async def _start_chat_input(interaction, ctx: WizardContext, field: str):
+    ui = ctx.ui
+    ui[AWAIT_KEY] = {"field": field, "channel_id": interaction.channel_id,
+                     "message_id": interaction.message.id if interaction.message else None}
+    ctx.set_ui(ui)
+    await show(interaction, ctx)
+
+
+@action("chat_cancel")
+async def _chat_cancel(interaction, ctx: WizardContext, arg):
+    ui = ctx.ui
+    ui.pop(AWAIT_KEY, None)
+    ctx.set_ui(ui)
+    await show(interaction, ctx)
+
+
+def apply_chat_text(ctx: WizardContext, text: str) -> str | None:
+    """Übernimmt die Chat-Nachricht als Titel bzw. Beschreibung. Gibt bei zu langem Text einen
+    Hinweis zurück und wartet weiter."""
+    wait = (ctx.ui.get(AWAIT_KEY) or {})
+    field = wait.get("field")
+    text = (text or "").strip()
+    d = ctx.data
+    if field == "title":
+        if len(text) > TITLE_MAX_LENGTH:
+            return f"Der Titel ist zu lang ({len(text)} von {TITLE_MAX_LENGTH} Zeichen). Schreib ihn bitte kürzer."
+        d.title = _title_from_input(d, text)
+    elif field == "description":
+        if len(text) > DESCRIPTION_MAX_LENGTH:
+            return (f"Die Beschreibung ist zu lang ({len(text)} von {DESCRIPTION_MAX_LENGTH} Zeichen). "
+                    "Schreib sie bitte kürzer.")
+        d.description = text
+    ctx.save(d)
+    ui = ctx.ui
+    ui.pop(AWAIT_KEY, None)
+    ctx.set_ui(ui)
+    return None
+
+
 class TitleModal(_WizardModal):
     """Eigener Titel. Leer = automatisch „{Skript} mit {ST}“. Die Symbole kommen immer davor."""
 
@@ -676,8 +739,13 @@ class TitleModal(_WizardModal):
                                          required=False, max_length=TITLE_MAX_LENGTH)
         self.add_item(discord.ui.Label(text="Titel", description="Die Symbole (Labels, Schwierigkeit) kommen "
                                        "automatisch davor. Leer = automatischer Titel.", component=self.text))
+        self.chat = _chat_checkbox()
+        self.add_item(discord.ui.Label(text="Oder im Chat", component=self.chat))
 
     async def handle(self, interaction, ctx: WizardContext):
+        if CHAT_OPTION in self.chat.values:
+            await _start_chat_input(interaction, ctx, "title")
+            return
         d = ctx.data
         d.title = _title_from_input(d, self.text.value)
         ctx.save(d)
@@ -864,8 +932,13 @@ class DescriptionModal(_WizardModal):
                                          required=False, max_length=DESCRIPTION_MAX_LENGTH)
         self.add_item(discord.ui.Label(text="Beschreibung", description=f"Bis zu {DESCRIPTION_MAX_LENGTH} Zeichen",
                                        component=self.text))
+        self.chat = _chat_checkbox()
+        self.add_item(discord.ui.Label(text="Oder im Chat", component=self.chat))
 
     async def handle(self, interaction, ctx: WizardContext):
+        if CHAT_OPTION in self.chat.values:
+            await _start_chat_input(interaction, ctx, "description")
+            return
         d = ctx.data
         d.description = (self.text.value or "").strip()
         ctx.save(d)
