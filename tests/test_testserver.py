@@ -484,7 +484,7 @@ def test_welcome_lists_only_existing_commands(ts):
     import re
     listed = list(dict.fromkeys(re.findall(r"`/([a-z_]+(?: [a-z_]+)?)`", texts.WELCOME)))
     assert listed == ["botc", "overview_events", "testserver beispiel", "testserver reset", "testserver setup",
-                      "testserver delete_all"]
+                      "testserver update", "testserver delete_all"]
     assert set(listed) <= set(names)
 
 
@@ -570,3 +570,11 @@ def test_sample_event_is_full_and_created_once(ts):
     # Zweites Setup: das Beispiel bleibt, kein zweites
     run(server.ensure_sample_event(bot, bot.guild, bot.store, owner, server.SetupResult()))
     assert len(bot.store.list_events(GUILD)) == 1
+
+
+def test_text_channel_key_only_for_text_channels():
+    store = flow.Store(":memory:")
+    registry.save(store, 1, {"categories": {}, "channels": {"welcome": 10, "events": 20}, "roles": {}, "messages": {}})
+    assert server.text_channel_key(store, 1, 10) == "welcome"
+    assert server.text_channel_key(store, 1, 20) is None  # Event-Channel hat keine festen Texte
+    assert server.text_channel_key(store, 1, 99) is None

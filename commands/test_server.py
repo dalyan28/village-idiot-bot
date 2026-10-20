@@ -88,6 +88,18 @@ class TestServerCog(commands.Cog):
         await server.ensure_sample_event(self.bot, interaction.guild, self.bot.store, interaction.user, result)
         await _followup(interaction, result.summary())
 
+    @testserver.command(name="update", description="Die Texte in diesem Channel aktualisieren")
+    async def update_cmd(self, interaction: discord.Interaction):
+        if not await _guard(interaction):
+            return
+        key = server.text_channel_key(self.bot.store, interaction.guild_id, interaction.channel_id)
+        if key is None:
+            await interaction.response.send_message(texts.UPDATE_NO_TEXTS, ephemeral=True)
+            return
+        await interaction.response.send_message(texts.UPDATE_RUNNING, ephemeral=True)
+        result = await server.update_texts(interaction.guild, self.bot.store, only=key)
+        await _followup(interaction, result.summary())
+
     @testserver.command(name="beispiel", description="Volles Beispiel-Event mit 23 erfundenen Anmeldungen posten")
     async def sample_cmd(self, interaction: discord.Interaction):
         if not await _guard(interaction):

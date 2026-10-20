@@ -20,6 +20,7 @@ Die Testserver-Commands braucht ihr in der Regel nicht, die sind eher für mich:
 `/testserver beispiel` ein volles Beispiel-Event mit 23 erfundenen Anmeldungen posten
 `/testserver reset` Event-Channel leeren, alle Runden und Entwürfe weg
 `/testserver setup` Channels und Texte hier auffrischen
+`/testserver update` die Texte im aktuellen Channel auffrischen
 `/testserver delete_all` löscht alle Channels, Rollen und Runden hier. Bitte nicht benutzen, das brauche ich nur, um am Ende alles zu wipen. Kaputt machen könnt ihr damit aber nichts: Mit `/testserver setup` ist der Server wieder eingerichtet. Und schlau wie ich war, wird der Feedback-Channel nicht gelöscht.
 
 **Channels**
@@ -76,6 +77,8 @@ Hier landet alles, was über den Button **Feedback** reinkommt. Ihr könnt auch 
 NOT_A_TEST_SERVER = "Das geht nur auf einem Testserver. Dieser Server steht nicht in `TEST_GUILD_IDS`."
 ADMINS_ONLY = "Das dürfen nur Admins (Server verwalten)."
 SETUP_RUNNING = "Ich richte den Server ein …"
+UPDATE_RUNNING = "Ich aktualisiere die Texte in diesem Channel …"
+UPDATE_NO_TEXTS = "In diesem Channel gibt es keine festen Texte. Ruf den Command in dem Channel auf, den du auffrischen willst."
 SAMPLE_RUNNING = "Ich poste ein Beispiel-Event …"
 RESET_RUNNING = "Ich räume den Event-Channel auf …"
 DELETE_CONFIRM = ("Damit fliegen alle Channels, Rollen, Runden, Entwürfe und die Bot-Einstellungen für diesen "

@@ -184,7 +184,27 @@ async def setup_server(guild: discord.Guild, store: Store) -> SetupResult:
             cfg[cfg_key] = reg["channels"][key]
     bot_config.save_guild_config(guild.id, cfg)
 
-    # Feste Texte posten bzw. aktualisieren; mehrere Texte in einem Channel bleiben in dieser Reihenfolge
+    await update_texts(guild, store, result)
+    return result
+
+
+# Channels mit festen Texten (für /testserver update)
+TEXT_CHANNELS = ("welcome", "texts", "feedback", "chat")
+
+
+def text_channel_key(store: Store, guild_id: int, channel_id: int) -> str | None:
+    """Key des Channels, wenn er feste Texte hat (sonst None)."""
+    channels = registry.get(store, guild_id)["channels"]
+    return next((k for k in TEXT_CHANNELS if channels.get(k) == channel_id), None)
+
+
+async def update_texts(guild: discord.Guild, store: Store, result: SetupResult | None = None,
+                       only: str | None = None) -> SetupResult:
+    """Feste Texte posten bzw. bearbeiten, ohne Channels, Rollen oder Rechte anzufassen.
+    `only`: nur dieser Channel (Key aus TEXT_CHANNELS)."""
+    result = result or SetupResult()
+    reg = registry.get(store, guild.id)
+    # mehrere Texte in einem Channel bleiben in dieser Reihenfolge
     links = {k: f"<#{cid}>" for k, cid in reg["channels"].items()}
     def filled(*channel_texts):
         values = {k: links.get(k, f"#{k}") for k, _, _ in CHANNEL_PLAN} | {"rater_url": texts.RATER_URL}
@@ -193,8 +213,11 @@ async def setup_server(guild: discord.Guild, store: Store) -> SetupResult:
     posts = {"welcome": filled(texts.WELCOME, texts.FEATURES), "texts": bot_texts.posts(),
              "feedback": filled(texts.FEEDBACK_INTRO), "chat": filled(texts.CHAT_INTRO)}
     for key, channel_texts in posts.items():
+        if only and key != only:
+            continue
         channel = guild.get_channel(reg["channels"].get(key) or 0)
         if channel is None:
+            result.failed.append(f"#{key} (gibt es nicht, erst /testserver setup)")
             continue
         parts = [part for text in channel_texts for part in split_message(text)]
         try:
@@ -202,6 +225,8 @@ async def setup_server(guild: discord.Guild, store: Store) -> SetupResult:
         except discord.HTTPException as e:
             logger.warning("Testserver: Text für %s fehlgeschlagen: %s", key, e)
             result.failed.append(f"Text in #{channel.name}")
+            continue
+        result.updated.append(f"Text in {channel.mention}")
         registry.save(store, guild.id, reg)
     return result
 
