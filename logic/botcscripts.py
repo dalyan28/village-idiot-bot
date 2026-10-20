@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 BOTCSCRIPTS_BASE = "https://www.botcscripts.com"
 
 # REST API
-API_SEARCH = "https://www.botcscripts.com/api/scripts/?format=json&search={query}&limit={limit}&include_homebrew=true&include_hybrid=true"
+# ordering=-score: beliebteste zuerst (score = Daumen-hoch-Zahl auf botcscripts.com, Dalyan 20.10.2026)
+API_SEARCH = ("https://www.botcscripts.com/api/scripts/?format=json&search={query}&limit={limit}"
+              "&include_homebrew=true&include_hybrid=true&ordering=-score")
 
 # HTML Fallback
 HTML_SEARCH = "https://www.botcscripts.com/?search={query}"
@@ -70,6 +72,7 @@ def _parse_api_result(result: dict) -> dict:
         "characters": characters,
         "content": content,
         "script_type": result.get("script_type", ""),
+        "likes": result.get("score") or 0,
         "url": f"{BOTCSCRIPTS_BASE}/script/{script_id}/{version}/" if script_id else "",
     }
 

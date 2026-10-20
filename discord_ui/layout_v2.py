@@ -253,6 +253,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
         options = []
         for r in results[:25]:
             details = [f"von {r['author']}" if r.get("author") else "", f"v{r['version']}",
+                       f"{r['likes']} Likes" if r.get("likes") else "",
                        "Teensyville" if r.get("type") == "Teensyville" else "", "⭐" if r.get("special") else ""]
             options.append(discord.SelectOption(label=r["name"][:100], value=f"{r['id']}|{r['version']}",
                                                 description=" · ".join(x for x in details if x)[:100] or None))
@@ -302,7 +303,8 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
         container.add_item(discord.ui.TextDisplay(f"**Treffer für „{esc(ui.get('query', ''))}“**"))
         for i, r in enumerate(results[:SEARCH_RESULTS_SHOWN]):
             line = f"**{esc(r['name'])}** v{esc(r['version'])}"
-            details = [f"von {esc(r['author'])}" if r.get("author") else ""]
+            details = [f"von {esc(r['author'])}" if r.get("author") else "",
+                       f"{r['likes']} Likes" if r.get("likes") else ""]
             if r.get("type") == "Teensyville":
                 details.append("Teensyville")
             if r.get("special"):

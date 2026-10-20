@@ -986,7 +986,7 @@ class SearchModal(_WizardModal):
         ui["query"] = query
         ui["search_results"] = [
             {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", ""),
-             "type": r.get("script_type", ""),
+             "type": r.get("script_type", ""), "likes": r.get("likes") or 0,
              "special": bool(special_reasons(ScriptRef(kind=SCRIPT_BOTCSCRIPTS, characters=r.get("characters") or [],
                                                        content=r.get("content"))))}
             for r in results if r.get("botcscripts_id") and r.get("version")
@@ -1088,7 +1088,7 @@ class ScriptModal(_WizardModal):
 def _result_entry(r: dict) -> dict:
     """Suchtreffer, wie er in drafts.ui gespeichert wird."""
     return {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", ""),
-            "type": r.get("script_type", ""),
+            "type": r.get("script_type", ""), "likes": r.get("likes") or 0,
             "special": bool(special_reasons(ScriptRef(kind=SCRIPT_BOTCSCRIPTS, characters=r.get("characters") or [],
                                                       content=r.get("content"))))}
 
