@@ -503,6 +503,11 @@ Dritte Runde Feedback (20.10.2026):
   nach Likes) stehen seitenweise (5) in der Karte mit „Wählen“, „◀ Zurück“/„Weiter ▶“ und „Neue Suche“.
 - **Skriptbild im Event-Post bleibt groß unten**, das Thumbnail behält das Basis-3-/Academy-Logo (Dalyan,
   20.10.2026). Klein neben dem Inhalt ginge nur mit V2.
+- **Einstieg über eine Startnachricht in den DMs** (Dalyan, 20.10.2026): `/botc` im Channel antwortet nur
+  „Es geht in deinen DMs weiter.“ und schickt per DM eine Startnachricht (Ablauf in drei Schritten, Hinweis auf
+  die Storytelling-Hinweise und Regeln, Links in `events/templates.py`, bis dahin „(Link folgt)“). Der Button
+  „Termin festlegen“ öffnet das Modal; danach wird dieselbe Nachricht zur Skript-Karte. Bei offenem Entwurf:
+  „Entwurf fortsetzen“ / „Neu beginnen“. Buttons: DynamicItem `botc:<guild_id>:new|resume`.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`

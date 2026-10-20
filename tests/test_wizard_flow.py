@@ -142,6 +142,7 @@ class FakeResponse:
     async def send_message(self, content=None, **kw):
         self.done = True
         self.inter.sent.append(content)
+        self.inter.sent_kw.append(kw)
 
 
 class FakeInteraction:
@@ -152,7 +153,7 @@ class FakeInteraction:
         self.guild_id = guild_id
         self.response = FakeResponse(self)
         self.followup = SimpleNamespace(send=self._followup)
-        self.screen, self.sent = None, []
+        self.screen, self.sent, self.sent_kw = None, [], []
 
     async def _followup(self, content=None, **kw):
         self.sent.append(content)
@@ -407,24 +408,98 @@ def test_publish_without_event_channel_keeps_draft(env, monkeypatch):
     assert "Event-Channel" in screen_text(inter)
 
 
-def test_botc_works_in_dms(env, monkeypatch):
-    """/botc in den DMs: Server über die Mitgliedschaft, Modal bekommt Server und Mitglied mit."""
+def _texts(view) -> str:
+    return " ".join(i.content for i in view.walk_children() if isinstance(i, discord.ui.TextDisplay))
+
+
+def _button_ids(view) -> list[str]:
+    return [getattr(i, "item", i).custom_id for i in view.walk_children()
+            if isinstance(getattr(i, "item", i), discord.ui.Button)]
+
+
+@pytest.fixture
+def botc_env(env, monkeypatch):
+    from discord_ui import botc_start
+    monkeypatch.setattr(botc_start, "get_guild_config", lambda gid: {"event_channel_id": CHANNEL})
+    env.guild.get_channel = lambda cid: env.channel if cid == CHANNEL else None
+    return env
+
+
+def test_botc_in_channel_sends_start_message_per_dm(botc_env):
+    """/botc in einem Channel: nur ein kurzer Hinweis, die Startnachricht kommt per DM (Dalyan, 20.10.2026)."""
     from commands import botc as botc_cmd
-    bot = env
-    monkeypatch.setattr(botc_cmd, "get_guild_config", lambda gid: {"event_channel_id": CHANNEL})
-    bot.guild.get_channel = lambda cid: bot.channel if cid == CHANNEL else None
-    cog = botc_cmd.Botc(bot)
+    bot = botc_env
+    member = bot.guild.get_member(USER)
+    dms = []
+
+    async def dm(**kw):
+        dms.append(kw)
+    member.send = dm
+    inter = FakeInteraction(bot, member, guild_id=GUILD)
+    inter.guild = bot.guild
+    run(botc_cmd.Botc(bot)._start(inter))
+    assert inter.sent == ["Es geht in deinen DMs weiter."] and inter.response.modal is None
+    start = dms[0]["view"]
+    assert "Termin und Optionen" in _texts(start) and "Skript" in _texts(start) and "Zusammenfassung" in _texts(start)
+    assert "(Link folgt)" in _texts(start)  # Platzhalter für die Hinweise zum Storytellen und die Regeln
+    assert _button_ids(start) == [f"botc:{GUILD}:new"]
+
+
+def test_start_message_becomes_script_card(botc_env):
+    """„Termin festlegen“ öffnet das Modal; nach dem Absenden wird die Startnachricht zur Skript-Karte.
+    Ein zweites /botc bietet „Entwurf fortsetzen“ an."""
+    from commands import botc as botc_cmd
+    from discord_ui.botc_modal import BotcModal
+    from discord_ui.botc_start import StartButton
+    bot = botc_env
+    member = bot.guild.get_member(USER)
+    origin = SimpleNamespace(id=4711)
+
+    click = FakeInteraction(bot, member, message=origin)
+    run(StartButton(GUILD, "new", "x").callback(click))
+    modal = click.response.modal
+    assert isinstance(modal, BotcModal) and modal.origin is origin
+    modal.date_choice._value = modal.date_choice.options[2].value  # übermorgen
+    modal.time_choice._value = "20:00"
+    submit = FakeInteraction(bot, member, message=origin)
+    run(modal.on_submit(submit))
+    draft = bot.store.list_drafts(USER)[0]
+    assert draft.step == "script"
+    card = _texts(submit.screen["view"])  # dieselbe Nachricht, jetzt die Skript-Karte
+    assert "Der Termin steht" in card and "Zusammenfassung" in card
+
+    # /botc in den DMs mit offenem Entwurf: Startnachricht direkt, mit „Entwurf fortsetzen“
     inter = FakeInteraction(bot, SimpleNamespace(id=USER, display_name="Dalyan"))
     inter.guild = None
-    run(cog._start(inter))
-    modal = inter.response.modal
-    assert modal is not None and modal.guild is bot.guild and modal.member.id == USER
+    run(botc_cmd.Botc(bot)._start(inter))
+    start = inter.sent_kw[0]["view"]
+    assert "offenen Entwurf" in _texts(start)
+    assert _button_ids(start) == [f"botc:{GUILD}:resume", f"botc:{GUILD}:new"]
+    resume = FakeInteraction(bot, member, message=origin)
+    run(StartButton(GUILD, "resume", "x").callback(resume))
+    assert "Skript wählen" in _texts(resume.screen["view"])
 
-    # Nicht Mitglied eines freigeschalteten Servers → Hinweis statt Modal
+    # Nicht Mitglied eines freigeschalteten Servers → Hinweis statt Startnachricht
     stranger = FakeInteraction(bot, SimpleNamespace(id=999, display_name="X"))
     stranger.guild = None
-    run(cog._start(stranger))
-    assert stranger.response.modal is None and "keinem Server" in stranger.sent[0]
+    run(botc_cmd.Botc(bot)._start(stranger))
+    assert "keinem Server" in stranger.sent[0]
+
+
+def test_modal_parse_error_offers_correction(botc_env):
+    from discord_ui.botc_modal import BotcModal
+    bot = botc_env
+    member = bot.guild.get_member(USER)
+
+    async def go():
+        return BotcModal(bot.store, allow_academy=False, guild=bot.guild, member=member)
+    modal = run(go())
+    modal.date_choice._value, modal.date._value = "other", "31.02."
+    modal.time_choice._value = "20:00"
+    inter = FakeInteraction(bot, member)
+    run(modal.on_submit(inter))
+    assert inter.sent and bot.store.list_drafts(USER) == []
+    assert inter.sent_kw[0]["view"].children[0].label == "Eingaben korrigieren"
 
 
 def test_script_first_with_result_list(env, monkeypatch):
@@ -491,35 +566,6 @@ def test_script_first_with_result_list(env, monkeypatch):
     assert step(bot, draft.id) == "script:p"
     click(bot, draft.id, "pick_result", "0")
     assert step(bot, draft.id) == "preview"
-
-
-@pytest.mark.parametrize("guild_id", [GUILD, None])  # auf dem Server und in den DMs
-def test_botc_modal_submit_creates_draft_and_confirms(env, guild_id):
-    """Regression: die Bestätigung nach dem Absenden warf TypeError ('str' object is not callable)."""
-    from discord_ui.botc_modal import BotcModal
-    bot = env
-    member = bot.guild.get_member(USER)
-    sent_dm = []
-
-    async def dm(**kw):
-        sent_dm.append(kw)
-    member.send = dm
-
-    async def go():
-        return BotcModal(bot.store, allow_academy=False, guild=bot.guild, member=member)
-    modal = run(go())
-    modal.date_choice._value = modal.date_choice.options[2].value  # übermorgen
-    modal.time_choice._value = "20:00"
-    inter = FakeInteraction(bot, member, guild_id=guild_id)
-    run(modal.on_submit(inter))
-    assert inter.sent and inter.sent[0].startswith("Der Termin ist gespeichert.")
-    assert ("in deinen DMs" in inter.sent[0]) == (guild_id is not None)
-    draft = bot.store.list_drafts(USER)[0]
-    assert draft.step == "script"  # /botc beginnt mit der Skriptwahl
-    assert sent_dm  # Skript-Karte per DM geschickt
-    # Die erste Karte bestätigt den Termin und erklärt die nächsten Schritte
-    texts = " ".join(i.content for i in sent_dm[0]["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "Neue Runde" in texts and "Der Termin steht" in texts and "Zusammenfassung" in texts
 
 
 def test_script_card_intro_only_on_first_visit(env):

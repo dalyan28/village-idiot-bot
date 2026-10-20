@@ -65,11 +65,14 @@ class BotcModal(discord.ui.Modal):
     """
 
     def __init__(self, store: Store, allow_academy: bool, raw: ModalInput | None = None,
-                 guild: discord.Guild | None = None, member: discord.Member | None = None):
-        super().__init__(title="Neue Runde anlegen", timeout=15 * 60)
+                 guild: discord.Guild | None = None, member: discord.Member | None = None,
+                 origin: discord.Message | None = None):
+        super().__init__(title="Termin und Optionen", timeout=15 * 60)
         self.store = store
         # Server und Mitglied: in den DMs kennt die Interaktion beides nicht, /botc gibt sie mit
         self.guild, self.member = guild, member
+        # Startnachricht in den DMs; sie wird nach dem Absenden zur Skript-Karte
+        self.origin = origin
         raw = raw or ModalInput()
 
         self.date_choice = date_choice_radio(raw.date_text)
@@ -121,14 +124,20 @@ class BotcModal(discord.ui.Modal):
         except (ParseError, service.ServiceError) as e:
             allow_academy = OPTION_ACADEMY in [o.value for o in self.options.options]
             await interaction.response.send_message(
-                str(e), view=RetryView(self.store, allow_academy, raw, self.guild, self.member),
+                str(e), view=RetryView(self.store, allow_academy, raw, self.guild, self.member, self.origin),
                 ephemeral=True
             )
             return
-        # Den Termin und die nächsten Schritte zeigt die erste Wizard-Karte; hier nur der Weg dorthin
-        where = "Es geht in deinen DMs weiter." if interaction.guild_id else "Es geht hier unten weiter."
-        await interaction.response.send_message(f"Der Termin ist gespeichert. {where}", ephemeral=True)
-        await deliver_wizard(interaction, draft)
+        # Die Startnachricht wird zur Skript-Karte (sie bestätigt den Termin und sagt, was jetzt kommt)
+        layout, files = await wizard.render(interaction.client, draft)
+        if self.origin is not None and interaction.message is not None and interaction.message.id == self.origin.id:
+            await interaction.response.edit_message(view=layout, attachments=files)
+        elif self.origin is not None:  # abgeschickt über „Eingaben korrigieren“
+            await interaction.response.defer()
+            await self.origin.edit(view=layout, attachments=files)
+        else:
+            await interaction.response.defer()
+            await wizard.send_wizard(interaction.client, interaction.user, draft)
 
     async def on_error(self, interaction: discord.Interaction, error: Exception):
         logger.exception("Fehler im /botc-Modal", exc_info=error)
@@ -137,56 +146,17 @@ class BotcModal(discord.ui.Modal):
                                                     ephemeral=True)
 
 
-async def deliver_wizard(interaction: discord.Interaction, draft, intro: str | None = None):
-    """Wizard per DM schicken. Bei geschlossenen DMs bleibt der Entwurf erhalten."""
-    try:
-        await wizard.send_wizard(interaction.client, interaction.user, draft, intro)
-    except discord.Forbidden:
-        await interaction.followup.send(
-            "Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "
-            "(Servereinstellungen → Privatsphäre) und starte `/botc` dann erneut. "
-            "Dein Entwurf bleibt gespeichert.",
-            ephemeral=True,
-        )
-
-
 class RetryView(discord.ui.View):
     """Nach einem Eingabefehler: Modal mit den alten Eingaben neu öffnen."""
 
     def __init__(self, store: Store, allow_academy: bool, raw: ModalInput,
-                 guild: discord.Guild | None = None, member: discord.Member | None = None):
+                 guild: discord.Guild | None = None, member: discord.Member | None = None,
+                 origin: discord.Message | None = None):
         super().__init__(timeout=15 * 60)
         self.store, self.allow_academy, self.raw = store, allow_academy, raw
-        self.guild, self.member = guild, member
+        self.guild, self.member, self.origin = guild, member, origin
 
     @discord.ui.button(label="Eingaben korrigieren", style=discord.ButtonStyle.primary)
     async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw,
-                                                        self.guild, self.member))
-
-
-class ResumeOrNewView(discord.ui.View):
-    """/botc mit offenem Entwurf: weitermachen oder neu beginnen."""
-
-    def __init__(self, store: Store, draft, allow_academy: bool, guild: discord.Guild | None = None,
-                 member: discord.Member | None = None):
-        super().__init__(timeout=15 * 60)
-        self.store, self.draft, self.allow_academy = store, draft, allow_academy
-        self.guild, self.member = guild, member
-
-    @discord.ui.button(label="Weitermachen", style=discord.ButtonStyle.primary)
-    async def resume(self, interaction: discord.Interaction, button: discord.ui.Button):
-        draft = self.store.get_draft(self.draft.id)
-        if draft is None:
-            await interaction.response.edit_message(content="Den Entwurf gibt es nicht mehr. Bitte starte `/botc` neu.",
-                                                    view=None)
-            return
-        where = "Es geht in deinen DMs weiter." if interaction.guild_id else "Es geht hier unten weiter."
-        await interaction.response.edit_message(content=where, view=None)
-        await deliver_wizard(interaction, draft, intro="Hier geht es mit deinem Entwurf weiter.")
-
-    @discord.ui.button(label="Neu beginnen", style=discord.ButtonStyle.secondary)
-    async def new(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Der alte Entwurf wird erst ersetzt, wenn das neue Modal abgeschickt ist (service.start_draft)
-        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy,
-                                                        guild=self.guild, member=self.member))
+                                                        self.guild, self.member, self.origin))

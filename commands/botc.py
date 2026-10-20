@@ -4,20 +4,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from config import get_guild_config
-from discord_ui.botc_modal import BotcModal, ResumeOrNewView
-from discord_ui.members import actor_from_member, fetch_member
+from discord_ui.botc_start import start_layout, start_problem
+from discord_ui.members import fetch_member
 from discord_ui.wizard import now
-from events import guild_lock, permissions, service
-
-
-def missing_create_permission_text(guild: discord.Guild, access) -> str:
-    if access.storyteller_role_id is None:
-        return ("Für diesen Server ist noch keine Storyteller-Rolle festgelegt. Bis dahin dürfen nur "
-                "Event-Team und Admins Runden anlegen. Ein Admin kann die Rolle mit `/set_event_roles` setzen.")
-    role = guild.get_role(access.storyteller_role_id)
-    role_name = role.name if role else "Storyteller"
-    return f"Runden anlegen dürfen nur Mitglieder mit der Rolle **{discord.utils.escape_markdown(role_name)}**."
+from events import guild_lock, service
 
 
 # Diese Commands gibt es auf den Servern UND in den DMs mit dem Bot. bot.py registriert sie deshalb
@@ -80,34 +70,24 @@ class Botc(commands.Cog):
                                                 view=GuildPickView(self, choices), ephemeral=True)
 
     async def _start_for(self, interaction: discord.Interaction, guild: discord.Guild, member: discord.Member):
+        """Startnachricht in den DMs (Dalyan, 20.10.2026); in einem Channel nur ein kurzer Hinweis."""
         store = self.bot.store
-        actor = actor_from_member(member)
-        access = service.get_access(store, guild.id)
-
-        if not permissions.can(actor, permissions.CREATE, access):
-            await interaction.response.send_message(missing_create_permission_text(guild, access),
-                                                    ephemeral=True)
+        problem = start_problem(store, guild, member)
+        if problem:
+            await interaction.response.send_message(problem, ephemeral=True)
             return
-
-        event_channel_id = get_guild_config(guild.id).get("event_channel_id")
-        if not event_channel_id or not guild.get_channel(event_channel_id):
+        layout = start_layout(guild, member.id, service.open_draft(store, guild.id, member.id, now()))
+        if interaction.guild is None:
+            await interaction.response.send_message(view=layout)
+            return
+        try:
+            await member.send(view=layout)
+        except discord.Forbidden:
             await interaction.response.send_message(
-                "Es ist noch kein Event-Channel eingerichtet. Ein Admin kann ihn mit `/set_event_channel` setzen.",
-                ephemeral=True,
-            )
+                "Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "
+                "(Servereinstellungen → Privatsphäre) und starte `/botc` dann erneut.", ephemeral=True)
             return
-
-        allow_academy = permissions.can(actor, permissions.CREATE_ACADEMY, access)
-        draft = service.open_draft(store, guild.id, member.id, now())
-        if draft is not None:
-            await interaction.response.send_message(
-                "Du hast noch einen offenen Entwurf. Weitermachen oder neu beginnen?",
-                view=ResumeOrNewView(store, draft, allow_academy, guild, member),
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.send_modal(BotcModal(store, allow_academy, guild=guild, member=member))
+        await interaction.response.send_message("Es geht in deinen DMs weiter.", ephemeral=True)
 
 
 async def setup(bot):

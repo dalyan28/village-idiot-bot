@@ -156,3 +156,8 @@ def academy_description(rating: str | None) -> str:
         "die Runde teilweise nicht stattfinden kann. In diesem Fall gilt "
         "aber: Rücksicht (und bisweilen etwas Zurückhaltung) ist geboten!"
     )
+
+
+# Links in der Startnachricht von /botc. Leer = Platzhalter „(Link folgt)“, bis die Beiträge feststehen.
+STORYTELLER_GUIDE_URL = ""  # Hinweise zum Mitspielen und Storytellen (Wochenplan-Beitrag)
+RULES_URL = ""  # Server-Regeln
