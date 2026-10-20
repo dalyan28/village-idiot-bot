@@ -168,9 +168,6 @@ async def main():
         await bot.load_extension("commands.event_settings")
         await bot.load_extension("commands.botc")
         await bot.load_extension("commands.reminder")
-        if os.getenv("ENV") == "dev":
-            await bot.load_extension("commands.test_commands")
-            print("Dev-Modus: Test-Commands geladen")
         await bot.start(os.getenv("DISCORD_TOKEN"))
 
 

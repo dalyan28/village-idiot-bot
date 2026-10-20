@@ -37,7 +37,7 @@ Bot starten:
 python bot.py
 ```
 
-Dev-Modus (Test-Commands aktivieren):
+Dev-Modus (Button „[Dev] Reminder testen“ am Event-Post):
 ```
 ENV=dev
 ```
@@ -51,8 +51,6 @@ village-idiot-bot/
 ├── commands/
 │   ├── settings.py             # /set_event_channel, /set_overview_channel
 │   ├── overview.py             # /overview_events, /automate_overview, /stop_automate
-│   └── test_commands.py        # Dev-only: /create_test_event, /clear_test_events,
-│                               #   /clear_past_events
 ├── logic/
 │   └── parser.py               # Apollo-Nachrichten parsen & Übersicht bauen
 ├── tests/
@@ -132,7 +130,7 @@ Start the bot:
 python bot.py
 ```
 
-Dev mode (enables test commands):
+Dev mode (adds the "[Dev] Reminder testen" button to event posts):
 ```
 ENV=dev
 ```

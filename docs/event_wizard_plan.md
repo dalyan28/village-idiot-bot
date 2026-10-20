@@ -91,8 +91,10 @@ Dalyan muss den Bot auch auf Test-Servern ausprobieren können. Dafür:
 - **Erlaubte Server sind eine Liste.** Ein Test-Server wird einfach mit seiner ID in `ALLOWED_GUILD_IDS` eingetragen.
 - **Empfohlen: eigene Test-Anwendung im Developer Portal** (eigener Bot-Token, z. B. „Village Idiot Dev“), lokal oder als
   zweiter Railway-Service mit `ENV=dev`. Ihre `ALLOWED_GUILD_IDS` enthält nur die Test-Server, die des Produktiv-Bots nur
-  den echten Server. So landen Test-Events und Test-Commands (`/create_test_event` usw., heute schon an `ENV=dev`
-  gebunden) nie auf dem echten Server, und der Produktiv-Bot muss keinem Test-Server beitreten.
+  den echten Server. So landen Test-Events und Test-Hilfen (z. B. „[Dev] Reminder testen“, an `ENV=dev` bzw.
+  `TEST_SERVER=1` gebunden) nie auf dem echten Server, und der Produktiv-Bot muss keinem Test-Server beitreten.
+  Die alten Test-Commands (`/create_test_event`, `/clear_test_events`, `/clear_past_events`) sind entfernt
+  (Dalyan, 20.10.2026): Beispiel-Events und Aufräumen übernimmt `/testserver` auf dem Testserver.
 - Eigene Datenbank je Umgebung (lokal eine Datei im Projektordner, auf Railway das jeweilige Volume).
 - **Reihenfolge beim Einladen**: erst die ID in `ALLOWED_GUILD_IDS` eintragen und neu starten, dann einladen. Sonst
   verlässt der Bot den Server sofort wieder. Die Log-Meldung beim Verlassen nennt Servername und ID, damit man sie direkt
