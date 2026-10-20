@@ -24,7 +24,7 @@ import discord
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, reminders, service
 from events.intake import parse_players
-from events.parse import ParseError, format_start, format_termin, parse_start
+from events.parse import ParseError, format_termin, parse_start
 from events.permissions import Actor
 from events.rating import rate_script
 from events.schema import (
@@ -35,20 +35,26 @@ from events.schema import (
     IMAGE_CUSTOM,
     IMAGE_NONE,
     LEVELS,
+    RATING_ANY,
+    RATING_GREEN_YELLOW,
     RATING_SOURCE_FIXED,
     RATING_SOURCE_MANUAL,
     RATING_SOURCE_RATER,
     SCRIPT_BASE,
     SCRIPT_BOTCSCRIPTS,
     SCRIPT_FREE,
+    RATING_YELLOW_RED,
+    RATINGS,
     SCRIPT_UPLOAD,
+    SINGLE_RATINGS,
+    TITLE_MAX_LENGTH,
     EventData,
     Person,
     ScriptRef,
     missing_for_publish,
 )
 from events.store import Draft, Store
-from events.templates import BASE3_FULL_NAMES, LABEL_EMOJI, RATING_WORDS, full_title
+from events.templates import BASE3_FULL_NAMES, LABEL_EMOJI, RATING_WORDS, base_title, full_title
 from logic import botcscripts
 from logic.event_images import (
     IMAGE_FILENAME,
@@ -281,27 +287,14 @@ def _esc(text: str) -> str:
     return discord.utils.escape_markdown(text)
 
 
-def summary_embed(draft: Draft, guild_name: str | None, notice: str | None = None) -> discord.Embed:
-    """Kopf des Wizards: was bisher feststeht."""
-    d = draft.data
-    n, total = step_number(d, draft.step)
-    title = "📝 Neue Runde" if draft.event_id is None else "✏️ Runde bearbeiten"
-    embed = discord.Embed(title=f"{title} · Schritt {n}/{total}: {STEP_LABELS[base_step(draft.step)]}",
-                          color=WIZARD_COLOR)
-    lines = []
-    if guild_name:
-        lines.append(f"für **{_esc(guild_name)}**")
-    if d.script:
-        lines.append(f"**{_esc(full_title(d))}**")
+def step_embed(draft: Draft, notice: str | None = None) -> discord.Embed:
+    """Kasten für den aktuellen Schritt (unter der Zusammenfassung)."""
+    n, total = step_number(draft.data, draft.step)
+    label = STEP_LABELS[base_step(draft.step)]
+    title = f"Schritt {n}/{total}: {label}" if base_step(draft.step) in STEPS else label
+    embed = discord.Embed(title=title, color=WIZARD_COLOR)
     if notice:
-        lines.append(f"\n{notice}")
-    embed.description = "\n".join(lines) or None
-    embed.add_field(name="Termin", value=format_start(d.start, d.duration_minutes) if d.start else "-", inline=False)
-    embed.add_field(name="Max. Spieler", value=str(d.max_players), inline=True)
-    embed.add_field(name="Level", value=d.level, inline=True)
-    labels = [name for flag, name in ((d.is_academy, "Academy 🎓"), (d.is_casual, "Casual 🕊️"),
-                                      (d.is_recorded, "Aufzeichnung 🎦")) if flag]
-    embed.add_field(name="Labels", value=", ".join(labels) or "-", inline=True)
+        embed.description = notice
     embed.set_footer(text="Entwürfe bleiben 24 Stunden gespeichert. Die Buttons funktionieren auch später noch.")
     return embed
 
@@ -336,7 +329,10 @@ async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: 
     if step == STEP_PREVIEW:
         embeds, files = await _screen_preview(bot, store, draft, view, guild.name if guild else None, notice)
         return Screen(embeds, view, files)
-    head = summary_embed(draft, guild.name if guild else None, notice)
+    summary = summary_fields(store, draft)
+    heading = "📝 Neue Runde" if draft.event_id is None else "✏️ Runde bearbeiten"
+    summary.description = f"{heading} für **{_esc(guild.name)}**" if guild else heading
+    head = step_embed(draft, notice)
     builder = {
         STEP_SCRIPT: _screen_script,
         STEP_RATING: _screen_rating,
@@ -346,7 +342,7 @@ async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: 
         STEP_REMINDERS: _screen_reminders,
     }[step]
     extra_embeds, files = await builder(bot, store, draft, head, view)
-    return Screen([head, *extra_embeds], view, files)
+    return Screen([summary, head, *extra_embeds], view, files)
 
 
 async def _screen_script(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
@@ -401,26 +397,27 @@ async def _screen_rating(bot, store, draft: Draft, head: discord.Embed, view: di
         text = f"{LABEL_EMOJI[d.rating]} **{word}** ({source})"
         if d.is_homebrew:
             text += f"\n{LABEL_EMOJI['homebrew']} Enthält unbekannte Charaktere (Homebrew)."
-        detail = ui.get("rating_detail") or {}
-        if d.rating_source == RATING_SOURCE_RATER and detail.get("reasons"):
-            text += "\n" + "\n".join(f"• {_esc(r)}" for r in detail["reasons"][:4])
+        if d.rating_source == RATING_SOURCE_RATER:
+            text += "\n" + rating_explanation(ui)
     else:
         text = ("Ich konnte das Skript nicht automatisch einschätzen. Bitte wähle selbst, "
                 "wie anspruchsvoll es ist.")
     head.add_field(name="Einschätzung", value=text[:1024], inline=False)
 
-    for rating in ("green", "yellow", "red"):
-        view.add_item(WizardButton(draft.id, "rate", RATING_WORDS[rating].capitalize(), arg=rating,
-                                   emoji=LABEL_EMOJI[rating], row=0))
+    head.add_field(name="Selbst einstellen", value="Eine Stufe oder einen Bereich wählen:", inline=False)
+    for row, options in ((0, SINGLE_RATINGS), (1, (RATING_GREEN_YELLOW, RATING_YELLOW_RED, RATING_ANY))):
+        for rating in options:
+            style = discord.ButtonStyle.primary if d.rating == rating else discord.ButtonStyle.secondary
+            view.add_item(WizardButton(draft.id, "rate", LABEL_EMOJI[rating], style, arg=rating, row=row))
     if s.kind == SCRIPT_BOTCSCRIPTS:
-        view.add_item(WizardButton(draft.id, "versions", "Andere Version", row=1))
+        view.add_item(WizardButton(draft.id, "versions", "Andere Version", row=2))
         versions = ui.get("versions") or []
         if versions:
             options = [discord.SelectOption(label=f"v{v['version']}"[:100], value=f"{v['id']}|{v['version']}",
                                             default=v["version"] == s.version)
                        for v in versions[:25]]
-            view.add_item(WizardSelect(draft.id, "version", options, "Version wählen", row=2))
-    _nav(view, draft, row=3, next_disabled=d.rating is None)
+            view.add_item(WizardSelect(draft.id, "version", options, "Version wählen", row=3))
+    _nav(view, draft, row=4, next_disabled=d.rating is None)
     return [], []
 
 
@@ -492,6 +489,17 @@ async def _screen_image(bot, store, draft: Draft, head: discord.Embed, view: dis
     return [preview], [discord.File(io.BytesIO(image), filename=PREVIEW_IMAGE)]
 
 
+OPEN = "offen"
+
+
+def rating_explanation(ui: dict, limit: int = 4) -> str:
+    """Begründung vom ScriptRater: der Fließtext, wenn er geliefert wird, sonst die Kriterien."""
+    detail = ui.get("rating_detail") or {}
+    if detail.get("verdict"):
+        return _esc(detail["verdict"])
+    return "\n".join(f"• {_esc(r)}" for r in (detail.get("reasons") or [])[:limit])
+
+
 def _code(text: str) -> str:
     """Wert als Code-Block wie in der Zusammenfassung des alten Branches."""
     return f"```{(text or '—').replace('`', 'ˋ')}```"
@@ -499,6 +507,7 @@ def _code(text: str) -> str:
 
 # „Feld ändern“: Wert → (Beschriftung, Nummern im Embed)
 EDIT_CHOICES = {
+    "title": "1 · Titel",
     "script": "2 · Skript",
     "rating": "3 · Einschätzung",
     "description": "4 · Beschreibung",
@@ -518,11 +527,12 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
         color = 0xF4900C
     embed = discord.Embed(title="📋 Event-Zusammenfassung", color=color)
 
-    embed.add_field(name="1 · Titel", value=_code(full_title(d)), inline=False)
+    embed.add_field(name="1 · Titel" + ("" if d.title.strip() else " (automatisch)"),
+                    value=_code(full_title(d)), inline=False)
 
     s = d.script
     if s is None:
-        script_info = "—"
+        script_info = OPEN
     else:
         script_info = s.display_name
         if s.author and s.kind != SCRIPT_BASE:
@@ -533,23 +543,23 @@ def summary_fields(store: Store, draft: Draft) -> discord.Embed:
             script_info += f" · {len(s.characters)} Charaktere"
     embed.add_field(name="2 · Skript", value=_code(script_info), inline=True)
 
-    if s is not None and s.kind == SCRIPT_FREE:
-        rating_text = "Freie Skriptwahl: keine Einschätzung."
-    elif d.rating:
-        source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_FIXED: "Basis-Skript",
-                  RATING_SOURCE_MANUAL: "von dir gewählt"}.get(d.rating_source, "")
+    if d.rating:
+        if d.rating_source == RATING_SOURCE_FIXED:
+            source = "Freie Skriptwahl" if s is not None and s.kind == SCRIPT_FREE else "Basis-Skript"
+        else:
+            source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_MANUAL: "von dir gewählt"}.get(
+                d.rating_source, "")
         rating_text = f"{LABEL_EMOJI[d.rating]} **{RATING_WORDS[d.rating]}** ({source})"
         if d.is_homebrew:
             rating_text += f"\n{LABEL_EMOJI['homebrew']} Enthält unbekannte Charaktere (Homebrew)."
-        reasons = (ui.get("rating_detail") or {}).get("reasons") or []
-        if d.rating_source == RATING_SOURCE_RATER and reasons:
-            rating_text += "\n" + "\n".join(f"• {_esc(r)}" for r in reasons[:3])
+        if d.rating_source == RATING_SOURCE_RATER:
+            rating_text += "\n" + rating_explanation(ui, limit=3)
     else:
-        rating_text = "—"
+        rating_text = OPEN
     quoted = "\n".join(f"> {line}" for line in rating_text.split("\n"))
     embed.add_field(name=f"{LABEL_EMOJI.get(d.rating, '')} 3 · Einschätzung".strip(), value=quoted[:1024], inline=True)
 
-    description = d.description.strip() or "—"
+    description = d.description.strip() or (OPEN if not d.is_academy else "—")
     if d.is_academy:
         description += "\n\n(+ fester Academy-Text)"
     if len(description) + 6 <= 1024:
@@ -606,8 +616,7 @@ async def _screen_preview(bot, store, draft: Draft, view: discord.ui.View, guild
     if THUMB_FILENAME in names:
         embed.set_thumbnail(url=f"attachment://{THUMB_FILENAME}")
 
-    options = [discord.SelectOption(label=label, value=value) for value, label in EDIT_CHOICES.items()
-               if not (value == "rating" and d.script is not None and d.script.kind == SCRIPT_FREE)]
+    options = [discord.SelectOption(label=label, value=value) for value, label in EDIT_CHOICES.items()]
     view.add_item(WizardSelect(draft.id, "edit", options, "Feld ändern …", row=0))
     publish_label = "Veröffentlichen" if draft.event_id is None else "Änderungen speichern"
     view.add_item(WizardButton(draft.id, "publish", publish_label, discord.ButtonStyle.success, emoji="🎉",
@@ -703,11 +712,13 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
     if not interaction.response.is_done():
         await interaction.response.defer()
     result = await rate_script(script)
-    if result is not None:
+    if script.kind == SCRIPT_FREE:
+        d.rating, d.rating_source = RATING_ANY, RATING_SOURCE_FIXED
+    elif result is not None:
         d.rating = result.rating
         d.is_homebrew = result.is_homebrew
         d.rating_source = RATING_SOURCE_FIXED if script.kind == SCRIPT_BASE else RATING_SOURCE_RATER
-        ui["rating_detail"] = {"headline": result.headline, "reasons": result.reasons}
+        ui["rating_detail"] = {"verdict": result.verdict, "headline": result.headline, "reasons": result.reasons}
     ctx.set_ui(ui)
     ctx.save(d)
     await goto(interaction, ctx, _after_script(ctx), notice=notice)
@@ -775,7 +786,7 @@ async def _upload(interaction, ctx: WizardContext, arg):
 
 @action("rate")
 async def _rate(interaction, ctx: WizardContext, arg):
-    if arg not in ("green", "yellow", "red"):
+    if arg not in RATINGS:
         return
     d = ctx.data
     d.rating, d.rating_source = arg, RATING_SOURCE_MANUAL
@@ -916,6 +927,8 @@ async def _edit(interaction, ctx: WizardContext, values):
         await goto(interaction, ctx, STEP_REMINDERS)
     elif choice == "description":
         await interaction.response.send_modal(DescriptionModal(ctx.draft.id, d.description))
+    elif choice == "title":
+        await interaction.response.send_modal(TitleModal(ctx.draft.id, d))
     elif choice == "people":
         await interaction.response.send_modal(PeopleModal(ctx.draft.id, d))
     elif choice == "basics":
@@ -995,6 +1008,23 @@ class ScriptUploadModal(_WizardModal):
             kind=SCRIPT_UPLOAD, name=parsed["name"], author=parsed["author"],
             characters=parsed["characters"], content=content,
         ))
+
+
+class TitleModal(_WizardModal):
+    """Eigener Titel. Leer = automatisch „{Skript} mit {ST}“. Die Symbole kommen immer davor."""
+
+    def __init__(self, draft_id: int, data: EventData):
+        super().__init__(draft_id, "Titel")
+        self.text = discord.ui.TextInput(default=data.title or None, placeholder=base_title(data)[:100],
+                                         required=False, max_length=TITLE_MAX_LENGTH)
+        self.add_item(discord.ui.Label(text="Titel", description="Leer = automatischer Titel. "
+                                       "Die Symbole (z. B. 💚) kommen immer davor.", component=self.text))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        d = ctx.data
+        d.title = (self.text.value or "").strip()
+        ctx.save(d)
+        await show(interaction, ctx)
 
 
 class PeopleModal(_WizardModal):

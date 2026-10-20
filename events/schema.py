@@ -28,7 +28,22 @@ CAMERA_LABELS = {
 RATING_GREEN = "green"
 RATING_YELLOW = "yellow"
 RATING_RED = "red"
-RATINGS = (RATING_GREEN, RATING_YELLOW, RATING_RED)
+SINGLE_RATINGS = (RATING_GREEN, RATING_YELLOW, RATING_RED)  # was der ScriptRater liefern kann
+# Bereiche, die der Storyteller selbst wählen kann (Dalyan, 20.10.2026)
+RATING_GREEN_YELLOW = "green_yellow"
+RATING_YELLOW_RED = "yellow_red"
+RATING_ANY = "any"  # alle drei Stufen, z. B. freie Skriptwahl
+RATINGS = (*SINGLE_RATINGS, RATING_GREEN_YELLOW, RATING_YELLOW_RED, RATING_ANY)
+RATING_RANGE = {
+    RATING_GREEN: (RATING_GREEN,),
+    RATING_YELLOW: (RATING_YELLOW,),
+    RATING_RED: (RATING_RED,),
+    RATING_GREEN_YELLOW: (RATING_GREEN, RATING_YELLOW),
+    RATING_YELLOW_RED: (RATING_YELLOW, RATING_RED),
+    RATING_ANY: (RATING_GREEN, RATING_YELLOW, RATING_RED),
+}
+
+TITLE_MAX_LENGTH = 200  # eigener Titel; die Symbole davor kommen dazu (Discord-Grenze 256)
 
 # Woher die Einschätzung stammt
 RATING_SOURCE_RATER = "rater"    # ScriptRater /api/analyse
@@ -119,7 +134,8 @@ class EventData:
     rating: str | None = None
     rating_source: str | None = None
     is_homebrew: bool = False      # unbekannte Charaktere (Homebrew/Amnesiac), zusätzlich zum Rating
-    description: str = ""          # schreibt der Ersteller selbst; der Titel wird gebaut (templates.full_title)
+    title: str = ""                # eigener Titel; leer = automatisch „{Skript} mit {ST}“ (templates.full_title)
+    description: str = ""          # schreibt der Ersteller selbst
     image_mode: str = IMAGE_AUTO
     custom_image: str = ""         # Dateiname des hochgeladenen Bildes im Upload-Ordner
     reminder_overrides: dict = field(default_factory=dict)
@@ -203,6 +219,8 @@ def validate(data: EventData, now: datetime | None = None, check_start: bool = T
         errors.append(f"Unbekannte Herkunft der Einschätzung: {data.rating_source}.")
     if data.image_mode not in IMAGE_MODES:
         errors.append(f"Unbekannter Bild-Modus: {data.image_mode}.")
+    if len(data.title) > TITLE_MAX_LENGTH:
+        errors.append(f"Der Titel ist länger als {TITLE_MAX_LENGTH} Zeichen.")
     if data.image_mode == IMAGE_CUSTOM and not data.custom_image:
         errors.append("Für ein eigenes Bild fehlt die Datei.")
     if len(data.description) > DESCRIPTION_MAX_LENGTH:

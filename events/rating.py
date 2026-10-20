@@ -1,7 +1,7 @@
 """Einschätzung eines Skripts (grün/gelb/rot) über den ScriptRater.
 
 Der Algorithmus lebt im ScriptRater (widow-botc.com/script-check), nicht im Bot. Gelesen werden
-nur `rating`, `headline`, `reasons` und `metrics.is_homebrew`. Ist der ScriptRater nicht
+nur `rating`, `verdict` (optional, Fließtext), `headline`, `reasons` und `metrics.is_homebrew`. Ist der ScriptRater nicht
 erreichbar oder die Antwort unlesbar, gibt `rate_script` None zurück und der Storyteller
 schätzt selbst ein. Die Basis-Skripte haben eine feste Einschätzung.
 """
@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 import requests
 
-from events.schema import RATINGS, SCRIPT_BASE, SCRIPT_FREE, ScriptRef
+from events.schema import SCRIPT_BASE, SCRIPT_FREE, SINGLE_RATINGS, ScriptRef
 from events.templates import BASE3_RATINGS
 
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ TIMEOUT_SECONDS = 15
 @dataclass
 class RatingResult:
     rating: str
+    verdict: str = ""        # Einschätzung in einfacher Sprache, falls der ScriptRater sie liefert
     headline: str = ""
     reasons: list[str] = field(default_factory=list)
     is_homebrew: bool = False
@@ -38,12 +39,13 @@ def rater_url() -> str:
 
 def parse_response(payload) -> RatingResult | None:
     """Liest die Antwort von /api/analyse. Unbekanntes Format → None."""
-    if not isinstance(payload, dict) or payload.get("rating") not in RATINGS:
+    if not isinstance(payload, dict) or payload.get("rating") not in SINGLE_RATINGS:
         return None
     reasons = payload.get("reasons")
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
     return RatingResult(
         rating=payload["rating"],
+        verdict=str(payload.get("verdict") or "").strip(),
         headline=str(payload.get("headline") or ""),
         reasons=[str(r) for r in reasons] if isinstance(reasons, list) else [],
         is_homebrew=bool(metrics.get("is_homebrew") or metrics.get("is_amnesiac")),

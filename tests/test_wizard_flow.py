@@ -309,12 +309,32 @@ def test_reminder_subpage(env):
     assert step(bot, draft.id) == "preview"
 
 
+def test_edit_title_and_rating_range(env):
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "pick", "trouble_brewing")
+    choose(bot, draft.id, "edit", "title")  # aus jeder Seite heraus möglich
+    inter = choose(bot, draft.id, "edit", "title")
+    modal = inter.response.modal
+    modal.text._value = "Gemütlicher Abend"
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    click(bot, draft.id, "rate", "green_yellow")
+    d = bot.store.get_draft(draft.id).data
+    assert d.title == "Gemütlicher Abend" and d.rating == "green_yellow" and d.rating_source == "manual"
+    # Titel leeren → wieder automatisch
+    inter = choose(bot, draft.id, "edit", "title")
+    modal = inter.response.modal
+    modal.text._value = ""
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    assert bot.store.get_draft(draft.id).data.title == ""
+
+
 def test_free_choice_skips_rating_and_has_no_auto_image(env):
     bot = env
     draft = new_draft(bot)
     click(bot, draft.id, "pick", "free")
     d = bot.store.get_draft(draft.id)
-    assert d.step == "description" and d.data.rating is None
+    assert d.step == "description" and d.data.rating == "any" and d.data.rating_source == "fixed"
 
 
 def test_cancel_removes_draft(env):

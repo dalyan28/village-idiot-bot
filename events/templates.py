@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from events.schema import (
+    RATING_ANY,
     RATING_GREEN,
+    RATING_GREEN_YELLOW,
+    RATING_RANGE,
     RATING_RED,
     RATING_YELLOW,
+    RATING_YELLOW_RED,
     SCRIPT_BASE,
     SCRIPT_FREE,
     EventData,
@@ -19,13 +23,19 @@ LABEL_EMOJI = {
     RATING_GREEN: "💚",
     RATING_YELLOW: "🟡",
     RATING_RED: "🟥",
+    RATING_GREEN_YELLOW: "💚/🟡",
+    RATING_YELLOW_RED: "🟡/🟥",
+    RATING_ANY: "💚/🟡/🟥",
 }
-FREE_CHOICE_EMOJI = "💚/🟡/🟥"
+FREE_CHOICE_EMOJI = LABEL_EMOJI[RATING_ANY]
 
 RATING_WORDS = {
     RATING_GREEN: "grün",
     RATING_YELLOW: "gelb",
     RATING_RED: "rot",
+    RATING_GREEN_YELLOW: "grün bis gelb",
+    RATING_YELLOW_RED: "gelb bis rot",
+    RATING_ANY: "grün, gelb oder rot",
 }
 
 BASE3_FULL_NAMES = {
@@ -62,13 +72,12 @@ def title_prefix(data: EventData) -> str:
     elif data.is_casual:
         parts.append(LABEL_EMOJI["casual"])
 
-    if data.script is not None and data.script.kind == SCRIPT_FREE:
+    if data.is_homebrew:
+        parts.append(LABEL_EMOJI["homebrew"])
+    if data.rating in RATING_RANGE:
+        parts.append(LABEL_EMOJI[data.rating])
+    elif data.script is not None and data.script.kind == SCRIPT_FREE:
         parts.append(FREE_CHOICE_EMOJI)
-    else:
-        if data.is_homebrew:
-            parts.append(LABEL_EMOJI["homebrew"])
-        if data.rating in LABEL_EMOJI:
-            parts.append(LABEL_EMOJI[data.rating])
     return " ".join(parts)
 
 
@@ -86,9 +95,9 @@ def base_title(data: EventData) -> str:
 
 
 def full_title(data: EventData) -> str:
-    """Titel des Events: Symbole, dann „{Skript} mit {ST}“. Wird immer gebaut, nie eingegeben."""
+    """Titel des Events: Symbole, dann der eigene Titel oder „{Skript} mit {ST}“."""
     prefix = title_prefix(data)
-    title = base_title(data)
+    title = data.title.strip() or base_title(data)
     return f"{prefix} {title}" if prefix else title
 
 
@@ -101,15 +110,19 @@ def full_description(data: EventData) -> str:
 
 
 def academy_description(rating: str | None) -> str:
-    """Fester Academy-Text. Die Zeile zur Komplexitätsstufe (rating) ist **fett**."""
+    """Fester Academy-Text. Die Zeilen der Komplexitätsstufe(n) des Ratings sind **fett**.
+
+    Bei einem Bereich (z. B. grün bis gelb) gilt die höchste Rundenzahl des Bereichs.
+    """
     rounds_lines_raw = [
         (RATING_GREEN, "💚-Angebote: maximal 100 Runden gespielt"),
         (RATING_YELLOW, "🟡-Angebote: maximal 200 Runden gespielt"),
         (RATING_RED, "🟥-Angebote: maximal 300 Runden gespielt"),
     ]
-    rounds_lines = [f"**{text}**" if key == rating else text for key, text in rounds_lines_raw]
+    covered = RATING_RANGE.get(rating, ())
+    rounds_lines = [f"**{text}**" if key in covered else text for key, text in rounds_lines_raw]
 
-    max_rounds = ACADEMY_MAX_ROUNDS.get(rating)
+    max_rounds = max((ACADEMY_MAX_ROUNDS[r] for r in covered), default=None)
     rounds_suffix = f"(hier {max_rounds})" if max_rounds else "(s. oben)"
 
     return (

@@ -19,8 +19,10 @@ import discord
 from events.schema import (
     CAMERA_LABELS,
     RATING_GREEN,
+    RATING_GREEN_YELLOW,
     RATING_RED,
     RATING_YELLOW,
+    RATING_YELLOW_RED,
     SCRIPT_BASE,
     EventData,
     Person,
@@ -49,6 +51,9 @@ EMBED_COLORS = {
     RATING_GREEN: 0x78B159,
     RATING_YELLOW: 0xFDCB58,
     RATING_RED: 0xDD2E44,
+    # Bereiche: Farbe der höchsten Stufe
+    RATING_GREEN_YELLOW: 0xFDCB58,
+    RATING_YELLOW_RED: 0xDD2E44,
 }
 DEFAULT_EMBED_COLOR = 0xFDCB58  # Gelb als Fallback (z. B. freie Skriptwahl)
 

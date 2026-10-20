@@ -89,7 +89,9 @@ def render(store, draft):
 def test_every_step_renders_within_discord_limits(store, step):
     screen = render(store, make_draft(store, step))
     check_limits(screen)
-    assert wizard.STEP_LABELS[step] in screen.embeds[0].title
+    assert screen.embeds[0].title == "📋 Event-Zusammenfassung"  # auf jeder Seite oben
+    if step != "preview":
+        assert wizard.STEP_LABELS[step] in screen.embeds[1].title
 
 
 def test_script_step_with_search_results(store):
@@ -109,7 +111,8 @@ def test_rating_step_without_rating_disables_next(store):
     screen = render(store, draft)
     nxt = next(i for i in screen.view.children if i.custom_id.endswith(":next"))
     assert nxt.item.disabled
-    assert "nicht automatisch einschätzen" in screen.embeds[0].fields[-1].value
+    assert any("nicht automatisch einschätzen" in f.value for f in screen.embeds[1].fields)
+    assert next(f.value for f in screen.embeds[0].fields if "Einschätzung" in f.name) == "> offen"
 
 
 def test_description_required_unless_academy(store):
@@ -165,9 +168,35 @@ def test_summary_is_numbered_with_code_blocks(store):
     screen = render(store, make_draft(store, "preview"))
     embed = screen.embeds[0]
     names = [f.name for f in embed.fields]
-    assert names[0] == "1 · Titel" and "11 · Termin" in names and "13 · Erinnerungen" in names
+    assert names[0] == "1 · Titel (automatisch)" and "11 · Termin" in names and "13 · Erinnerungen" in names
     assert embed.fields[0].value == "```💚 Trouble Brewing mit Dalyan```"
     termin = next(f.value for f in embed.fields if f.name == "11 · Termin")
     assert termin == "```Donnerstag, der 22.10.2026, 12:00 Uhr – 14:30 Uhr```"
     edit = next(i for i in screen.view.children if i.custom_id.endswith(":edit"))
-    assert [o.value for o in edit.item.options][:3] == ["script", "rating", "description"]
+    assert [o.value for o in edit.item.options][:4] == ["title", "script", "rating", "description"]
+
+
+def test_open_fields_and_rating_options(store):
+    screen = render(store, make_draft(store, "description", description=""))
+    summary = {f.name: f.value for f in screen.embeds[0].fields}
+    assert summary["4 · Beschreibung"] == "```offen```"
+    screen = render(store, make_draft(store, "rating"))
+    rates = [i.item.label for i in screen.view.children if i.custom_id.split(":")[2] == "rate"]
+    assert rates == ["💚", "🟡", "🟥", "💚/🟡", "🟡/🟥", "💚/🟡/🟥"]
+
+
+def test_verdict_text_is_preferred(store):
+    draft = make_draft(store, "rating", rating="red", rating_source="rater",
+                       script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="X", version="1", botcscripts_id="5",
+                                        characters=["imp"]))
+    store.set_draft_ui(draft.id, {"rating_detail": {"verdict": "Viele Charaktere stehen auf keinem Basis-Skript.",
+                                                    "reasons": ["Kriterium A"]}})
+    screen = render(store, store.get_draft(draft.id))
+    rating = next(f.value for f in screen.embeds[0].fields if "Einschätzung" in f.name)
+    assert "Viele Charaktere" in rating and "Kriterium A" not in rating
+
+
+def test_custom_title(store):
+    screen = render(store, make_draft(store, "preview", title="Spukige Nacht"))
+    assert screen.embeds[0].fields[0].name == "1 · Titel"
+    assert screen.embeds[0].fields[0].value == "```💚 Spukige Nacht```"

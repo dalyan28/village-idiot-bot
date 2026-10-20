@@ -119,6 +119,19 @@ class TestTemplates:
         assert title_prefix(d) == "🎦 🎓 ⚒️ 🟥"
         assert full_title(d) == "🎦 🎓 ⚒️ 🟥 Boozling mit Dalyan"
 
+    def test_rating_ranges(self):
+        assert title_prefix(make(rating="green_yellow")) == "💚/🟡"
+        assert title_prefix(make(rating="yellow_red", is_homebrew=True)) == "⚒️ 🟡/🟥"
+        assert title_prefix(make(rating="any")) == "💚/🟡/🟥"
+        assert validate(make(rating="green_yellow"), NOW) == []
+        text = academy_description("green_yellow")
+        assert "**💚-Angebote" in text and "**🟡-Angebote" in text and "**🟥" not in text
+        assert "(hier 200)" in text
+
+    def test_custom_title_keeps_symbols(self):
+        assert full_title(make(title="  Spukige Nacht ", rating="red")) == "🟥 Spukige Nacht"
+        assert validate(make(title="x" * 201), NOW)
+
     def test_casual_prefix(self):
         assert title_prefix(make(is_casual=True, rating="green")) == "🕊️ 💚"
 

@@ -466,6 +466,18 @@ Feedback von Dalyan nach dem ersten echten Durchlauf in Discord:
 - **Skript-Bild** Plain White; dauert 0,8 statt ~8 Sekunden (die Wartezeit wirkte wie ein Hänger).
 - Behoben: `restore_auto_tasks` stürzte bei Altlasten auf oberster Ebene von `config.json` ab.
 
+Zweite Runde Feedback (20.10.2026):
+- Die nummerierte Zusammenfassung steht auf **jeder** Wizard-Seite oben, darunter der aktuelle Schritt. Nicht gefüllte
+  Pflichtfelder zeigen „offen“; Veröffentlichen bleibt gesperrt, solange die Beschreibung fehlt (Button + Service).
+- **Titel bearbeitbar** (`EventData.title`, „1 · Titel“): leer = automatisch „{Skript} mit {ST}“; die Symbole kommen
+  immer davor.
+- **Schwierigkeit selbst einstellbar** mit sechs Optionen: 💚, 🟡, 🟥 und die Bereiche 💚/🟡, 🟡/🟥, 💚/🟡/🟥
+  (`RATING_GREEN_YELLOW`, `RATING_YELLOW_RED`, `RATING_ANY`). Freie Skriptwahl startet mit 💚/🟡/🟥. Bei Academy sind
+  alle Stufen des Bereichs fett, „hier N“ nennt die höchste Rundenzahl.
+- **Einschätzungstext**: Der ScriptRater erzeugt einen Fließtext (`explain.verdict_reason`), liefert ihn über
+  `/api/analyse` aber nicht aus. Der Bot liest ein optionales Feld `verdict` und zeigt es statt der Kriterienliste,
+  sobald der ScriptRater es liefert (Prompt für das ScriptRater-Projekt ging an Dalyan).
+
 ## Offene Fragen
 
 - Academy-Berechtigung im Detail (z. B. Verhältnis zur Storyteller-Rolle). Kann später geklärt werden.
