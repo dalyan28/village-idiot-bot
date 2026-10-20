@@ -502,7 +502,7 @@ Dritte Runde Feedback (20.10.2026):
 - **/botc (Components V2; bis 20.10.2026 als Test /botc2, der klassische Wizard ist entfernt)**: Zusammenfassung in fünf Abschnitten nach Dalyans Gruppierung (Beschreibendes ·
   Skript & Schwierigkeit · Auswahl: Labels, Level, Kamera · Termin & Rahmen: Datum, Uhrzeit, Dauer, Spieler · Bild),
   je ein Button; nach der Skriptwahl direkt dorthin; fehlende Angaben mit 🔴 und roten Buttons statt
-  „Veröffentlichen“. Erstes Modal schlank: Datum als Auswahl (Heute, Morgen, die nächsten Tage, Anderes Datum),
+  „Veröffentlichen“. Erstes Modal schlank: Datum als Auswahl (Heute, Morgen, drei weitere Tage, Anderes Datum),
   Uhrzeit, Optionen; Level (Alle) und Spieler (12) mit Standardwert.
   Skriptwahl zuerst: ein Button öffnet den Skript-Dialog, das Suchfeld (botcscripts.com) steht ganz oben. Geprüft
   wird von unten nach oben: angehängte Datei (ohne Extra-Auswahl), dann Basis-Skript/freie Wahl, zuletzt die Suche. Treffer (bis 50,
