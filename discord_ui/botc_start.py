@@ -32,24 +32,36 @@ def _link(url: str, label: str) -> str:
 def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord.ui.LayoutView:
     """Startnachricht: was gleich passiert, darunter „Termin festlegen“ bzw. „Entwurf fortsetzen“."""
     esc = discord.utils.escape_markdown
+    # Etwas offener gestaltet, mit höchstens zwei Emojis (Dalyan, 20.10.2026)
     container = discord.ui.Container(accent_colour=START_COLOR)
     container.add_item(discord.ui.TextDisplay(
         f"-# {esc(guild.name)}\n"
-        "### Neue Runde anlegen\n"
-        "Schön, dass du eine Runde leitest. So geht es weiter:\n"
-        "1. **Termin und Optionen** festlegen\n"
-        "2. **Skript** wählen: per Suche auf botcscripts.com, als Basis-Skript oder als eigenes JSON\n"
-        "3. **Zusammenfassung** prüfen, Beschreibung ergänzen und veröffentlichen\n\n"
-        f"Bitte beachte die {_link(STORYTELLER_GUIDE_URL, 'Hinweise zum Storytellen')} "
-        f"und unsere {_link(RULES_URL, 'Regeln')}.\n"
-        "-# Entwürfe bleiben 24 Stunden gespeichert."))
+        "## 🕰️ Neue Runde anlegen\n"
+        "Schön, dass du eine Runde leitest. In drei kurzen Schritten steht sie im Event-Channel."))
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
+    container.add_item(discord.ui.TextDisplay(
+        "**1 · Termin und Optionen**\n"
+        "-# Datum, Uhrzeit und ob die Runde Academy, Casual oder aufgezeichnet ist\n"
+        "**2 · Skript**\n"
+        "-# Suche auf botcscripts.com, ein Basis-Skript oder dein eigenes JSON\n"
+        "**3 · Zusammenfassung**\n"
+        "-# Beschreibung ergänzen, alles prüfen und veröffentlichen"))
+    container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
+    container.add_item(discord.ui.TextDisplay(
+        "📖 **Bevor du loslegst**\n"
+        "Was beim Leiten einer Runde wichtig ist, steht in den Hinweisen zum Storytellen:\n"
+        f"→ {_link(STORYTELLER_GUIDE_URL, 'Hinweise zum Storytellen')}\n"
+        "Für alle Runden gelten außerdem unsere Serverregeln:\n"
+        f"→ {_link(RULES_URL, 'Regeln')}\n"
+        "-# Dein Entwurf bleibt 24 Stunden gespeichert."))
     if open_draft is not None:
         d = open_draft.data
         what = [d.script.display_name if d.script else None,
                 format_start(d.start, d.duration_minutes) if d.start else None]
         detail = " · ".join(x for x in what if x)
+        container.add_item(discord.ui.Separator())
         container.add_item(discord.ui.TextDisplay(
-            "Du hast noch einen offenen Entwurf" + (f": **{esc(detail)}**" if detail else "") + "."))
+            "**Du hast noch einen offenen Entwurf**" + (f"\n{esc(detail)}" if detail else "")))
 
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)

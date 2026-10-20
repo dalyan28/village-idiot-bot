@@ -218,37 +218,38 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
     # Erster Besuch: neuer Entwurf, noch kein Skript und noch keine Suche, nicht aus der Zusammenfassung heraus
     first_visit = (draft.event_id is None and d.script is None and d.start is not None
                    and draft.step == wz.STEP_SCRIPT and not ui.get("query"))
+    guild = bot.get_guild(draft.guild_id)
+    heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
+    head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
+    container.add_item(discord.ui.TextDisplay(f"{head}\n## 📜 Skript wählen"))
     if first_visit:
         # Erste Karte nach dem /botc-Modal: bestätigen, was steht, und sagen, was jetzt kommt (Dalyan, 20.10.2026)
         from events.parse import format_start
-        guild = bot.get_guild(draft.guild_id)
-        head = f"-# Neue Runde · {esc(guild.name)}" if guild else "-# Neue Runde"
         container.add_item(discord.ui.TextDisplay(
-            f"{head}\n### Skript wählen\n"
-            f"Der Termin steht: **{format_start(d.start, d.duration_minutes)}**\n"
-            "Als Nächstes wählst du das Skript: per Suche auf **botcscripts.com**, als Basis-Skript, "
-            "als freie Skriptwahl oder als eigenes JSON. Danach siehst du eine Zusammenfassung, in der du "
-            "alles anpassen und die Runde veröffentlichen kannst."))
-        intro = ""
+            f"✅ Der Termin steht: **{format_start(d.start, d.duration_minutes)}**"))
+        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
+        intro = ("Such dein Skript auf **botcscripts.com** oder wähl direkt ein Basis-Skript. "
+                 "Ein eigenes Skript kannst du als JSON anhängen.\n"
+                 "-# Danach siehst du die Zusammenfassung. Dort kannst du alles anpassen und die Runde "
+                 "veröffentlichen.")
     else:
-        container.add_item(discord.ui.TextDisplay("### Skript wählen"))
-        intro = ("Such dein Skript auf **botcscripts.com** oder wähl ein Basis-Skript, "
-                 "die freie Skriptwahl oder ein eigenes JSON.")
+        intro = ("Such dein Skript auf **botcscripts.com**, wähl ein Basis-Skript oder die freie Skriptwahl, "
+                 "oder häng ein eigenes JSON an.")
     if d.script:
         intro = f"Aktuell: **{esc(d.script.display_name)}**\n" + intro
     if notice:
-        intro = f"{intro}\n{notice}" if intro else notice
-    if intro:
-        container.add_item(discord.ui.TextDisplay(intro))
+        intro = f"{intro}\n\n{notice}"
+    container.add_item(discord.ui.TextDisplay(intro))
 
     layout = discord.ui.LayoutView(timeout=None)
     if results:
         pages = (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
         page = min(int(ui.get("page") or 0), pages - 1)
         first = page * RESULTS_PER_PAGE
-        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
         container.add_item(discord.ui.TextDisplay(
-            f"**Treffer für „{esc(ui.get('query', ''))}“**\n-# nach Likes sortiert · Seite {page + 1} von {pages}"))
+            f"### Treffer für „{esc(ui.get('query', ''))}“\n"
+            f"-# {len(results)} Treffer, nach Likes sortiert · Seite {page + 1} von {pages}"))
         for i, r in enumerate(results[first:first + RESULTS_PER_PAGE], start=first):
             line = f"**{esc(r['name'])}** v{esc(r['version'])}"
             details = [f"von {esc(r['author'])}" if r.get("author") else "",
