@@ -178,6 +178,9 @@ async def main():
         if os.getenv("ENV") == "dev":
             await bot.load_extension("commands.test_commands")
             print("Dev-Modus: Test-Commands geladen")
+        if os.getenv("TEST_SERVER") == "1":  # TESTSERVER
+            await bot.load_extension("commands.test_server")  # TESTSERVER
+            print("Testserver-Commands geladen")  # TESTSERVER
         await bot.start(os.getenv("DISCORD_TOKEN"))
 
 

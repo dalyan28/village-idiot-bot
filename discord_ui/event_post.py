@@ -22,6 +22,7 @@ from events.schema import BERLIN_TZ, Person
 from events.store import RSVP_ACCEPTED, RSVP_DECLINED, RSVP_TENTATIVE, EventRecord, Store
 from logic.event_builder import EMOJI_FILLER, build_event_embed
 from logic.event_images import IMAGE_FILENAME, THUMB_FILENAME, image_signature, render_image, thumbnail_path
+from testserver import hooks as testserver_hooks  # TESTSERVER
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,7 @@ def event_view(event: EventRecord) -> discord.ui.View:
     if dev_tools_enabled():
         # Eigene Zeile unter den fünf Buttons (Dalyan, 20.10.2026)
         view.add_item(EventButton(event.id, "testreminder", label="[Dev] Reminder testen", row=1))
+    testserver_hooks.event_view(view, event)  # TESTSERVER
     return view
 
 
@@ -198,6 +200,7 @@ class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<
         if event is None:
             await interaction.response.send_message("Dieses Event gibt es nicht mehr.", ephemeral=True)
             return
+        testserver_hooks.event_button(interaction, event, self.name)  # TESTSERVER
         if self.name in RSVP_ACTIONS:
             await handle_rsvp(interaction, store, event, RSVP_ACTIONS[self.name])
         elif self.name == "edit":

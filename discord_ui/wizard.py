@@ -62,6 +62,7 @@ from logic import botcscripts
 from logic.event_images import ImageError, delete_custom_image, save_custom_image
 from logic.script_cache import get_base_script, validate_script_json
 from logic.script_flags import is_teensy, special_reasons
+from testserver import hooks as testserver_hooks  # TESTSERVER
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +203,7 @@ class WizardButton(discord.ui.DynamicItem[discord.ui.Button],
         if handler is None:
             await _reply(interaction, "Diese Aktion gibt es nicht mehr.")
             return
+        testserver_hooks.wizard_button(ctx, self.name, self.arg)  # TESTSERVER
         await _run(interaction, ctx, handler(interaction, ctx, self.arg))
 
 
@@ -227,6 +229,7 @@ class WizardSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"wizs:(?
         if handler is None:
             await _reply(interaction, "Diese Auswahl gibt es nicht mehr.")
             return
+        testserver_hooks.wizard_select(ctx, self.name, values)  # TESTSERVER
         await _run(interaction, ctx, handler(interaction, ctx, values))
 
 
@@ -600,6 +603,7 @@ class _WizardModal(discord.ui.Modal):
         ctx = await load_context(interaction, self.draft_id)
         if ctx is None:
             return
+        testserver_hooks.wizard_modal(ctx, self)  # TESTSERVER
         await _run(interaction, ctx, self.handle(interaction, ctx))
 
     async def handle(self, interaction: discord.Interaction, ctx: WizardContext):

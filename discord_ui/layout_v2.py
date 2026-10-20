@@ -12,6 +12,8 @@ import io
 
 import discord
 
+from testserver import hooks as testserver_hooks  # TESTSERVER
+
 TEXT_LIMIT = 4000
 WIZARD_COLOR = 0x5865F2
 PREVIEW_IMAGE = "vorschau.png"
@@ -199,6 +201,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
                                  "Abbrechen" if draft.event_id is None else "Bearbeitung verwerfen",
                                  discord.ButtonStyle.secondary))
     layout.add_item(row)
+    testserver_hooks.wizard_card(layout, draft, "summary")  # TESTSERVER
     _shorten(layout)
     # Das Thumbnail (Basis-Skript/Academy) braucht V2 nicht; nur das Skript-Bild mitschicken
     return layout, [f for f in files if f.filename == IMAGE_FILENAME]
@@ -302,6 +305,7 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
                                      "Abbrechen" if draft.event_id is None else "Bearbeitung verwerfen",
                                      discord.ButtonStyle.secondary))
     layout.add_item(end_row)
+    testserver_hooks.wizard_card(layout, draft, "script")  # TESTSERVER
     _shorten(layout)
     return layout, []
 
@@ -348,6 +352,7 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
                                      "Abbrechen" if draft.event_id is None else "Bearbeitung verwerfen",
                                      discord.ButtonStyle.secondary))
     layout.add_item(end_row)
+    testserver_hooks.wizard_card(layout, draft, "image")  # TESTSERVER
     _shorten(layout)
     return layout, files
 

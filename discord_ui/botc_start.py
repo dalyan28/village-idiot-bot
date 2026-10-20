@@ -20,6 +20,7 @@ from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.parse import format_start
 from events.templates import RULES_URL, STORYTELLER_GUIDE_URL
+from testserver import hooks as testserver_hooks  # TESTSERVER
 
 START_COLOR = 0x5865F2
 
@@ -74,6 +75,7 @@ def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord
     else:
         row.add_item(StartButton(guild.id, "new", "Termin festlegen", discord.ButtonStyle.primary))
     layout.add_item(row)
+    testserver_hooks.start_card(layout, guild.id)  # TESTSERVER
     return layout
 
 
@@ -111,6 +113,7 @@ class StartButton(discord.ui.DynamicItem[discord.ui.Button],
             await interaction.response.send_message("Für diesen Server kannst du gerade keine Runde anlegen.",
                                                     ephemeral=True)
             return
+        testserver_hooks.start_button(interaction, self.guild_id, self.name)  # TESTSERVER
         problem = start_problem(store, guild, member)
         if problem:
             await interaction.response.send_message(problem, ephemeral=True)
