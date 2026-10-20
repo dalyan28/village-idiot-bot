@@ -616,3 +616,34 @@ def test_script_dialog_attached_file_wins(env, monkeypatch):
     modal.file._values = [Attachment()]
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     assert bot.store.get_draft(draft.id).data.script.name == "Mein Skript"
+
+
+def test_dev_reminder_button(env, monkeypatch):
+    """„[Dev] Reminder testen“ gibt es nur mit ENV=dev oder TEST_SERVER=1; er schickt die erste Erinnerung sofort."""
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "pick", "trouble_brewing")
+    d = bot.store.get_draft(draft.id)
+    data = d.data
+    data.description = "x"
+    bot.store.update_draft(d.id, data, "preview", int(NOW.timestamp()))
+    click(bot, draft.id, "publish")
+    event = bot.store.list_events(GUILD)[0]
+
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("TEST_SERVER", raising=False)
+    assert not any(b.custom_id.endswith(":testreminder") for b in event_post.event_view(event).children)
+
+    monkeypatch.setenv("TEST_SERVER", "1")
+    button = next(b for b in event_post.event_view(event).children if b.custom_id.endswith(":testreminder"))
+    assert button.item.label == "[Dev] Reminder testen" and button.item.row == 1
+
+    sent = []
+
+    class Cog:
+        async def send_reminder(self, ev, cfg):
+            sent.append((ev.id, cfg.key, cfg.enabled))
+    bot.get_cog = lambda name: Cog() if name == "ReminderCog" else None
+    inter = FakeInteraction(bot, bot.guild.get_member(3), guild_id=GUILD)
+    run(EventButton(event.id, "testreminder").callback(inter))
+    assert sent == [(event.id, "first", True)] and "Thread" in inter.sent[0]

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import re
 from datetime import datetime, timezone
 
@@ -30,6 +31,11 @@ EMOJI_DECLINE_BUTTON = discord.PartialEmoji(name="decline_rec", id=1484978231957
 EMOJI_TENTATIVE_BUTTON = discord.PartialEmoji(name="tent_rec", id=1484978258553471066)
 
 RSVP_ACTIONS = {"accept": RSVP_ACCEPTED, "decline": RSVP_DECLINED, "tentative": RSVP_TENTATIVE}
+
+
+def dev_tools_enabled() -> bool:
+    """Test-Hilfen wie „[Dev] Reminder testen“: nur lokal (ENV=dev) oder auf dem Testserver (TEST_SERVER=1)."""
+    return os.getenv("ENV") == "dev" or os.getenv("TEST_SERVER") == "1"
 
 
 def now() -> datetime:
@@ -112,6 +118,9 @@ def event_view(event: EventRecord) -> discord.ui.View:
     view.add_item(EventButton(event.id, "tentative", emoji=tentative_emoji, style=discord.ButtonStyle.secondary))
     view.add_item(EventButton(event.id, "edit", label="Bearbeiten", style=discord.ButtonStyle.primary))
     view.add_item(EventButton(event.id, "delete", label="Löschen", style=discord.ButtonStyle.danger))
+    if dev_tools_enabled():
+        # Eigene Zeile unter den fünf Buttons (Dalyan, 20.10.2026)
+        view.add_item(EventButton(event.id, "testreminder", label="[Dev] Reminder testen", row=1))
     return view
 
 
@@ -170,9 +179,9 @@ def images_changed(old_data, new_data) -> bool:
 
 class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<event_id>\d+):(?P<name>[a-z]+)"):
     def __init__(self, event_id: int, name: str, label: str | None = None,
-                 emoji=None, style=discord.ButtonStyle.secondary):
+                 emoji=None, style=discord.ButtonStyle.secondary, row: int | None = None):
         super().__init__(discord.ui.Button(label=label, emoji=emoji, style=style,
-                                           custom_id=f"evt:{event_id}:{name}"))
+                                           custom_id=f"evt:{event_id}:{name}"), row=row)
         self.event_id, self.name = event_id, name
 
     @classmethod
@@ -195,6 +204,8 @@ class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<
             await handle_edit(interaction, store, event)
         elif self.name == "delete":
             await handle_delete(interaction, store, event)
+        elif self.name == "testreminder":
+            await handle_test_reminder(interaction, store, event)
 
 
 async def handle_rsvp(interaction: discord.Interaction, store: Store, event: EventRecord, status: str):
@@ -202,6 +213,22 @@ async def handle_rsvp(interaction: discord.Interaction, store: Store, event: Eve
     content = await render_post(interaction.client, store, event, *_shown_images(interaction.message))
     # Buttons mitschicken, damit ältere Posts beim nächsten Klick die aktuellen Buttons bekommen
     await interaction.response.edit_message(**content)
+
+
+async def handle_test_reminder(interaction: discord.Interaction, store: Store, event: EventRecord):
+    """Schickt die erste Erinnerung einmal sofort in den Thread, so wie sie vor Beginn käme.
+    Zählt nicht als gesendet: Die echte Erinnerung kommt trotzdem."""
+    from events import reminders
+
+    cog = interaction.client.get_cog("ReminderCog")
+    if not dev_tools_enabled() or cog is None:
+        await interaction.response.send_message("Diese Test-Funktion ist hier nicht aktiv.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    cfg = reminders.copy_of(reminders.effective(store.get_guild_settings(event.guild_id), event.data)[reminders.FIRST])
+    cfg.enabled = True
+    await cog.send_reminder(event, cfg)
+    await interaction.followup.send("Die Test-Erinnerung steht im Thread unter dem Event.", ephemeral=True)
 
 
 async def handle_edit(interaction: discord.Interaction, store: Store, event: EventRecord):

@@ -546,6 +546,9 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
 - `docs/agents/` enthält Aufträge für andere Agenten (z. B. `testserver.md` für den Testserver der Admins).
   Nur für die Entwicklung, vor dem Merge nach `main` löschen. Der Testserver selbst lebt auf dem Branch
   `testserver` und wird nicht gemergt.
+- Button **„[Dev] Reminder testen“** am Event-Post (`discord_ui/event_post.py`, `handle_test_reminder`): schickt die
+  erste Erinnerung sofort in den Thread, zählt nicht als gesendet. Erscheint nur mit `ENV=dev` oder `TEST_SERVER=1`,
+  in Produktion also nie. Kann bleiben oder vor dem Merge entfernt werden.
 
 ## Offene Fragen
 
