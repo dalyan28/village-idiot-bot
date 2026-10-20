@@ -24,9 +24,10 @@ from logic.event_images import IMAGE_FILENAME, THUMB_FILENAME, image_signature, 
 
 logger = logging.getLogger(__name__)
 
-EMOJI_ACCEPT_BUTTON = discord.PartialEmoji(name="accept_wht", id=1484978864131407902)
-EMOJI_DECLINE_BUTTON = discord.PartialEmoji(name="decline_wht", id=1484978932708020504)
-EMOJI_TENTATIVE_BUTTON = discord.PartialEmoji(name="tent_wht", id=1484978888928137327)
+# Graue Buttons mit den farbigen "rec"-Emojis, wie beim alten Event-Post (Dalyan, 20.10.2026)
+EMOJI_ACCEPT_BUTTON = discord.PartialEmoji(name="accept_rec", id=1484978213863161986)
+EMOJI_DECLINE_BUTTON = discord.PartialEmoji(name="decline_rec", id=1484978231957524661)
+EMOJI_TENTATIVE_BUTTON = discord.PartialEmoji(name="tent_rec", id=1484978258553471066)
 
 RSVP_ACTIONS = {"accept": RSVP_ACCEPTED, "decline": RSVP_DECLINED, "tentative": RSVP_TENTATIVE}
 
@@ -85,8 +86,8 @@ def _has(files_or_attachments, filename: str) -> bool:
 
 def event_view(event: EventRecord) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
-    view.add_item(EventButton(event.id, "accept", emoji=EMOJI_ACCEPT_BUTTON, style=discord.ButtonStyle.success))
-    view.add_item(EventButton(event.id, "decline", emoji=EMOJI_DECLINE_BUTTON, style=discord.ButtonStyle.danger))
+    view.add_item(EventButton(event.id, "accept", emoji=EMOJI_ACCEPT_BUTTON, style=discord.ButtonStyle.secondary))
+    view.add_item(EventButton(event.id, "decline", emoji=EMOJI_DECLINE_BUTTON, style=discord.ButtonStyle.secondary))
     tentative_emoji = EMOJI_FILLER if event.data.is_academy else EMOJI_TENTATIVE_BUTTON
     view.add_item(EventButton(event.id, "tentative", emoji=tentative_emoji, style=discord.ButtonStyle.secondary))
     view.add_item(EventButton(event.id, "edit", label="Bearbeiten", style=discord.ButtonStyle.primary))
@@ -182,7 +183,8 @@ async def handle_rsvp(interaction: discord.Interaction, store: Store, event: Eve
     embed = await build_embed(interaction.client, store, event,
                               _has(interaction.message.attachments, IMAGE_FILENAME),
                               _has(interaction.message.attachments, THUMB_FILENAME))
-    await interaction.response.edit_message(embed=embed)
+    # Buttons mitschicken, damit ältere Posts beim nächsten Klick die aktuellen Buttons bekommen
+    await interaction.response.edit_message(embed=embed, view=event_view(event))
 
 
 async def handle_edit(interaction: discord.Interaction, store: Store, event: EventRecord):
