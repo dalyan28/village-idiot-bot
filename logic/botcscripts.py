@@ -1,8 +1,8 @@
-"""botcscripts.com API-Client: REST API first, HTML-Scraping als Fallback.
+"""botcscripts.com API-Client.
 
-Lookup-Kette (aufgerufen von script_cache.py / host_command.py):
-1. REST API: /api/scripts/?search=... → JSON mit content direkt dabei
-2. Fallback: HTML-Scraping der Suchseite + separater Download-Endpoint
+- Suche: REST API /api/scripts/?search=… (JSON mit Inhalt, Likes, Typ), beliebteste zuerst
+- Skript einer Version: /script/<id>/<version>/download
+Ist botcscripts.com nicht erreichbar oder zu langsam, wirft die Suche BotcScriptsUnavailable.
 """
 
 import asyncio
@@ -12,7 +12,6 @@ import time
 from urllib.parse import quote_plus
 
 import requests
-from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +22,7 @@ BOTCSCRIPTS_BASE = "https://www.botcscripts.com"
 API_SEARCH = ("https://www.botcscripts.com/api/scripts/?format=json&search={query}&limit={limit}"
               "&include_homebrew=true&include_hybrid=true&ordering=-score")
 
-# HTML Fallback
-HTML_SEARCH = "https://www.botcscripts.com/?search={query}"
+# Skript-JSON einer bestimmten Version
 DOWNLOAD_URL = "https://www.botcscripts.com/script/{id}/{version}/download"
 
 REQUEST_TIMEOUT = 8   # Sekunden je Anfrage
@@ -84,103 +82,22 @@ def _search_api(query: str, limit: int = 5) -> list[dict] | None:
 
     r = _get(url)
     if r is None:
-        logger.warning("API nicht erreichbar, Fallback auf Scraping")
+        logger.warning("botcscripts.com-API nicht erreichbar")
         return None
 
     if r.status_code != 200:
-        logger.warning("API returned %d, Fallback auf Scraping", r.status_code)
+        logger.warning("botcscripts.com-API antwortet %d", r.status_code)
         return None
 
     try:
         data = r.json()
     except (json.JSONDecodeError, ValueError):
-        logger.warning("API returned ungültiges JSON, Fallback auf Scraping")
+        logger.warning("botcscripts.com-API liefert ungültiges JSON")
         return None
 
     results_raw = data.get("results", [])
     results = [_parse_api_result(r) for r in results_raw[:limit]]
     logger.debug("API: %d Ergebnisse für '%s'", len(results), query)
-    return results
-
-
-# ── HTML Scraping (Fallback) ─────────────────────────────────────────────────
-
-
-def _parse_search_html(soup: BeautifulSoup) -> list[dict]:
-    """Parst Suchergebnisse aus dem HTML."""
-    results = []
-
-    # Strategy 1: Card-basiertes Layout
-    for card in soup.select("div.script-card, article.script, div.card, li.script"):
-        name_el = card.select_one("h2, h3, .script-name, .title, a")
-        author_el = card.select_one(".author, .by, span.author")
-        link_el = card.select_one("a[href]")
-
-        name = name_el.get_text(strip=True) if name_el else None
-        author = author_el.get_text(strip=True) if author_el else None
-        href = link_el["href"] if link_el else None
-        if href and not href.startswith("http"):
-            href = BOTCSCRIPTS_BASE + href
-
-        if name:
-            results.append({"name": name, "author": author, "url": href})
-
-    if results:
-        return results
-
-    # Strategy 2: Alle Links die /script/ enthalten
-    for a in soup.select("a[href]"):
-        href = a["href"]
-        if "/script/" in href:
-            if not href.startswith("http"):
-                href = BOTCSCRIPTS_BASE + href
-            name = a.get_text(strip=True)
-            if name:
-                results.append({"name": name, "author": None, "url": href})
-
-    return results
-
-
-def _extract_id_version(script_url: str) -> tuple[str | None, str | None]:
-    """Extrahiert Script-ID und Version aus einer botcscripts.com URL."""
-    parts = [p for p in script_url.split("/") if p]
-    try:
-        idx = parts.index("script")
-        script_id = parts[idx + 1]
-        version = parts[idx + 2] if idx + 2 < len(parts) else None
-        return script_id, version
-    except (ValueError, IndexError):
-        return None, None
-
-
-def _search_scrape(query: str, limit: int = 5) -> list[dict]:
-    """Fallback-Suche via HTML-Scraping."""
-    url = HTML_SEARCH.format(query=quote_plus(query))
-    logger.debug("Scraping-Suche: %s", url)
-
-    r = _get(url)
-    if r is None or r.status_code != 200:
-        # API und Webseite nicht erreichbar → das ist ein Ausfall, nicht „keine Treffer“
-        raise BotcScriptsUnavailable(f"Suche nicht erreichbar ({r.status_code if r is not None else 'keine Antwort'})")
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    html_results = _parse_search_html(soup)[:limit]
-
-    # Konvertiere Scraping-Ergebnisse ins einheitliche Format
-    results = []
-    for item in html_results:
-        script_id, version = _extract_id_version(item.get("url", ""))
-        results.append({
-            "name": item.get("name", ""),
-            "author": item.get("author", ""),
-            "version": version or "",
-            "botcscripts_id": script_id or "",
-            "pk": None,
-            "characters": [],  # Müssen separat per Download geholt werden
-            "url": item.get("url", ""),
-        })
-
-    logger.debug("Scraping: %d Ergebnisse für '%s'", len(results), query)
     return results
 
 
@@ -209,20 +126,16 @@ def _download_script_sync(script_id: str, version: str) -> list[str]:
 
 
 def _search_sync(query: str, limit: int = 5) -> list[dict]:
-    """Synchrone Suche: API first, Scraping als Fallback."""
-    # 1. REST API versuchen
+    """Synchrone Suche über die API. Kein Ausweichen auf die Webseite (Dalyan, 20.10.2026): API und Seite
+    fallen praktisch gemeinsam aus, der Umweg kostete nur Zeit und lieferte weder Likes noch Typ."""
     results = _search_api(query, limit)
-    if results is not None:
-        return results
-
-    # 2. Fallback: HTML Scraping. Charaktere werden erst bei der Auswahl geladen (download_script),
-    # nicht für jeden Treffer – das kostete bis zu 10 weitere Anfragen.
-    logger.info("API fehlgeschlagen, nutze Scraping-Fallback für '%s'", query)
-    return _search_scrape(query, limit)
+    if results is None:
+        raise BotcScriptsUnavailable("API nicht erreichbar")
+    return results
 
 
 async def search_scripts(query: str, limit: int = 5) -> list[dict]:
-    """Sucht Scripts auf botcscripts.com (API first, Scraping fallback).
+    """Sucht Scripts auf botcscripts.com (API, beliebteste zuerst).
 
     Returns:
         Liste von Dicts mit: name, author, version, botcscripts_id, pk, characters, url
