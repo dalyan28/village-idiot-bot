@@ -45,12 +45,11 @@ def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord
         container.add_item(intro)
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
     container.add_item(discord.ui.TextDisplay(
-        "**Erst** legst du Termin und Optionen fest, also Datum, Uhrzeit und ob es eine Academy-, "
-        "Casual- oder aufgezeichnete Runde ist.\n\n"
-        "**Dann** suchst du dir das Skript aus: über die Suche auf botcscripts.com, als Basis-Skript "
-        "oder als eigenes JSON.\n\n"
-        "**Zum Schluss** schaust du in der Zusammenfassung noch einmal über alles drüber, schreibst eine "
-        "kurze Beschreibung und veröffentlichst die Runde 🎉"))
+        "Als Erstes legst du den Termin fest und ob es eine Academy-, Casual- oder aufgezeichnete Runde ist. "
+        "Danach suchst du dir das Skript aus, entweder über botcscripts.com, als Basis-Skript oder als "
+        "eigenes JSON.\n\n"
+        "Am Ende siehst du eine Zusammenfassung, in der du noch eine kurze Beschreibung schreibst, alles "
+        "anpassen kannst und die Runde veröffentlichst 🎉"))
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
     container.add_item(discord.ui.TextDisplay(
         "Neu im Storytelling? In den "
