@@ -1,4 +1,4 @@
-"""Tests für die /botc2-Darstellung (Components V2) ohne Discord: jede Seite, Grenzen, Bearbeiten-Buttons."""
+"""Tests für die Zusammenfassung und die Skript-Seite (Components V2) ohne Discord."""
 
 import asyncio
 
@@ -7,28 +7,15 @@ import discord
 import pytest
 
 from discord_ui import wizard
-from discord_ui.layout_v2 import to_layout
 from tests.test_wizard import FakeBot, make_draft, store  # noqa: F401  (Fixture)
 
 
 def layout_for(store, draft):
     async def go():
-        screen = await wizard.build_screen(FakeBot(store=store), store, draft)
-        layout = to_layout(screen.embeds, screen.view, draft.id, wizard.base_step(draft.step) == "preview")
+        layout, _ = await wizard.render(FakeBot(store=store), draft)
         layout.to_components()  # muss sich serialisieren lassen
         return layout
     return asyncio.run(go())
-
-
-def edit_buttons(layout):
-    return [i for i in layout.walk_children() if getattr(i, "custom_id", "").split(":")[2:3] == ["edit_field"]]
-
-
-@pytest.mark.parametrize("step", wizard.STEPS)
-def test_every_step_fits_components_v2(store, step):
-    layout = layout_for(store, make_draft(store, step))
-    assert layout.content_length() <= 4000
-    assert sum(1 for _ in layout.walk_children()) <= 40
 
 
 def summary_for(store, draft):
@@ -79,7 +66,7 @@ def test_script_step_with_search_results_and_versions(store):
         "versions": [{"id": "173", "version": "9.0.0"}]})
     layout = layout_for(store, store.get_draft(draft.id))
     rows = [c for c in layout.children if isinstance(c, discord.ui.ActionRow)]
-    assert [len(r.children) for r in rows] == [4, 4, 1, 1, 1]
+    assert [len(r.children) for r in rows] == [3, 1, 2]  # Blättern · Versionen · Zusammenfassung/Abbrechen
 
 
 def test_long_academy_description_is_shortened(store):
@@ -119,29 +106,6 @@ def test_search_results_as_sections_with_choose_button(store):
     assert buttons[f"wiz:{draft.id}:page:2"].disabled  # letzte Seite: kein Weiter
 
 
-def test_event_card_v2_within_limits():
-    from datetime import datetime, timezone
-    from discord_ui.layout_v2 import event_layout
-    from events.schema import Person, ScriptRef, EventData
-    from events.service import RsvpLists
-    data = EventData(start=datetime(2026, 10, 24, 18, tzinfo=timezone.utc), storyteller=Person("Dalyan"),
-                     script=ScriptRef(kind="botcscripts", name="Boozling", author="Lau", version="9.0.0",
-                                      botcscripts_id="173", characters=["noble", "imp", "djinn"]),
-                     description="x" * 1000, rating="yellow", is_academy=True, max_players=2)
-    people = [Person(f"Spieler {i}", i) for i in range(60)]
-    rsvps = RsvpLists(players=people[:2], waitlist=people[2:30], tentative=people[30:45], declined=people[45:])
-
-    async def go():
-        buttons = [discord.ui.Button(label=str(i), custom_id=f"b{i}") for i in range(5)]
-        layout = event_layout(data, "Dalyan", "https://cdn/a.png", rsvps, buttons, True, True, 1792459044)
-        layout.to_components()
-        return layout
-    layout = asyncio.run(go())
-    texts = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "Zusagen (30/2)" in texts and "Warteliste" in texts and "Auffüller" in texts and "<@" not in texts
-    assert layout.content_length() <= 4000 and sum(1 for _ in layout.walk_children()) <= 40
-
-
 def _custom_ids(layout):
     return [i.custom_id for i in layout.walk_children() if getattr(i, "custom_id", None)]
 
@@ -154,7 +118,7 @@ def test_no_duplicate_custom_ids_in_summary(store, draft_kw):
     assert len(ids) == len(set(ids)), ids
 
 
-@pytest.mark.parametrize("step", wizard.STEPS)
+@pytest.mark.parametrize("step", ["script", "image", "preview"])
 def test_no_duplicate_custom_ids_on_any_page(store, step):
     ids = _custom_ids(layout_for(store, make_draft(store, step)))
     assert len(ids) == len(set(ids)), ids

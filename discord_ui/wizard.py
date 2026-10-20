@@ -1,8 +1,10 @@
-"""DM-Wizard: eine Nachricht pro Entwurf, die bei jedem Schritt bearbeitet wird.
+"""DM-Wizard: eine Nachricht pro Entwurf (Components V2), die bei jedem Schritt bearbeitet wird.
 
-Schritte: Skript → Einschätzung → Leitung & Details → Beschreibung → Bild → Vorschau.
-Beim Bearbeiten eines Events startet der Wizard in der Vorschau; von dort springt man in einen
-Schritt und mit „Weiter“ direkt zurück (Step-Suffix „:p“).
+Ablauf: Skript wählen → Zusammenfassung. Alles Weitere ändert man in der Zusammenfassung per
+Dialog („Ändern“ je Abschnitt); fehlende Pflichtangaben stehen dort als rote Buttons.
+Die Seiten Skript und Bild können auch aus der Zusammenfassung heraus geöffnet werden; sie
+führen danach dorthin zurück (Step-Suffix „:p“). Beim Bearbeiten startet der Wizard in der
+Zusammenfassung.
 
 Alle Buttons und Selects sind DynamicItems mit der Entwurfs-ID im custom_id
 (`wiz:<draft_id>:<aktion>[:<arg>]` bzw. `wizs:<draft_id>:<name>`). Damit funktionieren sie
@@ -12,7 +14,6 @@ nach einem Neustart weiter: Der Zustand liegt in der Datenbank, nicht im Arbeits
 from __future__ import annotations
 
 import copy
-import io
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -21,11 +22,11 @@ from datetime import datetime
 
 import discord
 
-from discord_ui.layout_v2 import script_layout, summary_layout, text_layout, to_layout
+from discord_ui.layout_v2 import image_layout, script_layout, summary_layout, text_layout
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.intake import parse_players
-from events.parse import ParseError, format_termin, parse_start
+from events.parse import ParseError, parse_start
 from events.permissions import Actor
 from events.rating import RatingUnavailable, rate_script
 from events.schema import (
@@ -51,44 +52,24 @@ from events.schema import (
     EventData,
     Person,
     ScriptRef,
-    missing_for_publish,
 )
 from events.store import Draft, Store
-from events.templates import BASE3_FULL_NAMES, LABEL_EMOJI, RATING_WORDS, base_title, full_title
+from events.templates import BASE3_FULL_NAMES, base_title
 from logic import botcscripts
-from logic.event_images import (
-    IMAGE_FILENAME,
-    ImageError,
-    delete_custom_image,
-    has_auto_image,
-    render_image,
-    save_custom_image,
-)
-from logic.event_builder import embed_color
+from logic.event_images import ImageError, delete_custom_image, save_custom_image
 from logic.script_cache import get_base_script, validate_script_json
 from logic.script_flags import is_teensy, special_reasons
 
 logger = logging.getLogger(__name__)
 
-WIZARD_COLOR = 0x5865F2
-SEARCH_LIMIT = 50  # nach Likes sortiert; /botc2 blättert in Seiten durch (layout_v2.RESULTS_PER_PAGE)
+SEARCH_LIMIT = 50  # nach Likes sortiert; die Skript-Karte blättert in Seiten durch (layout_v2.RESULTS_PER_PAGE)
 OUTAGE_SEARCH = ("botcscripts.com antwortet gerade nicht (zu langsam oder nicht erreichbar). Du kannst ein Basis-Skript oder die freie Skriptwahl nehmen, dein Skript als JSON hochladen oder es gleich nochmal versuchen.")
-PREVIEW_IMAGE = "vorschau.png"
 
 STEP_SCRIPT = "script"
-STEP_DESCRIPTION = "description"
 STEP_IMAGE = "image"
 STEP_PREVIEW = "preview"
-# Standardwerte (Dauer, Kamera, Co-ST, Erinnerungen …) werden nicht abgefragt, sondern nur in der
-# Zusammenfassung geändert (Dalyan, 20.10.2026).
-# Die Schwierigkeit legt der Algorithmus fest; geändert wird sie nur in der Zusammenfassung.
-STEPS = (STEP_SCRIPT, STEP_DESCRIPTION, STEP_IMAGE, STEP_PREVIEW)
-STEP_LABELS = {
-    STEP_SCRIPT: "Skript",
-    STEP_DESCRIPTION: "Beschreibung",
-    STEP_IMAGE: "Bild",
-    STEP_PREVIEW: "Zusammenfassung",
-}
+# Standardwerte (Dauer, Kamera, Co-ST, Level …) werden nicht abgefragt, sondern nur in der
+# Zusammenfassung geändert (Dalyan, 20.10.2026). Die Schwierigkeit legt der Algorithmus fest.
 RETURN_SUFFIX = ":p"
 
 
@@ -105,34 +86,6 @@ def base_step(step: str) -> str:
 
 def returns_to_preview(step: str) -> bool:
     return step.endswith(RETURN_SUFFIX)
-
-
-def steps_for(data: EventData) -> list[str]:
-    return list(STEPS)
-
-
-def next_step(data: EventData, step: str) -> str:
-    if returns_to_preview(step):
-        return STEP_PREVIEW
-    order = steps_for(data)
-    current = base_step(step)
-    i = order.index(current) if current in order else 0
-    return order[min(i + 1, len(order) - 1)]
-
-
-def previous_step(data: EventData, step: str) -> str:
-    if returns_to_preview(step):
-        return STEP_PREVIEW
-    order = steps_for(data)
-    current = base_step(step)
-    i = order.index(current) if current in order else 0
-    return order[max(i - 1, 0)]
-
-
-def step_number(data: EventData, step: str) -> tuple[int, int]:
-    order = steps_for(data)
-    current = base_step(step)
-    return (order.index(current) + 1 if current in order else 1), len(order)
 
 
 # ── Kontext und Dispatch ─────────────────────────────────────────────────────
@@ -281,147 +234,6 @@ def _esc(text: str) -> str:
     return discord.utils.escape_markdown(text)
 
 
-def step_embed(draft: Draft, notice: str | None = None) -> discord.Embed:
-    """Kasten für den aktuellen Schritt (unter der Zusammenfassung)."""
-    n, total = step_number(draft.data, draft.step)
-    label = STEP_LABELS[base_step(draft.step)]
-    title = f"Schritt {n}/{total}: {label}" if base_step(draft.step) in STEPS else label
-    embed = discord.Embed(title=title, color=WIZARD_COLOR)
-    if notice:
-        embed.description = notice
-    embed.set_footer(text="Entwürfe bleiben 24 Stunden gespeichert. Die Buttons funktionieren auch später noch.")
-    return embed
-
-
-@dataclass
-class Screen:
-    embeds: list[discord.Embed]
-    view: discord.ui.View
-    files: list[discord.File]
-
-
-def _nav(view: discord.ui.View, draft: Draft, row: int, next_label: str = "Weiter", next_disabled: bool = False,
-         back: bool = True):
-    view.add_item(WizardButton(draft.id, "next", next_label, discord.ButtonStyle.success, row=row,
-                               disabled=next_disabled))
-    if back and base_step(draft.step) != STEP_SCRIPT:
-        view.add_item(WizardButton(draft.id, "back", "Zurück", row=row))
-    _cancel_button(view, draft, row)
-
-
-def _cancel_button(view: discord.ui.View, draft: Draft, row: int):
-    label = "Abbrechen" if draft.event_id is None else "Bearbeitung verwerfen"
-    view.add_item(WizardButton(draft.id, "cancel", label, discord.ButtonStyle.danger, row=row))
-
-
-async def build_screen(bot: discord.Client, store: Store, draft: Draft, notice: str | None = None) -> Screen:
-    guild = bot.get_guild(draft.guild_id)
-    view = discord.ui.View(timeout=None)
-    step = base_step(draft.step)
-    if step not in STEPS:
-        step = STEP_PREVIEW  # Entwurf aus einer älteren Version mit inzwischen entferntem Schritt
-    if step == STEP_PREVIEW:
-        embeds, files = await _screen_preview(bot, store, draft, view, guild.name if guild else None, notice)
-        return Screen(embeds, view, files)
-    summary = summary_fields(store, draft)
-    heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
-    summary.description = f"{heading} für **{_esc(guild.name)}**" if guild else heading
-    head = step_embed(draft, notice)
-    builder = {
-        STEP_SCRIPT: _screen_script,
-        STEP_DESCRIPTION: _screen_description,
-        STEP_IMAGE: _screen_image,
-        STEP_PREVIEW: _screen_preview,
-    }[step]
-    extra_embeds, files = await builder(bot, store, draft, head, view)
-    return Screen([summary, head, *extra_embeds], view, files)
-
-
-async def _screen_script(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
-    d, ui = draft.data, draft.ui or {}
-    text = "Welches Skript spielt ihr? Wähle ein Basis-Skript, such auf botcscripts.com oder lade ein Skript-JSON hoch."
-    if d.script:
-        text = f"Aktuell: **{_esc(d.script.display_name)}**. Du kannst es hier ändern.\n\n" + text
-    head.add_field(name="Skript", value=text, inline=False)
-    for key, name in BASE3_FULL_NAMES.items():
-        view.add_item(WizardButton(draft.id, "pick", name, discord.ButtonStyle.primary, arg=key, row=0))
-    view.add_item(WizardButton(draft.id, "pick", "Freie Skriptwahl", arg="free", row=0))
-    view.add_item(WizardButton(draft.id, "search", "Auf botcscripts.com suchen", row=1))
-    view.add_item(WizardButton(draft.id, "upload", "Skript-JSON hochladen", row=1))
-    if d.script is not None:
-        view.add_item(WizardButton(draft.id, "rating_dialog", "Schwierigkeit ändern", row=1))
-    if d.script is not None and d.script.kind == SCRIPT_BOTCSCRIPTS:
-        view.add_item(WizardButton(draft.id, "versions", "Andere Version", row=1))
-        versions = ui.get("versions") or []
-        if versions:
-            options = [discord.SelectOption(label=f"v{v['version']}"[:100], value=f"{v['id']}|{v['version']}",
-                                            default=v["version"] == d.script.version)
-                       for v in versions[:25]]
-            view.add_item(WizardSelect(draft.id, "version", options, "Version wählen", row=3))
-
-    results = ui.get("search_results") or []
-    if results:
-        options = [
-            discord.SelectOption(
-                label=f"{r['name']} v{r['version']}"[:100],
-                description=f"von {r['author']}"[:100] if r.get("author") else None,
-                value=f"{r['id']}|{r['version']}",
-            )
-            for r in results[:25]
-        ]
-        view.add_item(WizardSelect(draft.id, "result", options, f"Treffer für „{ui.get('query', '')}“"[:150], row=2))
-    elif ui.get("query"):
-        head.add_field(name="Suche", value=f"Keine Treffer für „{_esc(ui['query'])}“.", inline=False)
-
-    if d.script and returns_to_preview(draft.step):
-        view.add_item(WizardButton(draft.id, "next", "Zurück zur Zusammenfassung", discord.ButtonStyle.success,
-                                   row=4))
-    _cancel_button(view, draft, row=4)
-    return [], []
-
-
-async def _screen_description(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
-    d = draft.data
-    if d.description.strip():
-        text = "\n".join(f"> {line}" for line in d.description.strip().splitlines())
-    else:
-        text = "Noch keine Beschreibung. Erzähl den Mitspieler:innen kurz, worauf sie sich freuen können."
-    if d.is_academy:
-        text += "\n-# Bei Academy-Runden folgt darunter automatisch der feste Academy-Text."
-    head.add_field(name="Beschreibung", value=text[:1024], inline=False)
-    label = "Beschreibung bearbeiten" if d.description.strip() else "Beschreibung schreiben"
-    view.add_item(WizardButton(draft.id, "describe", label, discord.ButtonStyle.primary, row=0))
-    missing = not d.description.strip() and not d.is_academy
-    _nav(view, draft, row=1, next_disabled=missing)
-    return [], []
-
-
-async def _screen_image(bot, store, draft: Draft, head: discord.Embed, view: discord.ui.View):
-    d = draft.data
-    auto_possible = has_auto_image(d)
-    mode_text = {
-        IMAGE_AUTO: "Automatisch aus dem Skript" if auto_possible else "Automatisch (bei diesem Skript gibt es keins)",
-        IMAGE_CUSTOM: "Eigenes Bild",
-        IMAGE_NONE: "Kein Bild",
-    }[d.image_mode]
-    head.add_field(name="Bild", value=f"{mode_text}\n-# Die Vorschau hängt an dieser Nachricht.", inline=False)
-    view.add_item(WizardButton(draft.id, "img", "Aus dem Skript", arg="auto", row=0,
-                               style=discord.ButtonStyle.primary if d.image_mode == IMAGE_AUTO else discord.ButtonStyle.secondary,
-                               disabled=not auto_possible))
-    view.add_item(WizardButton(draft.id, "upload_img", "Eigenes Bild hochladen", row=0,
-                               style=discord.ButtonStyle.primary if d.image_mode == IMAGE_CUSTOM else discord.ButtonStyle.secondary))
-    view.add_item(WizardButton(draft.id, "img", "Kein Bild", arg="none", row=0,
-                               style=discord.ButtonStyle.primary if d.image_mode == IMAGE_NONE else discord.ButtonStyle.secondary))
-    _nav(view, draft, row=1)
-
-    image = await render_image(d)
-    if image is None:
-        return [], []
-    preview = discord.Embed(color=WIZARD_COLOR).set_image(url=f"attachment://{PREVIEW_IMAGE}")
-    return [preview], [discord.File(io.BytesIO(image), filename=PREVIEW_IMAGE)]
-
-
-OPEN = "offen"
 # Symbole der Server-Regeln bleiben überall stehen (Dalyan, 20.10.2026)
 RATING_BUTTON_LABELS = {
     "green": "💚 Grün", "yellow": "🟡 Gelb", "red": "🟥 Rot",
@@ -440,129 +252,6 @@ def rating_explanation(ui: dict, limit: int = 4) -> str:
     return "\n".join(f"• {_esc(r)}" for r in (detail.get("reasons") or [])[:limit])
 
 
-def _code(text: str) -> str:
-    """Wert als Code-Block wie in der Zusammenfassung des alten Branches."""
-    return f"```{(text or '—').replace('`', 'ˋ')}```"
-
-
-# „Feld ändern“: Wert → (Beschriftung, Nummern im Embed)
-EDIT_CHOICES = {
-    "title": "1 · Titel",
-    "script": "2 · Skript",
-    "rating": "3 · Schwierigkeit",
-    "description": "4 · Beschreibung",
-    "people": "5–6 · Storyteller:in & Co-Storyteller:in",
-    "basics": "7, 10, 11 · Level, Max Spieler, Termin & Dauer",
-    "labels": "8–9 · Labels (inkl. ⭐) & Kamera",
-    "image": "12 · Bild",
-}
-
-
-def summary_fields(store: Store, draft: Draft) -> discord.Embed:
-    """Nummerierte Zusammenfassung (Aufbau wie `_show_final_review` auf Branch event-creation)."""
-    d, ui = draft.data, draft.ui or {}
-    color = embed_color(d)
-    embed = discord.Embed(title="Event-Zusammenfassung", color=color)
-
-    embed.add_field(name="1 · Titel" + ("" if d.title.strip() else " (automatisch)"),
-                    value=_code(full_title(d)), inline=False)
-
-    s = d.script
-    if s is None:
-        script_info = OPEN
-    else:
-        script_info = s.display_name
-        if s.author and s.kind != SCRIPT_BASE:
-            script_info += f" von {s.author}"
-        if s.version and s.kind != SCRIPT_BASE:
-            script_info += f" · v{s.version}"
-        if s.characters:
-            script_info += f" · {len(s.characters)} Charaktere"
-    embed.add_field(name="2 · Skript", value=_code(script_info), inline=True)
-
-    if d.rating:
-        if d.rating_source == RATING_SOURCE_FIXED:
-            source = "Freie Skriptwahl" if s is not None and s.kind == SCRIPT_FREE else "Basis-Skript"
-        else:
-            source = {RATING_SOURCE_RATER: "laut ScriptRater", RATING_SOURCE_MANUAL: "von dir gewählt"}.get(
-                d.rating_source, "")
-        rating_text = f"{LABEL_EMOJI[d.rating]} **{RATING_WORDS[d.rating].capitalize()}** ({source})"
-        if d.rating_source == RATING_SOURCE_RATER:
-            rating_text += "\n" + rating_explanation(ui, limit=3)
-    else:
-        rating_text = OPEN
-        if ui.get("rating_error"):
-            rating_text += "\n" + ui["rating_error"]
-    if d.is_special:
-        why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
-        rating_text += f"\n{LABEL_EMOJI['special']} Abweichung vom klassischen Clocktower: {_esc(why)}"
-    quoted = "\n".join(f"> {line}" for line in rating_text.split("\n"))
-    embed.add_field(name="3 · Einschätzung", value=quoted[:1024], inline=True)
-
-    description = d.description.strip() or (OPEN if not d.is_academy else "—")
-    if d.is_academy:
-        description += "\n\n(+ fester Academy-Text)"
-    if len(description) + 6 <= 1024:
-        embed.add_field(name="4 · Beschreibung", value=_code(description), inline=False)
-    else:
-        embed.add_field(name="4 · Beschreibung", value=description[:1024], inline=False)
-
-    embed.add_field(name="5 · Storyteller:in", value=_code(d.storyteller.name if d.storyteller else "—"), inline=True)
-    embed.add_field(name="6 · Co-Storyteller:in",
-                    value=_code(d.co_storyteller.name if d.co_storyteller else "—"), inline=True)
-    embed.add_field(name="7 · Level", value=_code(d.level), inline=True)
-
-    labels = [name for flag, name in ((d.is_academy, "🎓 Academy"), (d.is_casual, "🕊️ Casual"),
-                                      (d.is_recorded, "🎦 Aufzeichnung"), (d.is_special, "⭐ Abweichung")) if flag]
-    embed.add_field(name="8 · Labels", value=_code(", ".join(labels) or "—"), inline=True)
-    embed.add_field(name="9 · Kamera", value=_code(CAMERA_LABELS[d.camera]), inline=True)
-    embed.add_field(name="10 · Max Spieler", value=_code(str(d.max_players)), inline=True)
-    embed.add_field(name="11 · Termin",
-                    value=_code(format_termin(d.start, d.duration_minutes) if d.start else "—"), inline=False)
-
-    image_text = {IMAGE_AUTO: "Aus dem Skript" if has_auto_image(d) else "Keins (freie Skriptwahl)",
-                  IMAGE_CUSTOM: "Eigenes Bild", IMAGE_NONE: "Kein Bild"}[d.image_mode]
-    embed.add_field(name="12 · Bild", value=_code(image_text), inline=True)
-    return embed
-
-
-async def _screen_preview(bot, store, draft: Draft, view: discord.ui.View, guild_name: str | None,
-                          notice: str | None):
-    from discord_ui.event_post import build_files  # zirkulären Import vermeiden
-    from logic.event_images import THUMB_FILENAME
-
-    d = draft.data
-    missing = missing_for_publish(d)
-    embed = summary_fields(store, draft)
-    lines = []
-    if guild_name:
-        lines.append(f"für **{_esc(guild_name)}**")
-    lines.append("Schau in Ruhe drüber. Wenn alles passt: **Veröffentlichen**. "
-                 "Zum Ändern wähle unten das Feld aus.")
-    if missing:
-        lines.append(f"**Es fehlt noch:** {', '.join(missing)}.")
-    if notice:
-        lines.append(notice)
-    embed.description = "\n".join(lines)
-    embed.set_footer(text="Entwürfe bleiben 24 Stunden gespeichert. Die Buttons funktionieren auch später noch.")
-
-    files = await build_files(d)
-    names = {f.filename for f in files}
-    if IMAGE_FILENAME in names:
-        embed.set_image(url=f"attachment://{IMAGE_FILENAME}")
-    if THUMB_FILENAME in names:
-        embed.set_thumbnail(url=f"attachment://{THUMB_FILENAME}")
-
-    options = [discord.SelectOption(label=label, value=value) for value, label in EDIT_CHOICES.items()]
-    view.add_item(WizardSelect(draft.id, "edit", options, "Feld ändern …", row=0))
-    publish_label = "Veröffentlichen" if draft.event_id is None else "Änderungen speichern"
-    view.add_item(WizardButton(draft.id, "publish", publish_label, discord.ButtonStyle.success, emoji="🎉",
-                               row=1, disabled=bool(missing)))
-    _cancel_button(view, draft, row=1)
-    return [embed], files
-
-
-
 def draft_creator_name(bot: discord.Client, draft: Draft) -> str:
     if draft.event_id is not None:
         event = bot.store.get_event(draft.event_id)
@@ -573,52 +262,29 @@ def draft_creator_name(bot: discord.Client, draft: Draft) -> str:
     return member.display_name if member else (draft.data.storyteller.name if draft.data.storyteller else "")
 
 
+async def render(bot: discord.Client, draft: Draft, notice: str | None = None):
+    """Karte für den aktuellen Schritt: (LayoutView, Dateien)."""
+    step = base_step(draft.step)
+    if step == STEP_SCRIPT:
+        return await script_layout(bot, bot.store, draft, notice)
+    if step == STEP_IMAGE:
+        return await image_layout(bot, bot.store, draft, notice)
+    # Zusammenfassung, auch für Entwürfe aus älteren Versionen mit inzwischen entfernten Schritten
+    return await summary_layout(bot, bot.store, draft, notice)
+
+
 async def send_wizard(bot: discord.Client, user: discord.abc.User, draft: Draft, intro: str | None = None):
     """Schickt die Wizard-Nachricht per DM. Wirft discord.Forbidden, wenn DMs geschlossen sind."""
-    screen = await build_screen(bot, bot.store, draft)
-    if is_v2(draft):
-        if base_step(draft.step) == STEP_SCRIPT:
-            layout, files = await script_layout(bot, bot.store, draft, intro)
-            await user.send(view=layout, files=files)
-            return
-        if base_step(draft.step) == STEP_PREVIEW or base_step(draft.step) not in STEPS:
-            layout, files = await summary_layout(bot, bot.store, draft, intro)
-            await user.send(view=layout, files=files)
-            return
-        embeds = screen.embeds
-        if intro:
-            embeds = [discord.Embed(description=intro), *embeds]
-        await user.send(view=to_layout(embeds, screen.view, draft.id, False), files=screen.files)
-        return
-    await user.send(content=intro, embeds=screen.embeds, view=screen.view, files=screen.files)
+    layout, files = await render(bot, draft, intro)
+    await user.send(view=layout, files=files)
 
 
-def is_v2(draft: Draft) -> bool:
-    """Entwurf aus /botc2 bzw. Bearbeitung eines /botc2-Events: Darstellung mit Components V2."""
-    return bool((draft.ui or {}).get("v2")) or draft.data.v2_post
-
-
-async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str | None = None,
-               content: str | None = None):
+async def show(interaction: discord.Interaction, ctx: WizardContext, notice: str | None = None):
     """Zeigt den aktuellen Schritt in der Wizard-Nachricht, auf die geklickt wurde."""
     if not interaction.response.is_done():
         await interaction.response.defer()
-    if is_v2(ctx.draft) and base_step(ctx.draft.step) == STEP_SCRIPT:
-        layout, files = await script_layout(ctx.bot, ctx.store, ctx.draft, notice)
-        await interaction.edit_original_response(view=layout, attachments=files)
-        return
-    if is_v2(ctx.draft) and (base_step(ctx.draft.step) == STEP_PREVIEW
-                             or base_step(ctx.draft.step) not in STEPS):
-        layout, files = await summary_layout(ctx.bot, ctx.store, ctx.draft, notice)
-        await interaction.edit_original_response(view=layout, attachments=files)
-        return
-    screen = await build_screen(ctx.bot, ctx.store, ctx.draft, notice)
-    if is_v2(ctx.draft):
-        await interaction.edit_original_response(view=to_layout(screen.embeds, screen.view, ctx.draft.id, False),
-                                                 attachments=screen.files)
-        return
-    await interaction.edit_original_response(content=content, embeds=screen.embeds, view=screen.view,
-                                             attachments=screen.files)
+    layout, files = await render(ctx.bot, ctx.draft, notice)
+    await interaction.edit_original_response(view=layout, attachments=files)
 
 
 async def busy(interaction: discord.Interaction, ctx: WizardContext, text: str):
@@ -630,10 +296,7 @@ async def busy(interaction: discord.Interaction, ctx: WizardContext, text: str):
         await interaction.response.defer()
     message = f"**Einen Moment …**\n{text}"
     try:
-        if is_v2(ctx.draft):
-            await interaction.edit_original_response(view=text_layout(message), attachments=[])
-        else:
-            await interaction.edit_original_response(content=message, embeds=[], view=None, attachments=[])
+        await interaction.edit_original_response(view=text_layout(message), attachments=[])
     except discord.HTTPException:
         logger.debug("Statusmeldung konnte nicht angezeigt werden", exc_info=True)
 
@@ -649,18 +312,10 @@ async def goto(interaction: discord.Interaction, ctx: WizardContext, step: str, 
 
 @action("next")
 async def _next(interaction, ctx: WizardContext, arg):
-    d = ctx.data
-    step = base_step(ctx.draft.step)
-    if step == STEP_SCRIPT and d.script is None:
+    """„Zur Zusammenfassung“ von der Skript- oder Bild-Seite."""
+    if base_step(ctx.draft.step) == STEP_SCRIPT and ctx.data.script is None:
         raise service.ServiceError("Wähle zuerst ein Skript.")
-    if step == STEP_DESCRIPTION and not d.description.strip() and not d.is_academy:
-        raise service.ServiceError("Schreib zuerst eine Beschreibung.")
-    await goto(interaction, ctx, next_step(d, ctx.draft.step))
-
-
-@action("back")
-async def _back(interaction, ctx: WizardContext, arg):
-    await goto(interaction, ctx, previous_step(ctx.data, ctx.draft.step))
+    await goto(interaction, ctx, STEP_PREVIEW)
 
 
 @action("cancel")
@@ -671,23 +326,10 @@ async def _cancel(interaction, ctx: WizardContext, arg):
     service.discard_draft(ctx.store, ctx.draft, ctx.actor)
     text = ("Event-Erstellung abgebrochen. Mit `/botc` kannst du jederzeit neu starten."
             if ctx.draft.event_id is None else "Bearbeitung verworfen, das Event bleibt unverändert.")
-    if is_v2(ctx.draft):
-        await interaction.response.edit_message(view=text_layout(text), attachments=[])
-        return
-    await interaction.response.edit_message(content=text, embeds=[], view=None, attachments=[])
+    await interaction.response.edit_message(view=text_layout(text), attachments=[])
 
 
 # ── Aktionen: Skript ─────────────────────────────────────────────────────────
-
-
-def _after_script(ctx: WizardContext) -> str:
-    """Nach der Skriptwahl: Beschreibung, beim Bearbeiten zurück zur Zusammenfassung.
-
-    /botc2 geht immer direkt in die Zusammenfassung; was fehlt, steht dort rot markiert.
-    """
-    if returns_to_preview(ctx.draft.step) or is_v2(ctx.draft):
-        return STEP_PREVIEW
-    return STEP_DESCRIPTION
 
 
 async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice: str | None = None):
@@ -728,7 +370,7 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
     d.is_special = bool(d.special_reasons)
     ctx.set_ui(ui)
     ctx.save(d)
-    await goto(interaction, ctx, _after_script(ctx), notice=notice)
+    await goto(interaction, ctx, STEP_PREVIEW, notice=notice)
 
 
 @action("pick")
@@ -748,11 +390,6 @@ async def _pick_base(interaction, ctx: WizardContext, key: str):
                                                   base_key=key, characters=list(base["characters"])))
 
 
-@action("search")
-async def _search(interaction, ctx: WizardContext, arg):
-    await interaction.response.send_modal(SearchModal(ctx.draft.id, ctx.ui.get("query", "")))
-
-
 @action("script_dialog")
 async def _script_dialog(interaction, ctx: WizardContext, arg):
     await interaction.response.send_modal(ScriptModal(ctx.draft.id, ctx.ui.get("query", "")))
@@ -760,7 +397,7 @@ async def _script_dialog(interaction, ctx: WizardContext, arg):
 
 @action("page")
 async def _page(interaction, ctx: WizardContext, arg):
-    """Suchtreffer blättern (/botc2)."""
+    """Suchtreffer blättern."""
     ui = ctx.ui
     ui["page"] = max(0, int(arg)) if (arg or "").isdigit() else 0
     ctx.set_ui(ui)
@@ -825,11 +462,6 @@ async def _pick_result(interaction, ctx: WizardContext, arg):
     await _pick_botcscripts(interaction, ctx, f"{r['id']}|{r['version']}")
 
 
-@select_action("result")
-async def _result(interaction, ctx: WizardContext, values):
-    await _pick_botcscripts(interaction, ctx, values[0])
-
-
 @select_action("version")
 async def _version(interaction, ctx: WizardContext, values):
     await _pick_botcscripts(interaction, ctx, values[0])
@@ -851,17 +483,7 @@ async def _versions(interaction, ctx: WizardContext, arg):
     await show(interaction, ctx, notice)
 
 
-@action("upload")
-async def _upload(interaction, ctx: WizardContext, arg):
-    await interaction.response.send_modal(ScriptUploadModal(ctx.draft.id))
-
-
 # ── Aktionen: Beschreibung und Bild ──────────────────────────────────────────
-
-
-@action("describe")
-async def _describe(interaction, ctx: WizardContext, arg):
-    await interaction.response.send_modal(DescriptionModal(ctx.draft.id, ctx.draft.data.description))
 
 
 def _image_used_by_event(ctx: WizardContext, name: str) -> bool:
@@ -919,53 +541,39 @@ async def _publish(interaction, ctx: WizardContext, arg):
         if old and old.data.custom_image and old.data.custom_image != result.event.data.custom_image:
             delete_custom_image(old.data.custom_image)
         text = f"Änderungen gespeichert.\n{msg.jump_url}" if msg else "Änderungen gespeichert."
-    if is_v2(ctx.draft):
-        await interaction.edit_original_response(view=text_layout(text), attachments=[])
-        return
-    await interaction.edit_original_response(content=text, embeds=[], view=None, attachments=[])
+    await interaction.edit_original_response(view=text_layout(text), attachments=[])
 
 
 # ── Aktion: Feld ändern (aus der Zusammenfassung) ────────────────────────────
 
 
-@select_action("edit")
-async def _edit(interaction, ctx: WizardContext, values):
-    await open_edit(interaction, ctx, values[0] if values else "")
-
-
 @action("edit_field")
 async def _edit_field(interaction, ctx: WizardContext, arg):
-    """„Bearbeiten“-Button neben einem Abschnitt der Zusammenfassung (/botc2)."""
+    """„Bearbeiten“-Button neben einem Abschnitt der Zusammenfassung."""
     await open_edit(interaction, ctx, arg or "")
 
 
 @action("fix_field")
 async def _fix_field(interaction, ctx: WizardContext, arg):
-    """Roter Button für eine fehlende Angabe (/botc2). Eigene Aktion, weil Discord doppelte custom_ids ablehnt."""
+    """Roter Button für eine fehlende Angabe. Eigene Aktion, weil Discord doppelte custom_ids ablehnt."""
     await open_edit(interaction, ctx, arg or "")
 
 
 async def open_edit(interaction, ctx: WizardContext, choice: str):
     d = ctx.draft.data
-    if choice == "script" and is_v2(ctx.draft):
+    if choice == "script":
         await interaction.response.send_modal(ScriptModal(ctx.draft.id, ctx.ui.get("query", "")))
         return
-    if choice in ("script", "rating", "image"):
-        if choice == "rating":
-            await interaction.response.send_modal(RatingModal(ctx.draft.id, d))
-            return
-        step = {"script": STEP_SCRIPT, "image": STEP_IMAGE}[choice]
-        await goto(interaction, ctx, step + RETURN_SUFFIX)
+    if choice == "rating":
+        await interaction.response.send_modal(RatingModal(ctx.draft.id, d))
+    elif choice == "image":
+        await goto(interaction, ctx, STEP_IMAGE + RETURN_SUFFIX)
     elif choice == "description":
         await interaction.response.send_modal(DescriptionModal(ctx.draft.id, d.description))
     elif choice == "title":
         await interaction.response.send_modal(TitleModal(ctx.draft.id, d))
     elif choice == "people":
         await interaction.response.send_modal(PeopleModal(ctx.draft.id, d))
-    elif choice == "basics":
-        await interaction.response.send_modal(BasicsModal(ctx.draft.id, d))
-    elif choice == "labels":
-        await interaction.response.send_modal(LabelsModal(ctx.draft.id, d, _allow_academy(ctx)))
     elif choice == "descriptive":
         await interaction.response.send_modal(DescriptiveModal(ctx.draft.id, d))
     elif choice == "selection":
@@ -977,11 +585,6 @@ async def open_edit(interaction, ctx: WizardContext, choice: str):
 def _allow_academy(ctx: WizardContext) -> bool:
     return ctx.draft.data.is_academy or permissions.can(
         ctx.actor, permissions.CREATE_ACADEMY, service.get_access(ctx.store, ctx.draft.guild_id))
-
-
-@action("rating_dialog")
-async def _rating_dialog(interaction, ctx: WizardContext, arg):
-    await interaction.response.send_modal(RatingModal(ctx.draft.id, ctx.draft.data))
 
 
 # ── Modals ───────────────────────────────────────────────────────────────────
@@ -1006,20 +609,8 @@ class _WizardModal(discord.ui.Modal):
         await _reply(interaction, "Da ist etwas schiefgelaufen. Versuch es bitte nochmal.")
 
 
-class SearchModal(_WizardModal):
-    def __init__(self, draft_id: int, query: str = ""):
-        super().__init__(draft_id, "Skript suchen")
-        self.query = discord.ui.TextInput(placeholder="Name des Skripts, z. B. Boozling", default=query or None,
-                                          min_length=2, max_length=100)
-        self.add_item(discord.ui.Label(text="Suchbegriff", description="Suche auf botcscripts.com",
-                                       component=self.query))
-
-    async def handle(self, interaction, ctx: WizardContext):
-        await _run_search(interaction, ctx, self.query.value.strip())
-
-
 class ScriptModal(_WizardModal):
-    """/botc2: Skript per Dialog, die Suche steht ganz oben (Dalyan, 20.10.2026).
+    """Skript per Dialog, die Suche steht ganz oben (Dalyan, 20.10.2026).
 
     Geprüft wird von unten nach oben (Dalyan, 20.10.2026): angehängte Datei, dann Auswahl, zuletzt
     die Suche. Wer erst etwas eintippt und sich dann für ein Basis-Skript entscheidet, landet nicht
@@ -1055,17 +646,6 @@ class ScriptModal(_WizardModal):
         if len(query) < 2:
             raise service.ServiceError("Gib einen Suchbegriff (mindestens 2 Zeichen) ein oder wähl ein Skript aus.")
         await _run_search(interaction, ctx, query)
-
-
-class ScriptUploadModal(_WizardModal):
-    def __init__(self, draft_id: int):
-        super().__init__(draft_id, "Skript-JSON hochladen")
-        self.file = discord.ui.FileUpload(required=True, min_values=1, max_values=1)
-        self.add_item(discord.ui.Label(text="Skript-JSON", description="Die .json-Datei aus dem Script Tool",
-                                       component=self.file))
-
-    async def handle(self, interaction, ctx: WizardContext):
-        await _set_script(interaction, ctx, await _script_from_upload(self.file.values[0]))
 
 
 async def _script_from_upload(attachment: discord.Attachment) -> ScriptRef:
@@ -1205,7 +785,7 @@ def _level_radio(data: EventData) -> discord.ui.RadioGroup:
 
 
 class DescriptiveModal(_WizardModal):
-    """/botc2 „Beschreibung“: Titel, Beschreibung, Storyteller:in, Co-Storyteller:in."""
+    """„Beschreibung“: Titel, Beschreibung, Storyteller:in, Co-Storyteller:in."""
 
     def __init__(self, draft_id: int, data: EventData):
         super().__init__(draft_id, "Beschreibung")
@@ -1234,7 +814,7 @@ class DescriptiveModal(_WizardModal):
 
 
 class SelectionModal(_WizardModal):
-    """/botc2 „Auswahl“: Labels, Erfahrungslevel, Kamera."""
+    """„Auswahl“: Labels, Erfahrungslevel, Kamera."""
 
     def __init__(self, draft_id: int, data: EventData, allow_academy: bool):
         super().__init__(draft_id, "Labels, Level & Kamera")
@@ -1255,7 +835,7 @@ class SelectionModal(_WizardModal):
 
 
 class FrameModal(_WizardModal):
-    """/botc2 „Termin & Rahmen“: Datum, Uhrzeit, Dauer, Spieler."""
+    """„Termin & Rahmen“: Datum, Uhrzeit, Dauer, Spieler."""
 
     def __init__(self, draft_id: int, data: EventData):
         super().__init__(draft_id, "Termin & Rahmen")
@@ -1290,79 +870,6 @@ def _apply_frame(d: EventData, prefill, date_text, time_text, duration_text, pla
     if not duration.isdigit() or not 15 <= int(duration) <= 24 * 60:
         raise service.ServiceError("Die Dauer muss eine Zahl zwischen 15 und 1440 Minuten sein.")
     d.duration_minutes = int(duration)
-
-
-class BasicsModal(_WizardModal):
-    """Eckdaten aus dem /botc-Modal plus Dauer: Datum, Uhrzeit, Dauer, Max Spieler, Level."""
-
-    def __init__(self, draft_id: int, data: EventData):
-        super().__init__(draft_id, "Termin, Spieler & Level")
-        start = data.start.astimezone(BERLIN_TZ) if data.start else None
-        self.prefill = (f"{start:%d.%m.%Y}" if start else "", f"{start:%H:%M}" if start else "")
-        self.date = discord.ui.TextInput(default=self.prefill[0] or None, placeholder="z. B. Sa, morgen, 24.10.",
-                                         max_length=30)
-        self.time = discord.ui.TextInput(default=self.prefill[1] or None, placeholder="z. B. 20:00", max_length=10)
-        self.duration = discord.ui.TextInput(default=str(data.duration_minutes), max_length=4)
-        self.players = discord.ui.TextInput(default=str(data.max_players), max_length=3)
-        self.level = discord.ui.RadioGroup()
-        for lvl in LEVELS:
-            self.level.add_option(label=lvl, value=lvl, default=lvl == data.level)
-        self.add_item(discord.ui.Label(text="Datum", component=self.date))
-        self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
-        self.add_item(discord.ui.Label(text="Dauer in Minuten", component=self.duration))
-        self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200", component=self.players))
-        self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
-
-    async def handle(self, interaction, ctx: WizardContext):
-        d = ctx.data
-        try:
-            # Unveränderter Termin bleibt, auch wenn er schon vorbei ist (Bearbeiten einer laufenden Runde)
-            if (self.date.value.strip(), self.time.value.strip()) != self.prefill:
-                d.start = parse_start(self.date.value, self.time.value, now())
-            d.max_players = parse_players(self.players.value)
-        except ParseError as e:
-            raise service.ServiceError(str(e)) from None
-        duration = self.duration.value.strip()
-        if not duration.isdigit() or not 15 <= int(duration) <= 24 * 60:
-            raise service.ServiceError("Die Dauer muss eine Zahl zwischen 15 und 1440 Minuten sein.")
-        d.duration_minutes = int(duration)
-        d.level = self.level.value or d.level
-        ctx.save(d)
-        await show(interaction, ctx)
-
-
-class LabelsModal(_WizardModal):
-    """Labels (Casual, Academy nur mit Berechtigung, Aufzeichnung) und Kamera."""
-
-    def __init__(self, draft_id: int, data: EventData, allow_academy: bool):
-        super().__init__(draft_id, "Labels & Kamera")
-        self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
-        choices = [("academy", "🎓 Academy", data.is_academy), ("casual", "🕊️ Casual", data.is_casual),
-                   ("recorded", "🎦 Aufzeichnung", data.is_recorded),
-                   ("special", "⭐ Abweichung vom klassischen Clocktower", data.is_special)]
-        for value, label, on in choices:
-            if value == "academy" and not allow_academy:
-                continue
-            self.options.add_option(label=label, value=value, default=on)
-        self.options.max_values = len(self.options.options)
-        self.camera = discord.ui.RadioGroup()
-        for key, label in CAMERA_LABELS.items():
-            self.camera.add_option(label=label, value=key, default=key == data.camera)
-        self.add_item(discord.ui.Label(text="Labels", component=self.options))
-        self.add_item(discord.ui.Label(text="Kamera", component=self.camera))
-
-    async def handle(self, interaction, ctx: WizardContext):
-        d = ctx.data
-        chosen = set(self.options.values)
-        offered = {o.value for o in self.options.options}
-        d.is_recorded = "recorded" in chosen
-        d.is_special = "special" in chosen
-        if "academy" in offered:
-            d.is_academy = "academy" in chosen
-        d.is_casual = "casual" in chosen
-        d.camera = self.camera.value or d.camera
-        ctx.save(d)  # prüft die Academy-Berechtigung
-        await show(interaction, ctx)
 
 
 class DescriptionModal(_WizardModal):

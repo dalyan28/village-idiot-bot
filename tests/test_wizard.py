@@ -1,7 +1,7 @@
-"""Tests für den DM-Wizard ohne Discord: Navigation und Darstellung jedes Schritts.
+"""Tests für den DM-Wizard ohne Discord: Darstellung jeder Seite (Components V2).
 
-Jeder Schritt wird gerendert und gegen die Grenzen von Discord geprüft (Zeilen, custom_id-
-Länge, Select-Optionen, Embed-Größe). Netzwerk wird nicht gebraucht: Basis-Skripte haben eine
+Jede Seite wird gerendert und gegen die Grenzen von Discord geprüft (40 Komponenten,
+4000 Zeichen, custom_id-Länge). Netzwerk wird nicht gebraucht: Basis-Skripte haben eine
 feste Einschätzung, das Skript-Bild wird lokal erzeugt.
 """
 
@@ -9,6 +9,7 @@ import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import discord
 import pytest
 
 from discord_ui import wizard
@@ -60,121 +61,41 @@ def make_draft(store, step, **kw):
     return store.get_draft(draft.id)
 
 
-def check_limits(screen):
-    rows = {}
-    for wrapper in screen.view.children:
-        item = getattr(wrapper, "item", wrapper)
-        rows.setdefault(item.row, 0)
-        rows[item.row] += item.width
-        cid = getattr(item, "custom_id", None)
-        assert cid is None or len(cid) <= 100
-        for opt in getattr(item, "options", []) or []:
-            assert len(opt.label) <= 100 and len(opt.value) <= 100
-        if hasattr(item, "options"):
-            assert 1 <= len(item.options) <= 25
-    assert None not in rows, rows  # jede Komponente hat eine feste Zeile
-    assert all(w <= 5 for w in rows.values()), rows
-    assert len({r for r in rows if r is not None}) <= 5
-    assert sum(len(e) for e in screen.embeds) <= 6000
-    for e in screen.embeds:
-        for f in e.fields:
-            assert len(f.value) <= 1024 and len(f.name) <= 256
-
-
 def render(store, draft):
-    return asyncio.run(wizard.build_screen(FakeBot(store=store), store, draft))
+    async def go():
+        layout, files = await wizard.render(FakeBot(store=store), draft)
+        layout.to_components()  # muss sich serialisieren lassen
+        return layout, files
+    return asyncio.run(go())
 
 
-@pytest.mark.parametrize("step", wizard.STEPS)
-def test_every_step_renders_within_discord_limits(store, step):
-    screen = render(store, make_draft(store, step))
-    check_limits(screen)
-    assert screen.embeds[0].title == "Event-Zusammenfassung"  # auf jeder Seite oben
-    if step != "preview":
-        assert wizard.STEP_LABELS[step] in screen.embeds[1].title
+def texts(layout) -> str:
+    return " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
 
 
-def test_script_step_with_search_results(store):
-    draft = make_draft(store, "script", script=None)
-    store.set_draft_ui(draft.id, {"query": "boo", "search_results": [
-        {"id": str(i), "version": "1.0.0", "name": "N" * 120, "author": "A" * 120} for i in range(10)
-    ]})
-    screen = render(store, store.get_draft(draft.id))
-    check_limits(screen)
-    assert any(getattr(i, "custom_id", "") == f"wizs:{draft.id}:result" for i in screen.view.children)
+@pytest.mark.parametrize("step", ["script", "image", "preview", "script:p", "image:p"])
+def test_every_page_renders_within_discord_limits(store, step):
+    layout, _ = render(store, make_draft(store, step))
+    assert layout.content_length() <= 4000
+    assert sum(1 for _ in layout.walk_children()) <= 40
+    ids = [getattr(i, "custom_id", None) for i in layout.walk_children()]
+    assert all(len(c) <= 100 for c in ids if c)
 
 
-def test_missing_rating_blocks_publish(store):
-    draft = make_draft(store, "preview", rating=None, rating_source=None)
-    screen = render(store, draft)
-    assert next(f.value for f in screen.embeds[0].fields if f.name == "3 · Einschätzung") == "> offen"
-    publish = next(i for i in screen.view.children if i.custom_id.endswith(":publish"))
-    assert publish.item.disabled and "Schwierigkeit" in screen.embeds[0].description
+def test_old_step_falls_back_to_summary(store):
+    """Entwürfe aus älteren Versionen (z. B. Schritt „description“) landen in der Zusammenfassung."""
+    layout, _ = render(store, make_draft(store, "description"))
+    assert "BESCHREIBUNG" in texts(layout)
 
 
-def test_description_required_unless_academy(store):
-    screen = render(store, make_draft(store, "description", description=""))
-    assert next(i for i in screen.view.children if i.custom_id.endswith(":next")).item.disabled
-    screen = render(store, make_draft(store, "description", description="", is_academy=True))
-    assert not next(i for i in screen.view.children if i.custom_id.endswith(":next")).item.disabled
+def test_image_page_attaches_preview(store):
+    _, files = render(store, make_draft(store, "image"))
+    assert [f.filename for f in files] == ["vorschau.png"]
+    _, files = render(store, make_draft(store, "image", image_mode=IMAGE_NONE))
+    assert files == []
 
 
-def test_image_step_attaches_preview_and_preview_step_attaches_post_files(store):
-    screen = render(store, make_draft(store, "image"))
-    assert [f.filename for f in screen.files] == [wizard.PREVIEW_IMAGE]
-    screen = render(store, make_draft(store, "preview"))
-    assert {f.filename for f in screen.files} == {"event_image.png", "thumbnail.png"}
-    screen = render(store, make_draft(store, "image", image_mode=IMAGE_NONE))
-    assert screen.files == []
-
-
-def test_preview_disables_publish_when_incomplete(store):
-    screen = render(store, make_draft(store, "preview", description=""))
-    publish = next(i for i in screen.view.children if i.custom_id.endswith(":publish"))
-    assert publish.item.disabled
-    assert "**Es fehlt noch:** Beschreibung" in screen.embeds[0].description
-
-
-class TestNavigation:
-    def data(self, kind=SCRIPT_BASE):
-        return EventData(script=ScriptRef(kind=kind))
-
-    def test_linear_order(self):
-        d = self.data()
-        assert wizard.next_step(d, "script") == "description"
-        assert wizard.next_step(d, "description") == "image"
-        assert wizard.next_step(d, "image") == "preview"
-        assert wizard.previous_step(d, "description") == "script"
-        assert wizard.previous_step(d, "script") == "script"
-
-    def test_free_choice_skips_rating(self):
-        d = self.data(SCRIPT_FREE)
-        assert wizard.next_step(d, "script") == "description"
-        assert wizard.step_number(d, "description") == (2, 4)
-
-    def test_jump_from_preview_returns_to_preview(self):
-        d = self.data()
-        assert wizard.next_step(d, "image:p") == "preview"
-        assert wizard.previous_step(d, "image:p") == "preview"
-        assert wizard.base_step("image:p") == "image"
-
-
-def test_summary_is_numbered_with_code_blocks(store):
-    screen = render(store, make_draft(store, "preview"))
-    embed = screen.embeds[0]
-    names = [f.name for f in embed.fields]
-    assert names[0] == "1 · Titel (automatisch)" and "11 · Termin" in names and not any("Erinnerung" in n for n in names)
-    assert embed.fields[0].value == "```💚 Trouble Brewing mit Dalyan```"
-    termin = next(f.value for f in embed.fields if f.name == "11 · Termin")
-    assert termin == "```Donnerstag, der 22.10.2026, 12:00 Uhr – 14:30 Uhr```"
-    edit = next(i for i in screen.view.children if i.custom_id.endswith(":edit"))
-    assert [o.value for o in edit.item.options][:4] == ["title", "script", "rating", "description"]
-
-
-def test_open_fields_and_rating_options(store):
-    screen = render(store, make_draft(store, "description", description=""))
-    summary = {f.name: f.value for f in screen.embeds[0].fields}
-    assert summary["4 · Beschreibung"] == "```offen```"
+def test_rating_options(store):
     modal = asyncio.run(_rating_modal(make_draft(store, "preview").data))
     assert [o.label for o in modal.rating.options] == ["💚 Grün", "🟡 Gelb", "🟥 Rot", "💚/🟡 Grün bis Gelb",
                                                        "🟡/🟥 Gelb bis Rot", "💚/🟡/🟥 Alle drei"]
@@ -186,10 +107,8 @@ async def _rating_modal(data):
 
 
 def test_special_reasons_shown_in_summary(store):
-    screen = render(store, make_draft(store, "preview", is_special=True, special_reasons=["Loric: Bootlegger"]))
-    rating = next(f.value for f in screen.embeds[0].fields if f.name == "3 · Einschätzung")
-    assert "⭐ Abweichung vom klassischen Clocktower: Loric: Bootlegger" in rating
-    assert screen.embeds[0].fields[0].value.startswith("```⭐ 💚")
+    layout, _ = render(store, make_draft(store, "preview", is_special=True, special_reasons=["Loric: Bootlegger"]))
+    assert "⭐ Loric: Bootlegger" in texts(layout) and "## ⭐ 💚 Trouble Brewing" in texts(layout)
 
 
 def test_verdict_text_is_preferred(store):
@@ -199,13 +118,15 @@ def test_verdict_text_is_preferred(store):
     store.set_draft_ui(draft.id, {"rating_detail": {"verdict": "Viele Charaktere stehen auf keinem Basis-Skript.",
                                                     "tagline": "Setzt Erfahrung voraus.",
                                                     "reasons": ["Kriterium A"]}})
-    screen = render(store, store.get_draft(draft.id))
-    rating = next(f.value for f in screen.embeds[0].fields if "Einschätzung" in f.name)
-    assert "Viele Charaktere" in rating and "Kriterium A" not in rating
-    assert "> *Setzt Erfahrung voraus.*" in rating
+    layout, _ = render(store, store.get_draft(draft.id))
+    assert "Viele Charaktere" in texts(layout) and "Kriterium A" not in texts(layout)
+    assert "*Setzt Erfahrung voraus.*" in texts(layout)
 
 
 def test_custom_title(store):
-    screen = render(store, make_draft(store, "preview", title="Spukige Nacht"))
-    assert screen.embeds[0].fields[0].name == "1 · Titel"
-    assert screen.embeds[0].fields[0].value == "```💚 Spukige Nacht```"
+    layout, _ = render(store, make_draft(store, "preview", title="Spukige Nacht"))
+    assert "## 💚 Spukige Nacht" in texts(layout) and "automatisch" not in texts(layout)
+
+
+def test_base_step():
+    assert wizard.base_step("image:p") == "image" and wizard.returns_to_preview("image:p")

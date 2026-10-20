@@ -62,7 +62,7 @@ async def sync_commands():
     from commands.botc import DM_COMMANDS
 
     guilds = [discord.Object(id=gid) for gid in allowed]
-    # /botc und /botc2 bleiben global (auch in den DMs nutzbar); alles andere nur je Server
+    # /botc bleibt global (auch in den DMs nutzbar); alles andere nur je Server
     dm_commands = [c for c in bot.tree.get_commands() if c.name in DM_COMMANDS]
     for g in guilds:
         bot.tree.copy_global_to(guild=g)

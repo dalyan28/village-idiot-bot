@@ -49,8 +49,9 @@ def test_modal_prefill_after_error():
         return BotcModal(Store(":memory:"), True, ModalInput("31.02.", "20", "8", "Profi", ["casual"]))
 
     m = run(go())
-    assert m.date.default == "31.02." and m.players.default == "8"
-    assert [o.value for o in m.level.options if o.default] == ["Profi"]
+    # Datum außerhalb der Auswahl → „Anderes Datum“ mit Text; Uhrzeit ebenso
+    assert m.date.default == "31.02." and [o.value for o in m.date_choice.options if o.default] == ["other"]
+    assert m.time.default == "20" and [o.value for o in m.time_choice.options if o.default] == ["other"]
     assert [o.value for o in m.options.options if o.default] == ["casual"]
 
 
@@ -63,9 +64,9 @@ def test_wizard_custom_id_matches_template():
     assert len(custom_id(10**18, "select_version", "x" * 40)) <= 100  # Discord-Grenze für custom_id
 
 
-def test_botc2_modal_is_slim_with_date_choices():
+def test_botc_modal_is_slim_with_date_choices():
     async def go():
-        return BotcModal(Store(":memory:"), allow_academy=False, v2=True)
+        return BotcModal(Store(":memory:"), allow_academy=False)
 
     m = run(go())
     assert len(m.children) == 5  # Datum-Auswahl, anderes Datum, Uhrzeit-Auswahl, andere Uhrzeit, Optionen

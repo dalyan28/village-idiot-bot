@@ -142,7 +142,6 @@ class EventData:
     image_mode: str = IMAGE_AUTO
     custom_image: str = ""         # Dateiname des hochgeladenen Bildes im Upload-Ordner
     reminder_overrides: dict = field(default_factory=dict)
-    v2_post: bool = False          # nur alte /botc2-Testposts: V2-Karte (lässt sich nicht in ein Embed zurückwandeln)
 
     @property
     def end(self) -> datetime | None:

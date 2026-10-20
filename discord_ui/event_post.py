@@ -51,21 +51,9 @@ def _name_resolver(guild: discord.Guild | None):
 
 async def render_post(bot: discord.Client, store: Store, event: EventRecord,
                       has_image: bool, has_thumbnail: bool) -> dict:
-    """Inhalt des Event-Posts als kwargs für send/edit: Embed + Buttons oder (Test /botc2) V2-Karte."""
-    if not event.data.v2_post:
-        embed = await build_embed(bot, store, event, has_image, has_thumbnail)
-        return {"embed": embed, "view": event_view(event)}
-    from discord_ui.layout_v2 import event_layout  # zirkulären Import vermeiden
-
-    guild = bot.get_guild(event.guild_id)
-    creator = await fetch_member(bot, event.guild_id, event.creator_id)
-    layout = event_layout(
-        event.data, creator.display_name if creator else event.creator_name,
-        creator.display_avatar.url if creator else None, service.rsvp_lists(store, event),
-        list(event_view(event).children), has_image, has_thumbnail, event.created_at,
-        name_for=_name_resolver(guild),
-    )
-    return {"view": layout}
+    """Inhalt des Event-Posts als kwargs für send/edit: Embed + Buttons."""
+    embed = await build_embed(bot, store, event, has_image, has_thumbnail)
+    return {"embed": embed, "view": event_view(event)}
 
 
 async def build_embed(bot: discord.Client, store: Store, event: EventRecord,

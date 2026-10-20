@@ -187,10 +187,8 @@ def click(bot, draft_id, name, arg=None, user_id=USER):
     return inter
 
 
-def choose(bot, draft_id, name, value):
-    inter = FakeInteraction(bot, bot.guild.get_member(USER), values=[value])
-    run(WizardSelect(draft_id, name, [], "x").callback(inter))
-    return inter
+def screen_text(inter) -> str:
+    return " ".join(i.content for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
 
 
 def new_draft(bot):
@@ -209,42 +207,45 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     bot = env
     draft = new_draft(bot)
 
-    # 1. Skript: Trouble Brewing → Schwierigkeit legt der Algorithmus fest (fest grün), weiter zur Beschreibung
-    click(bot, draft.id, "pick", "trouble_brewing")
+    # 1. Skript: Trouble Brewing → Schwierigkeit legt der Algorithmus fest (fest grün), direkt zur Zusammenfassung
+    inter = click(bot, draft.id, "pick", "trouble_brewing")
     d = bot.store.get_draft(draft.id)
-    assert d.step == "description" and d.data.rating == "green" and d.data.rating_source == "fixed"
+    assert d.step == "preview" and d.data.rating == "green" and d.data.rating_source == "fixed"
     assert not d.data.is_special
+    assert isinstance(inter.screen["view"], discord.ui.LayoutView)
+    assert "fehlt noch:** Beschreibung" in screen_text(inter)
 
-    # 2. Schwierigkeit in der Zusammenfassung per Dialog ändern
-    inter = choose(bot, draft.id, "edit", "rating")
+    # 2. Schwierigkeit per Dialog ändern
+    inter = click(bot, draft.id, "edit_field", "rating")
     modal = inter.response.modal
     modal.rating._value = "yellow"
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     assert bot.store.get_draft(draft.id).data.rating_source == "manual"
 
-    # 3. Beschreibung: Weiter ohne Text geht nicht, mit Text schon
-    inter = click(bot, draft.id, "next")
-    assert step(bot, draft.id) == "description"
-    modal = DescriptionModal(draft.id, "")
+    # 3. Fehlende Beschreibung: roter Button öffnet einen Dialog NUR mit dem Beschreibungsfeld
+    inter = click(bot, draft.id, "fix_field", "description")
+    modal = inter.response.modal
+    assert isinstance(modal, DescriptionModal) and len(modal.children) == 1
     modal.text._value = "Gemütliche Runde Trouble Brewing."
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
-    click(bot, draft.id, "next")
-    assert step(bot, draft.id) == "image"
 
-    # 4. Bild: automatisch, weiter zur Zusammenfassung
+    # 4. Bild-Seite aus der Zusammenfassung: „Zur Zusammenfassung“ führt zurück
+    inter = click(bot, draft.id, "edit_field", "image")
+    assert step(bot, draft.id) == "image:p" and [f.filename for f in inter.screen["attachments"]] == ["vorschau.png"]
     click(bot, draft.id, "next")
     assert step(bot, draft.id) == "preview"
 
-    # 5. Standardwerte nur über „Feld ändern“: Co-ST als Text, Dauer, Kamera
-    inter = choose(bot, draft.id, "edit", "people")
+    # 5. Standardwerte nur über die Dialoge: Co-ST als Text, Dauer, Kamera
+    inter = click(bot, draft.id, "edit_field", "people")
     modal = inter.response.modal
     modal.st._value, modal.co._value = "Dalyan", "Rosanna"
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
-    inter = choose(bot, draft.id, "edit", "basics")
+    inter = click(bot, draft.id, "edit_field", "frame")
     modal = inter.response.modal
-    modal.duration._value = "180"
+    modal.date._value, modal.time._value = modal.prefill
+    modal.duration._value, modal.players._value = "180", "12"
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
-    inter = choose(bot, draft.id, "edit", "labels")
+    inter = click(bot, draft.id, "edit_field", "selection")
     modal = inter.response.modal
     assert "academy" in [o.value for o in modal.options.options]  # Server-Admin: Academy automatisch
     modal.camera._value = "required"
@@ -259,7 +260,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
 
     # 6. Veröffentlichen
     inter = click(bot, draft.id, "publish")
-    assert "online" in inter.screen["content"]
+    assert "online" in screen_text(inter)
     assert bot.store.get_draft(draft.id) is None
     event = bot.store.list_events(GUILD)[0]
     msg = bot.channel.messages[event.message_id]
@@ -298,19 +299,15 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     edit_draft = bot.store.list_drafts(USER)[0]
     assert edit_draft.event_id == event.id and edit_draft.step == "preview" and sent_dm
 
-    # In der Zusammenfassung „4 · Beschreibung“ ändern: Modal, danach wieder die Zusammenfassung
-    inter = choose(bot, edit_draft.id, "edit", "description")
+    assert isinstance(sent_dm[0]["view"], discord.ui.LayoutView)
+    # Beschreibung ändern: Dialog, danach wieder die Zusammenfassung
+    inter = click(bot, edit_draft.id, "edit_field", "description")
     modal = inter.response.modal
     modal.text._value = "Neue Beschreibung."
     run(modal.on_submit(FakeInteraction(bot, owner)))
     assert step(bot, edit_draft.id) == "preview"
-    # Bild-Schritt aus der Zusammenfassung: „Weiter“ führt zurück
-    choose(bot, edit_draft.id, "edit", "image")
-    assert step(bot, edit_draft.id) == "image:p"
-    click(bot, edit_draft.id, "next")
-    assert step(bot, edit_draft.id) == "preview"
     inter = click(bot, edit_draft.id, "publish")
-    assert "gespeichert" in inter.screen["content"]
+    assert "gespeichert" in screen_text(inter)
     msg = bot.channel.messages[event.message_id]
     assert any("Neue Beschreibung." in f.value for f in msg.embed.fields)
     assert "Anna" in next(f.value for f in msg.embed.fields if "Akzeptiert" in f.name)  # RSVPs bleiben
@@ -328,61 +325,39 @@ def test_reminders_are_not_editable_in_wizard(env):
     click(bot, draft.id, "pick", "trouble_brewing")
     inter = click(bot, draft.id, "rem_toggle", "first")
     assert inter.sent == ["Diese Aktion gibt es nicht mehr."]
-    assert "reminders" not in wizard.EDIT_CHOICES
 
 
 def test_edit_title_and_rating_range(env):
     bot = env
     draft = new_draft(bot)
     click(bot, draft.id, "pick", "trouble_brewing")
-    choose(bot, draft.id, "edit", "title")  # aus jeder Seite heraus möglich
-    inter = choose(bot, draft.id, "edit", "title")
+    inter = click(bot, draft.id, "edit_field", "title")
     modal = inter.response.modal
     modal.text._value = "Gemütlicher Abend"
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
-    inter = choose(bot, draft.id, "edit", "rating")
+    inter = click(bot, draft.id, "edit_field", "rating")
     modal = inter.response.modal
     modal.rating._value = "green_yellow"
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     d = bot.store.get_draft(draft.id).data
     assert d.title == "Gemütlicher Abend" and d.rating == "green_yellow" and d.rating_source == "manual"
     # Titel leeren → wieder automatisch
-    inter = choose(bot, draft.id, "edit", "title")
+    inter = click(bot, draft.id, "edit_field", "title")
     modal = inter.response.modal
     modal.text._value = ""
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     assert bot.store.get_draft(draft.id).data.title == ""
 
 
-def test_botc2_goes_from_script_straight_to_summary(env):
+def test_title_dialog_prefilled_and_unchanged_stays_automatic(env):
+    """Der aktuelle Titel steht ausgeschrieben im Dialog; unverändert bleibt er automatisch."""
     bot = env
     draft = new_draft(bot)
-    bot.store.set_draft_ui(draft.id, {"v2": True})
-    inter = click(bot, draft.id, "pick", "trouble_brewing")
-    assert step(bot, draft.id) == "preview"  # keine Schritte Beschreibung/Bild
-    assert isinstance(inter.screen["view"], discord.ui.LayoutView)
-    # Fehlende Beschreibung: roter Button öffnet einen Dialog NUR mit dem Beschreibungsfeld
-    inter = click(bot, draft.id, "fix_field", "description")
-    modal = inter.response.modal
-    assert isinstance(modal, DescriptionModal) and len(modal.children) == 1
-    modal.text._value = "Gemütliche Runde."
-    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
-    # Titel-Dialog: der aktuelle Titel steht ausgeschrieben drin; unverändert bleibt er automatisch
+    click(bot, draft.id, "pick", "trouble_brewing")
     inter = click(bot, draft.id, "edit_field", "title")
     assert inter.response.modal.text.default == "Trouble Brewing mit Dalyan"
     run(inter.response.modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     assert bot.store.get_draft(draft.id).data.title == ""
-    d = bot.store.get_draft(draft.id)
-    assert d.data.description == "Gemütliche Runde." and d.step == "preview"
-    inter = click(bot, draft.id, "publish")
-    assert isinstance(inter.screen["view"], discord.ui.LayoutView)  # Abschluss ebenfalls als V2
-    event = bot.store.list_events(GUILD)[0]
-    assert not event.data.v2_post
-    msg = bot.channel.messages[event.message_id]
-    assert msg.embed is not None  # Event-Post bleibt ein klassisches Embed (Dalyan, 20.10.2026)
-    rsvp = FakeInteraction(bot, bot.guild.get_member(3), message=msg, guild_id=GUILD)
-    run(EventButton(event.id, "accept").callback(rsvp))
-    assert rsvp.screen["embed"].image.url == "attachment://event_image.png"
 
 
 def test_free_choice_skips_rating_and_has_no_auto_image(env):
@@ -390,7 +365,7 @@ def test_free_choice_skips_rating_and_has_no_auto_image(env):
     draft = new_draft(bot)
     click(bot, draft.id, "pick", "free")
     d = bot.store.get_draft(draft.id)
-    assert d.step == "description" and d.data.rating == "any" and d.data.rating_source == "fixed"
+    assert d.step == "preview" and d.data.rating == "any" and d.data.rating_source == "fixed"
 
 
 def test_cancel_removes_draft(env):
@@ -398,7 +373,7 @@ def test_cancel_removes_draft(env):
     draft = new_draft(bot)
     inter = click(bot, draft.id, "cancel")
     assert bot.store.get_draft(draft.id) is None
-    assert "abgebrochen" in inter.screen["content"]
+    assert "abgebrochen" in screen_text(inter)
 
 
 def test_foreign_user_cannot_use_draft(env):
@@ -429,7 +404,7 @@ def test_publish_without_event_channel_keeps_draft(env, monkeypatch):
     inter = click(bot, draft.id, "publish")
     assert bot.store.get_draft(draft.id) is not None
     assert bot.store.list_events(GUILD) == []
-    assert "Event-Channel" in inter.screen["embeds"][0].description
+    assert "Event-Channel" in screen_text(inter)
 
 
 def test_botc_works_in_dms(env, monkeypatch):
@@ -441,25 +416,24 @@ def test_botc_works_in_dms(env, monkeypatch):
     cog = botc_cmd.Botc(bot)
     inter = FakeInteraction(bot, SimpleNamespace(id=USER, display_name="Dalyan"))
     inter.guild = None
-    run(cog._start(inter, v2=True))
+    run(cog._start(inter))
     modal = inter.response.modal
     assert modal is not None and modal.guild is bot.guild and modal.member.id == USER
 
     # Nicht Mitglied eines freigeschalteten Servers → Hinweis statt Modal
     stranger = FakeInteraction(bot, SimpleNamespace(id=999, display_name="X"))
     stranger.guild = None
-    run(cog._start(stranger, v2=True))
+    run(cog._start(stranger))
     assert stranger.response.modal is None and "keinem Server" in stranger.sent[0]
 
 
-def test_botc2_script_first_with_result_list(env, monkeypatch):
-    """/botc2: Skript-Karte zuerst; der Dialog sucht (Suchfeld oben), Treffer mit „Wählen“ und Blättern,
+def test_script_first_with_result_list(env, monkeypatch):
+    """Skript-Karte zuerst; der Dialog sucht (Suchfeld oben), Treffer mit „Wählen“ und Blättern,
     danach direkt die Zusammenfassung. „Ändern“ beim Skript öffnet wieder den Dialog."""
     from discord_ui.wizard import ScriptModal
     from logic import botcscripts
     bot = env
     draft = new_draft(bot)
-    bot.store.set_draft_ui(draft.id, {"v2": True})
     user = bot.guild.get_member(USER)
 
     hits = [{"botcscripts_id": str(i), "version": "1.0", "name": f"Boo {i}", "author": "A", "likes": 10 - i,
@@ -532,7 +506,7 @@ def test_botc_modal_submit_creates_draft_and_confirms(env, guild_id):
     member.send = dm
 
     async def go():
-        return BotcModal(bot.store, allow_academy=False, v2=True, guild=bot.guild, member=member)
+        return BotcModal(bot.store, allow_academy=False, guild=bot.guild, member=member)
     modal = run(go())
     modal.date_choice._value = modal.date_choice.options[2].value  # übermorgen
     modal.time_choice._value = "20:00"
@@ -541,7 +515,7 @@ def test_botc_modal_submit_creates_draft_and_confirms(env, guild_id):
     assert inter.sent and inter.sent[0].startswith("Termin erkannt:")
     assert ("Check deine DMs" in inter.sent[0]) == (guild_id is not None)
     draft = bot.store.list_drafts(USER)[0]
-    assert draft.step == "script" and draft.ui.get("v2")  # /botc2 beginnt mit der Skriptwahl
+    assert draft.step == "script"  # /botc beginnt mit der Skriptwahl
     assert sent_dm  # Zusammenfassung per DM geschickt
 
 
@@ -556,7 +530,6 @@ def test_script_dialog_attached_file_wins(env, monkeypatch):
     monkeypatch.setattr(wizard, "rate_script", no_rater)
     bot = env
     draft = new_draft(bot)
-    bot.store.set_draft_ui(draft.id, {"v2": True})
     payload = json.dumps([{"id": "_meta", "name": "Mein Skript", "author": "Ich"}, "imp", "washerwoman"]).encode()
 
     class Attachment:

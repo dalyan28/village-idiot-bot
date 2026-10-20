@@ -75,10 +75,10 @@ def test_wizard_shows_rater_outage_and_manual_rating_clears_it(env, monkeypatch)
     monkeypatch.setattr(wizard, "rate_script", down)
     monkeypatch.setattr(botcscripts, "download_script", fake_download)
     draft = new_draft(bot)
-    bot.store.set_draft_ui(draft.id, {"v2": True, "search_results": [{"id": "1", "version": "1"}]})
+    bot.store.set_draft_ui(draft.id, {"search_results": [{"id": "1", "version": "1"}]})
     bot.store.update_draft(draft.id, bot.store.get_draft(draft.id).data, "preview", 0)
-    inter = FakeInteraction(bot, bot.guild.get_member(USER), values=["1|1"])
-    run(wizard.WizardSelect(draft.id, "result", [], "x").callback(inter))
+    inter = FakeInteraction(bot, bot.guild.get_member(USER))
+    run(wizard.WizardButton(draft.id, "pick_result", "x", arg="0").callback(inter))
 
     d = bot.store.get_draft(draft.id)
     assert d.data.rating is None and "zu lange" in d.ui["rating_error"]
@@ -96,7 +96,7 @@ def test_wizard_shows_rater_outage_and_manual_rating_clears_it(env, monkeypatch)
 
 
 def test_search_outage_message(env, monkeypatch):
-    from discord_ui.wizard import SearchModal
+    from discord_ui.wizard import ScriptModal
 
     async def down(query, limit=10):
         raise botcscripts.BotcScriptsUnavailable("timeout")
@@ -104,8 +104,7 @@ def test_search_outage_message(env, monkeypatch):
     bot = env
     monkeypatch.setattr(botcscripts, "search_scripts", down)
     draft = new_draft(bot)
-    bot.store.set_draft_ui(draft.id, {"v2": True})
-    modal = SearchModal(draft.id, "")
+    modal = ScriptModal(draft.id, "")
     modal.query._value = "boo"
     inter = FakeInteraction(bot, bot.guild.get_member(USER))
     run(modal.on_submit(inter))
@@ -115,7 +114,7 @@ def test_search_outage_message(env, monkeypatch):
 
 def test_busy_message_while_searching(env, monkeypatch):
     """Während der Suche ersetzt eine Statusmeldung (ohne Buttons) die Karte, danach kommt die Karte zurück."""
-    from discord_ui.wizard import SearchModal
+    from discord_ui.wizard import ScriptModal
 
     async def search(query, limit=10):
         return []
@@ -123,8 +122,7 @@ def test_busy_message_while_searching(env, monkeypatch):
     bot = env
     monkeypatch.setattr(botcscripts, "search_scripts", search)
     draft = new_draft(bot)
-    bot.store.set_draft_ui(draft.id, {"v2": True})
-    modal = SearchModal(draft.id, "")
+    modal = ScriptModal(draft.id, "")
     modal.query._value = "boo"
     inter = FakeInteraction(bot, bot.guild.get_member(USER))
     screens = []

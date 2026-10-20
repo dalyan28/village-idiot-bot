@@ -493,7 +493,7 @@ Dritte Runde Feedback (20.10.2026):
   der Zusammenfassung tauchen sie nicht mehr auf; die Reminder-Schleife nutzt nur die Server-Einstellung
   (`EventData.reminder_overrides` bleibt im Schema, wird aber nicht mehr gelesen). Reminder-Texte ohne Emojis.
 
-- **/botc2 (Test, Components V2)**: Zusammenfassung in fünf Abschnitten nach Dalyans Gruppierung (Beschreibendes ·
+- **/botc (Components V2; bis 20.10.2026 als Test /botc2, der klassische Wizard ist entfernt)**: Zusammenfassung in fünf Abschnitten nach Dalyans Gruppierung (Beschreibendes ·
   Skript & Schwierigkeit · Auswahl: Labels, Level, Kamera · Termin & Rahmen: Datum, Uhrzeit, Dauer, Spieler · Bild),
   je ein Button; nach der Skriptwahl direkt dorthin; fehlende Angaben mit 🔴 und roten Buttons statt
   „Veröffentlichen“. Erstes Modal schlank: Datum als Auswahl (Heute, Morgen, die nächsten Tage, Anderes Datum),

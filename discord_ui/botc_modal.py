@@ -19,17 +19,9 @@ from events.intake import (
     parse_modal_input,
 )
 from events.parse import ParseError, format_start
-from events.schema import LEVELS
 from events.store import Store
 
 logger = logging.getLogger(__name__)
-
-LEVEL_DESCRIPTIONS = {
-    "Neuling": "Für Leute, die das Spiel noch lernen",
-    "Erfahren": "Grundregeln und gängige Charaktere sitzen",
-    "Profi": "Für sehr erfahrene Spieler:innen",
-    "Alle": "Jede:r ist willkommen",
-}
 
 
 OTHER_DATE = "other"
@@ -66,27 +58,29 @@ def time_choice_radio(previous: str = "") -> discord.ui.RadioGroup:
 
 
 class BotcModal(discord.ui.Modal):
-    """Fünf Felder (Discord-Grenze): Datum, Uhrzeit, Spieler, Level, Optionen."""
+    """Eckdaten der Runde: Datum und Uhrzeit als Auswahl (mit Feld für Sonderfälle), Optionen.
 
-    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput | None = None, v2: bool = False,
+    Level (Alle) und Spieler (12 bzw. 6 bei Teensyville) haben Standardwerte und werden in der
+    Zusammenfassung geändert (Dalyan, 20.10.2026).
+    """
+
+    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput | None = None,
                  guild: discord.Guild | None = None, member: discord.Member | None = None):
         super().__init__(title="Neue Runde anlegen", timeout=15 * 60)
         self.store = store
         # Server und Mitglied: in den DMs kennt die Interaktion beides nicht, /botc gibt sie mit
         self.guild, self.member = guild, member
-        self.v2 = v2  # /botc2: Wizard mit Components V2
         raw = raw or ModalInput()
 
-        self.date = discord.ui.TextInput(placeholder="z. B. Sa, morgen, 24.10.", default=raw.date_text or None,
-                                         max_length=30)
-        self.time = discord.ui.TextInput(placeholder="z. B. 20:00 oder 20 Uhr", default=raw.time_text or None,
-                                         max_length=10)
-        self.players = discord.ui.TextInput(default=raw.players_text, max_length=3)
-
-        self.level = discord.ui.RadioGroup()
-        for lvl in LEVELS:
-            self.level.add_option(label=lvl, value=lvl, description=LEVEL_DESCRIPTIONS[lvl],
-                                  default=lvl == raw.level)
+        self.date_choice = date_choice_radio(raw.date_text)
+        is_listed_date = any(o.value == raw.date_text for o in self.date_choice.options)
+        self.date = discord.ui.TextInput(required=False, max_length=30,
+                                         placeholder="nur bei „Anderes Datum“, z. B. 24.12.",
+                                         default=None if is_listed_date else (raw.date_text or None))
+        self.time_choice = time_choice_radio(raw.time_text)
+        self.time = discord.ui.TextInput(required=False, max_length=10,
+                                         placeholder="nur bei „Andere Uhrzeit“, z. B. 18:30",
+                                         default=None if raw.time_text in TIME_CHOICES else (raw.time_text or None))
 
         self.options = discord.ui.CheckboxGroup(required=False, min_values=0)
         choices = [
@@ -101,45 +95,18 @@ class BotcModal(discord.ui.Modal):
             self.options.add_option(label=label, value=value, description=desc, default=value in raw.options)
         self.options.max_values = len(self.options.options)
 
-        if v2:
-            # /botc2: schlanker (Dalyan, 20.10.2026). Datum als Auswahl, Level und Spieler mit Standardwert
-            # (Alle, 12 bzw. 6 bei Teensyville), änderbar in der Zusammenfassung.
-            self.date_choice = date_choice_radio(raw.date_text)
-            self.date.required = False
-            self.date.placeholder = "nur bei „Anderes Datum“, z. B. 24.12."
-            if self.date.default and any(o.value == self.date.default for o in self.date_choice.options):
-                self.date.default = None
-            self.time_choice = time_choice_radio(raw.time_text)
-            self.time.required = False
-            self.time.placeholder = "nur bei „Andere Uhrzeit“, z. B. 18:30"
-            if self.time.default in TIME_CHOICES:
-                self.time.default = None
-            self.add_item(discord.ui.Label(text="Datum", component=self.date_choice))
-            self.add_item(discord.ui.Label(text="Anderes Datum", component=self.date))
-            self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time_choice))
-            self.add_item(discord.ui.Label(text="Andere Uhrzeit", component=self.time))
-            self.add_item(discord.ui.Label(text="Optionen", component=self.options))
-            return
-        self.add_item(discord.ui.Label(text="Datum", component=self.date))
-        self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
-        self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200", component=self.players))
-        self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
+        self.add_item(discord.ui.Label(text="Datum", component=self.date_choice))
+        self.add_item(discord.ui.Label(text="Anderes Datum", component=self.date))
+        self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time_choice))
+        self.add_item(discord.ui.Label(text="Andere Uhrzeit", component=self.time))
         self.add_item(discord.ui.Label(text="Optionen", component=self.options))
 
     def raw_input(self) -> ModalInput:
-        if self.v2:
-            choice = self.date_choice.value or OTHER_DATE
-            time_choice = self.time_choice.value or OTHER_TIME
-            return ModalInput(
-                date_text=(self.date.value or "") if choice == OTHER_DATE else choice,
-                time_text=(self.time.value or "") if time_choice == OTHER_TIME else time_choice,
-                options=list(self.options.values),
-            )
+        choice = self.date_choice.value or OTHER_DATE
+        time_choice = self.time_choice.value or OTHER_TIME
         return ModalInput(
-            date_text=self.date.value or "",
-            time_text=self.time.value or "",
-            players_text=self.players.value or "",
-            level=self.level.value or "Alle",
+            date_text=(self.date.value or "") if choice == OTHER_DATE else choice,
+            time_text=(self.time.value or "") if time_choice == OTHER_TIME else time_choice,
             options=list(self.options.values),
         )
 
@@ -154,14 +121,10 @@ class BotcModal(discord.ui.Modal):
         except (ParseError, service.ServiceError) as e:
             allow_academy = OPTION_ACADEMY in [o.value for o in self.options.options]
             await interaction.response.send_message(
-                str(e), view=RetryView(self.store, allow_academy, raw, self.v2, self.guild, self.member),
+                str(e), view=RetryView(self.store, allow_academy, raw, self.guild, self.member),
                 ephemeral=True
             )
             return
-        if self.v2:
-            self.store.set_draft_ui(draft.id, {"v2": True})  # beginnt mit der Skriptwahl
-            draft = self.store.get_draft(draft.id)
-
         where = "Check deine DMs, dort geht es weiter." if interaction.guild_id else "Weiter geht es hier unten."
         await interaction.response.send_message(
             f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n{where}",
@@ -192,15 +155,15 @@ async def deliver_wizard(interaction: discord.Interaction, draft, intro: str | N
 class RetryView(discord.ui.View):
     """Nach einem Eingabefehler: Modal mit den alten Eingaben neu öffnen."""
 
-    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput, v2: bool = False,
+    def __init__(self, store: Store, allow_academy: bool, raw: ModalInput,
                  guild: discord.Guild | None = None, member: discord.Member | None = None):
         super().__init__(timeout=15 * 60)
-        self.store, self.allow_academy, self.raw, self.v2 = store, allow_academy, raw, v2
+        self.store, self.allow_academy, self.raw = store, allow_academy, raw
         self.guild, self.member = guild, member
 
     @discord.ui.button(label="Nochmal", style=discord.ButtonStyle.primary)
     async def retry(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw, self.v2,
+        await interaction.response.send_modal(BotcModal(self.store, self.allow_academy, self.raw,
                                                         self.guild, self.member))
 
 
