@@ -286,6 +286,10 @@ class Store:
         with self.conn:
             self.conn.execute("DELETE FROM drafts WHERE id = ?", (draft_id,))
 
+    def stale_drafts(self, cutoff: int) -> list[Draft]:
+        """Entwürfe, die seit `cutoff` nicht mehr angefasst wurden (vor dem Aufräumen)."""
+        return [self._draft(r) for r in self.conn.execute("SELECT * FROM drafts WHERE updated_at < ?", (cutoff,))]
+
     def purge_drafts(self, cutoff: int) -> int:
         """Entfernt Entwürfe, die seit `cutoff` nicht mehr angefasst wurden."""
         with self.conn:

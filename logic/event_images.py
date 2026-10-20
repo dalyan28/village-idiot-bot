@@ -23,8 +23,11 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = os.path.join(VOLUME_DIR, "uploads")
 IMAGE_FILENAME = "event_image.png"
 THUMB_FILENAME = "thumbnail.png"
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024
-MAX_IMAGE_SIDE = 4000
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+# Größe in Pixeln vor dem Dekodieren prüfen: Eine kleine Datei kann zu einem riesigen Bild
+# entpacken („Dekompressionsbombe“) und den Speicher sprengen.
+MAX_IMAGE_PIXELS = 40_000_000
+MAX_IMAGE_SIDE = 1600  # reicht für Discord und hält die gespeicherten PNGs klein
 
 THUMBNAIL_DIR = os.path.join(STATIC_DIR, "images", "thumbnails")
 ACADEMY_THUMBNAIL = os.path.join(THUMBNAIL_DIR, "academy.png")
@@ -47,11 +50,13 @@ class ImageError(ValueError):
 def save_custom_image(raw: bytes) -> str:
     """Prüft und speichert ein hochgeladenes Bild als PNG. Gibt den Dateinamen zurück."""
     if len(raw) > MAX_UPLOAD_BYTES:
-        raise ImageError("Das Bild ist größer als 10 MB.")
+        raise ImageError("Das Bild ist größer als 8 MB.")
     try:
-        img = Image.open(io.BytesIO(raw))
+        img = Image.open(io.BytesIO(raw))  # liest nur den Kopf, noch keine Pixel
+        if img.width * img.height > MAX_IMAGE_PIXELS:
+            raise ImageError("Das Bild hat zu viele Pixel. Bitte nimm eine kleinere Version.")
         img.load()
-    except (UnidentifiedImageError, OSError):
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         raise ImageError("Die Datei ist kein Bild (erlaubt sind z. B. PNG, JPG, WEBP, GIF).") from None
     if max(img.size) > MAX_IMAGE_SIDE:
         img.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))
