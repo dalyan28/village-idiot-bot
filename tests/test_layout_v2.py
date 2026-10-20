@@ -46,7 +46,7 @@ def test_summary_has_five_grouped_sections(store):
     sections = [i for i in layout.walk_children() if isinstance(i, discord.ui.Section)]
     targets = [s.accessory.custom_id.split(":")[3] for s in sections if isinstance(s.accessory, discord.ui.Button)
                or hasattr(s.accessory, "item")]
-    assert targets == ["title", "description", "script", "people", "selection", "frame"]
+    assert targets == ["title", "description", "script", "rating", "people", "selection", "frame"]
     assert isinstance(sections[-1].accessory, discord.ui.Thumbnail)  # Bild als kleine Vorschau
     ids = [getattr(i, "custom_id", "") for i in layout.walk_children()]
     assert any(c.endswith(":publish") for c in ids)  # alles da → Veröffentlichen
@@ -146,3 +146,16 @@ def test_no_duplicate_custom_ids_in_summary(store, draft_kw):
 def test_no_duplicate_custom_ids_on_any_page(store, step):
     ids = _custom_ids(layout_for(store, make_draft(store, step)))
     assert len(ids) == len(set(ids)), ids
+
+
+def test_worst_case_missing_items_and_search_results_fit(store):
+    """Fehlende Angaben + Trefferliste gleichzeitig: Grenze von 40 Komponenten einhalten."""
+    draft = make_draft(store, "preview", script=None, description="", rating=None, rating_source=None)
+    store.set_draft_ui(draft.id, {"query": "boo", "search_results": [
+        {"id": str(i), "version": "1", "name": f"Skript {i}", "author": "A", "type": "Full", "special": False}
+        for i in range(10)]})
+    layout, _ = summary_for(store, store.get_draft(draft.id))
+    assert sum(1 for _ in layout.walk_children()) <= 40
+    ids = _custom_ids(layout)
+    assert len(ids) == len(set(ids))
+    assert any(c.endswith(":result") for c in ids)  # Trefferliste in der Zusammenfassung

@@ -114,14 +114,17 @@ MISSING_TARGETS = {
 
 
 def _missing_buttons(missing: list[str]) -> list[tuple[str, str]]:
-    """Ein roter Button je fehlender Angabe, höchstens 3 (dazu „Bild ändern“ und „Abbrechen“)."""
+    """Ein roter Button je fehlender Angabe, höchstens 2 (dazu „Bild ändern“ und „Abbrechen“).
+
+    Discord erlaubt 40 Komponenten je Nachricht; mit Suchtreffer-Liste ist die Karte nah dran.
+    """
     buttons, seen = [], set()
     for name in missing:
         target, label = MISSING_TARGETS.get(name, ("description", f"{name} ergänzen"))
         if target not in seen:
             seen.add(target)
             buttons.append((target, label))
-    return buttons[:3]
+    return buttons[:2]
 
 
 def _block(label: str, *lines: str) -> str:
@@ -155,14 +158,16 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
 
     container = discord.ui.Container(accent_colour=embed_color(d))
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
-    container.add_item(discord.ui.TextDisplay(f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"))
-
+    head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
     # Titel als Überschrift, direkt änderbar
     title_note = "" if d.title.strip() else "\n-# Titel wird automatisch gebaut"
-    container.add_item(section(f"## {esc(full_title(d))}{title_note}", "title"))
+    container.add_item(section(f"{head}\n## {esc(full_title(d))}{title_note}", "title"))
     missing = missing_for_publish(d)
     status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
               else "Alles da. Wenn es passt: **Veröffentlichen**.")
+    results = (draft.ui or {}).get("search_results") or []
+    if results:
+        status += f"\n👇 Wähle unten deinen Treffer für „{esc((draft.ui or {}).get('query', ''))}“."
     if notice:
         status += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(status))
@@ -191,19 +196,22 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
         if s.teensy:
             script_line += " · Teensyville"
         lines = [script_line]
-        if d.rating:
-            lines.append(f"{wz.LABEL_EMOJI[d.rating]} {wz.RATING_WORDS[d.rating].capitalize()}")
-            if d.rating_source == wz.RATING_SOURCE_RATER:
-                explanation = wz.rating_explanation(draft.ui or {}, limit=2)
-                if explanation:
-                    lines.append(explanation)
-        else:
-            lines.append(f"Schwierigkeit: {MISSING_MARK}")
-        if d.is_special:
-            why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
-            lines.append(f"⭐ {esc(why)}")
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("SKRIPT", *lines), "script"))
+    container.add_item(section(_block("SKRIPT", *lines), "script", "Ändern" if s else "Wählen"))
+
+    # Schwierigkeit (eigener Abschnitt, gleich unter dem Skript – ohne Trennlinie, gehört zusammen)
+    if d.rating:
+        rating_lines = [f"{wz.LABEL_EMOJI[d.rating]} {wz.RATING_WORDS[d.rating].capitalize()}"]
+        if d.rating_source == wz.RATING_SOURCE_RATER:
+            explanation = wz.rating_explanation(draft.ui or {}, limit=2)
+            if explanation:
+                rating_lines.append(explanation)
+    else:
+        rating_lines = [MISSING_MARK if s is not None else "Ergibt sich aus dem Skript"]
+    if d.is_special:
+        why = "; ".join(d.special_reasons) if d.special_reasons else "von dir gesetzt"
+        rating_lines.append(f"⭐ {esc(why)}")
+    container.add_item(section(_block("SCHWIERIGKEIT", *rating_lines), "rating"))
 
     # Leitung
     st = esc(d.storyteller.name) if d.storyteller else MISSING_MARK
@@ -238,6 +246,16 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
 
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
+    if results:
+        pick_row = discord.ui.ActionRow()
+        options = []
+        for r in results[:25]:
+            details = [f"von {r['author']}" if r.get("author") else "", f"v{r['version']}",
+                       "Teensyville" if r.get("type") == "Teensyville" else "", "⭐" if r.get("special") else ""]
+            options.append(discord.SelectOption(label=r["name"][:100], value=f"{r['id']}|{r['version']}",
+                                                description=" · ".join(x for x in details if x)[:100] or None))
+        pick_row.add_item(wz.WizardSelect(draft.id, "result", options, "Treffer wählen …"))
+        layout.add_item(pick_row)
     row = discord.ui.ActionRow()
     if missing:
         # Statt Veröffentlichen: je fehlender Angabe ein roter Button, der direkt dorthin führt

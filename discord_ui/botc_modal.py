@@ -160,7 +160,8 @@ class BotcModal(discord.ui.Modal):
             return
         if self.v2:
             self.store.set_draft_ui(draft.id, {"v2": True})
-            draft.ui = {"v2": True}
+            self.store.update_draft(draft.id, draft.data, "preview", int(wizard.now().timestamp()))
+            draft = self.store.get_draft(draft.id)
 
         await interaction.response.send_message(
             f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n"

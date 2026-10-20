@@ -430,3 +430,53 @@ def test_botc_works_in_dms(env, monkeypatch):
     stranger.guild = None
     run(cog._start(stranger, v2=True))
     assert stranger.response.modal is None and "keinem Server" in stranger.sent[0]
+
+
+def test_botc2_script_dialog(env, monkeypatch):
+    """/botc2: Skript per Dialog – Basis-Skript, Suche mit mehreren Treffern (Liste), genau ein Treffer (direkt)."""
+    from discord_ui.wizard import ScriptModal
+    from logic import botcscripts
+    bot = env
+    draft = new_draft(bot)
+    bot.store.set_draft_ui(draft.id, {"v2": True})
+    bot.store.update_draft(draft.id, bot.store.get_draft(draft.id).data, "preview", int(NOW.timestamp()))
+    user = bot.guild.get_member(USER)
+
+    inter = click(bot, draft.id, "fix_field", "script")
+    modal = inter.response.modal
+    assert isinstance(modal, ScriptModal)
+    modal.kind._value = "bad_moon_rising"
+    run(modal.on_submit(FakeInteraction(bot, user)))
+    d = bot.store.get_draft(draft.id)
+    assert d.data.script.base_key == "bad_moon_rising" and d.step == "preview"
+
+    hits = [{"botcscripts_id": str(i), "version": "1.0", "name": f"Boo {i}", "author": "A",
+             "characters": ["imp"], "content": [], "script_type": "Full"} for i in range(3)]
+
+    async def fake_search(query, limit=10):
+        return hits if query == "boo" else hits[:1]
+
+    async def fake_download(script_id, version):
+        return [{"id": "_meta", "name": f"Boo {script_id}", "author": "A"}, {"id": "imp"}, {"id": "washerwoman"}]
+
+    async def no_rater(script):
+        return None  # kein Netzwerk im Test
+
+    monkeypatch.setattr(botcscripts, "search_scripts", fake_search)
+    monkeypatch.setattr(botcscripts, "download_script", fake_download)
+    monkeypatch.setattr(wizard, "rate_script", no_rater)
+
+    modal = ScriptModal(draft.id, bot.store.get_draft(draft.id).data)
+    modal.kind._value, modal.query._value = "search", "boo"
+    inter = FakeInteraction(bot, user)
+    run(modal.on_submit(inter))
+    assert len(bot.store.get_draft(draft.id).ui["search_results"]) == 3
+    assert isinstance(inter.screen["view"], discord.ui.LayoutView)
+    choose(bot, draft.id, "result", "2|1.0")
+    d = bot.store.get_draft(draft.id)
+    assert d.data.script.name == "Boo 2" and not d.ui.get("search_results")
+
+    modal = ScriptModal(draft.id, d.data)
+    modal.kind._value, modal.query._value = "search", "eindeutig"
+    run(modal.on_submit(FakeInteraction(bot, user)))
+    assert bot.store.get_draft(draft.id).data.script.name == "Boo 0"  # genau ein Treffer → direkt übernommen
