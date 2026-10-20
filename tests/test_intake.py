@@ -26,9 +26,9 @@ def test_defaults():
     assert not (d.is_casual or d.is_academy or d.is_recorded)
 
 
-def test_academy_beats_casual():
+def test_academy_and_casual_together():
     d = parse_modal_input(ModalInput("morgen", "20", options=["casual", "academy"]), NOW)
-    assert d.is_academy and not d.is_casual
+    assert d.is_academy and d.is_casual
 
 
 @pytest.mark.parametrize("text, expected", [("", 12), (" 7 ", 7), ("1", 1), ("200", 200)])

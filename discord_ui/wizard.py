@@ -1121,8 +1121,7 @@ class LabelsModal(_WizardModal):
         self.camera = discord.ui.RadioGroup()
         for key, label in CAMERA_LABELS.items():
             self.camera.add_option(label=label, value=key, default=key == data.camera)
-        self.add_item(discord.ui.Label(text="Labels", description="Casual und Academy schließen sich aus",
-                                       component=self.options))
+        self.add_item(discord.ui.Label(text="Labels", component=self.options))
         self.add_item(discord.ui.Label(text="Kamera", component=self.camera))
 
     async def handle(self, interaction, ctx: WizardContext):
@@ -1132,7 +1131,7 @@ class LabelsModal(_WizardModal):
         d.is_recorded = "recorded" in chosen
         if "academy" in offered:
             d.is_academy = "academy" in chosen
-        d.is_casual = "casual" in chosen and not d.is_academy
+        d.is_casual = "casual" in chosen
         d.camera = self.camera.value or d.camera
         ctx.save(d)  # prüft die Academy-Berechtigung
         await show(interaction, ctx)

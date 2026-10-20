@@ -70,7 +70,7 @@ class TestDrafts:
         with pytest.raises(PermissionDenied):
             service.start_draft(store, GUILD, st, "Dalyan", modal_data(is_academy=True), NOW)
         draft = service.start_draft(store, GUILD, academy_st, "A", modal_data(is_academy=True, is_casual=True), NOW)
-        assert draft.data.is_academy and not draft.data.is_casual
+        assert draft.data.is_academy and draft.data.is_casual  # dürfen zusammen gesetzt sein
 
     def test_cannot_switch_on_academy_later(self, store):
         draft = service.start_draft(store, GUILD, st, "Dalyan", modal_data(), NOW)

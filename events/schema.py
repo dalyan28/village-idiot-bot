@@ -176,10 +176,8 @@ class EventData:
 def normalize(data: EventData) -> EventData:
     """Wendet die festen Regeln an, die keine Fehler sind, sondern Folgen.
 
-    Academy und Casual schließen sich aus, Academy gewinnt.
+    Derzeit keine: Academy und Casual dürfen zusammen gesetzt sein (Dalyan, 20.10.2026).
     """
-    if data.is_academy:
-        data.is_casual = False
     return data
 
 
@@ -209,8 +207,6 @@ def validate(data: EventData, now: datetime | None = None, check_start: bool = T
         errors.append(f"Unbekanntes Erfahrungslevel: {data.level}.")
     if data.camera not in CAMERA_LABELS:
         errors.append(f"Unbekannte Kamera-Einstellung: {data.camera}.")
-    if data.is_academy and data.is_casual:
-        errors.append("Academy und Casual schließen sich aus.")
     if data.script is not None and data.script.kind not in SCRIPT_KINDS:
         errors.append(f"Unbekannte Skript-Art: {data.script.kind}.")
     if data.rating is not None and data.rating not in RATINGS:

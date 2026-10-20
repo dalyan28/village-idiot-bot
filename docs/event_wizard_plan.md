@@ -44,7 +44,7 @@ Die Defaults aus Branch `event-creation` gelten unverändert weiter (Dalyan, 19.
 | `start` | Zeitpunkt (Europe/Berlin) | – | Modal (Datum + Uhrzeit) | Pflicht, muss in der Zukunft liegen |
 | `max_players` | int | 12 | Modal | erlaubt 1–200 (Dalyan, 19.10.2026) |
 | `level` | Neuling / Erfahren / Profi / Alle | Alle | Modal | |
-| `is_casual` | bool | false | Modal (Checkbox) | schließt sich mit Academy aus, Academy gewinnt |
+| `is_casual` | bool | false | Modal (Checkbox) | darf mit Academy kombiniert werden; im Titel steht 🎓 vor 🕊️ (Dalyan, 20.10.2026) |
 | `is_academy` | bool | false | Modal (Checkbox) | Beschreibung fest, Thumbnail Academy, „Auffüller“ statt „Vorläufig“ |
 | `is_recorded` | bool | false | Modal (Checkbox) | |
 | `camera` | Pflicht / Keine Pflicht / Aus | Keine Pflicht | Modal (Checkbox „Kamera-Pflicht“), „Aus“ im Wizard | |

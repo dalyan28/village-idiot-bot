@@ -82,12 +82,10 @@ class TestValidate:
     def test_start_check_can_be_skipped(self):
         assert validate(make(start=NOW - timedelta(days=1)), NOW, check_start=False) == []
 
-    def test_academy_and_casual_conflict(self):
-        assert validate(make(is_academy=True, is_casual=True), NOW)
-
-    def test_normalize_academy_wins(self):
+    def test_academy_and_casual_together(self):
         d = normalize(make(is_academy=True, is_casual=True))
-        assert d.is_academy and not d.is_casual
+        assert validate(d, NOW) == [] and d.is_academy and d.is_casual
+        assert title_prefix(make(is_academy=True, is_casual=True, rating="green")) == "🎓 🕊️ 💚"
 
     def test_unknown_values(self):
         assert validate(make(level="Gott"), NOW)

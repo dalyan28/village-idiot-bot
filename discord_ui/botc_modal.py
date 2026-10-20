@@ -67,8 +67,7 @@ class BotcModal(discord.ui.Modal):
         self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
         self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200", component=self.players))
         self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
-        self.add_item(discord.ui.Label(text="Optionen", description="Casual und Academy schließen sich aus",
-                                       component=self.options))
+        self.add_item(discord.ui.Label(text="Optionen", component=self.options))
 
     def raw_input(self) -> ModalInput:
         return ModalInput(
@@ -93,12 +92,9 @@ class BotcModal(discord.ui.Modal):
             )
             return
 
-        note = ""
-        if OPTION_CASUAL in raw.options and OPTION_ACADEMY in raw.options:
-            note = "\n-# Academy und Casual schließen sich aus, ich habe Academy übernommen."
         await interaction.response.send_message(
             f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n"
-            f"Check deine DMs, dort geht es weiter.{note}",
+            f"Check deine DMs, dort geht es weiter.",
             ephemeral=True,
         )
         await deliver_wizard(interaction, draft)

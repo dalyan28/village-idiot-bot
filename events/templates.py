@@ -63,13 +63,13 @@ ACADEMY_MAX_ROUNDS = {
 
 
 def title_prefix(data: EventData) -> str:
-    """Emoji-Präfix vor dem Titel: [Aufzeichnung] [Academy|Casual] [Homebrew] [Einschätzung]."""
+    """Emoji-Präfix vor dem Titel: [Aufzeichnung] [Academy] [Casual] [Homebrew] [Einschätzung]."""
     parts = []
     if data.is_recorded:
         parts.append(LABEL_EMOJI["recorded"])
     if data.is_academy:
         parts.append(LABEL_EMOJI["academy"])
-    elif data.is_casual:
+    if data.is_casual:
         parts.append(LABEL_EMOJI["casual"])
 
     if data.is_homebrew:
