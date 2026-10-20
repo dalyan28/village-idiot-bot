@@ -499,8 +499,10 @@ Dritte Runde Feedback (20.10.2026):
   „Veröffentlichen“. Erstes Modal schlank: Datum als Auswahl (Heute, Morgen, die nächsten Tage, Anderes Datum),
   Uhrzeit, Optionen; Level (Alle) und Spieler (12) mit Standardwert.
   Skriptwahl zuerst: ein Button öffnet den Skript-Dialog, das Suchfeld (botcscripts.com) steht ganz oben. Geprüft
-  wird von unten nach oben: Datei, dann Auswahl (Basis-Skripte, freie Wahl), zuletzt die Suche. Treffer (bis 50,
+  wird von unten nach oben: angehängte Datei (ohne Extra-Auswahl), dann Basis-Skript/freie Wahl, zuletzt die Suche. Treffer (bis 50,
   nach Likes) stehen seitenweise (5) in der Karte mit „Wählen“, „◀ Zurück“/„Weiter ▶“ und „Neue Suche“.
+- **Skriptbild im Event-Post bleibt groß unten**, das Thumbnail behält das Basis-3-/Academy-Logo (Dalyan,
+  20.10.2026). Klein neben dem Inhalt ginge nur mit V2.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
@@ -517,8 +519,6 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
 - **S-Runde** (Nachmittag): Startzeit zwischen 12 und 16 Uhr → groß „S-Runde“ vor dem Titel, z. B. „S-Runde Boozling
   mit Dalyan“. Genaue Grenzen klären (Vormittag mit dabei?).
 - **T-Runde** (Nacht): Startzeit zwischen 23 und 2 Uhr → „T-Runde Boozling mit Dalyan“.
-- **Skriptbild klein rechts im Event-Post**: im Embed nur über den Thumbnail-Platz möglich, den heute das
-  Basis-3-/Academy-Logo belegt. Entscheidung offen.
 
 ## Offene Fragen
 

@@ -1018,9 +1018,6 @@ class SearchModal(_WizardModal):
         await _run_search(interaction, ctx, self.query.value.strip())
 
 
-SCRIPT_FILE = "upload"
-
-
 class ScriptModal(_WizardModal):
     """/botc2: Skript per Dialog, die Suche steht ganz oben (Dalyan, 20.10.2026).
 
@@ -1034,8 +1031,7 @@ class ScriptModal(_WizardModal):
         self.query = discord.ui.TextInput(required=False, max_length=100, default=query or None,
                                           placeholder="Name des Skripts, z. B. Boozling")
         self.kind = discord.ui.RadioGroup(required=False)
-        for value, label in (*BASE3_FULL_NAMES.items(), ("free", "Freie Skriptwahl"),
-                             (SCRIPT_FILE, "Eigenes JSON hochladen")):
+        for value, label in (*BASE3_FULL_NAMES.items(), ("free", "Freie Skriptwahl")):
             self.kind.add_option(label=label, value=value)
         self.file = discord.ui.FileUpload(required=False, min_values=0, max_values=1)
         self.add_item(discord.ui.Label(text="Auf botcscripts.com suchen",
@@ -1043,16 +1039,15 @@ class ScriptModal(_WizardModal):
                                        component=self.query))
         self.add_item(discord.ui.Label(text="Oder direkt wählen", description="Geht vor der Suche",
                                        component=self.kind))
-        self.add_item(discord.ui.Label(text="Skript-JSON", description="Nur bei „Eigenes JSON hochladen“",
+        self.add_item(discord.ui.Label(text="Oder eigenes Skript-JSON anhängen",
+                                       description="Eine angehängte Datei geht vor allem anderen",
                                        component=self.file))
 
     async def handle(self, interaction, ctx: WizardContext):
-        if self.file.values:  # Datei angehängt: zählt auch ohne Auswahl „Eigenes JSON hochladen“
+        if self.file.values:
             await _set_script(interaction, ctx, await _script_from_upload(self.file.values[0]))
             return
         choice = self.kind.value or ""
-        if choice == SCRIPT_FILE:
-            raise service.ServiceError("Bitte hänge die Skript-JSON-Datei an.")
         if choice:
             await _pick_base(interaction, ctx, choice)
             return

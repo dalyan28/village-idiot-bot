@@ -543,3 +543,32 @@ def test_botc_modal_submit_creates_draft_and_confirms(env, guild_id):
     draft = bot.store.list_drafts(USER)[0]
     assert draft.step == "script" and draft.ui.get("v2")  # /botc2 beginnt mit der Skriptwahl
     assert sent_dm  # Zusammenfassung per DM geschickt
+
+
+def test_script_dialog_attached_file_wins(env, monkeypatch):
+    """Eine angehängte JSON-Datei zählt ohne Extra-Auswahl, auch vor Suchrest und Basis-Skript."""
+    import json
+    from discord_ui.wizard import ScriptModal
+
+    async def no_rater(script):
+        return None
+
+    monkeypatch.setattr(wizard, "rate_script", no_rater)
+    bot = env
+    draft = new_draft(bot)
+    bot.store.set_draft_ui(draft.id, {"v2": True})
+    payload = json.dumps([{"id": "_meta", "name": "Mein Skript", "author": "Ich"}, "imp", "washerwoman"]).encode()
+
+    class Attachment:
+        size = len(payload)
+
+        async def read(self):
+            return payload
+
+    modal = ScriptModal(draft.id)
+    assert "upload" not in [o.value for o in modal.kind.options]
+    modal.query._value = "boo"
+    modal.kind._value = "trouble_brewing"
+    modal.file._values = [Attachment()]
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    assert bot.store.get_draft(draft.id).data.script.name == "Mein Skript"
