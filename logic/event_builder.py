@@ -29,7 +29,7 @@ from events.schema import (
     Person,
 )
 from events.service import RsvpLists
-from events.templates import BASE3_SCRIPT_URLS, full_description, full_title
+from events.templates import BASE3_SCRIPT_URLS, co_st_text, full_description, full_title
 from logic.character_emojis import with_emoji
 from logic.script_cache import STATIC_DIR, load_characters
 
@@ -211,7 +211,7 @@ def build_event_embed(
     embed.add_field(name="Kamera", value=CAMERA_LABELS.get(data.camera, "-"), inline=True)
     embed.add_field(name="Erfahrungslevel", value=data.level or "-", inline=True)
 
-    co = _name(data.co_storyteller, name_for) if data.co_storyteller else "Nicht möglich"
+    co = co_st_text(data, _name(data.co_storyteller, name_for) if data.co_storyteller else None)
     embed.add_field(name="Co-Storytelling", value=co, inline=True)
 
     description = full_description(data)

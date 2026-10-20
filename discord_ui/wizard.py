@@ -31,6 +31,9 @@ from events.permissions import Actor
 from events.rating import RatingUnavailable, rate_script
 from events.schema import (
     BERLIN_TZ,
+    CO_ST_LABELS,
+    CO_ST_NO,
+    CO_ST_TAKEN,
     CAMERA_LABELS,
     DEFAULT_MAX_PLAYERS,
     DESCRIPTION_MAX_LENGTH,
@@ -574,8 +577,6 @@ async def open_edit(interaction, ctx: WizardContext, choice: str):
         await interaction.response.send_modal(TitleModal(ctx.draft.id, d))
     elif choice == "people":
         await interaction.response.send_modal(PeopleModal(ctx.draft.id, d))
-    elif choice == "descriptive":
-        await interaction.response.send_modal(DescriptiveModal(ctx.draft.id, d))
     elif choice == "selection":
         await interaction.response.send_modal(SelectionModal(ctx.draft.id, d, _allow_academy(ctx)))
     elif choice == "frame":
@@ -719,20 +720,28 @@ class PeopleModal(_WizardModal):
         super().__init__(draft_id, "Storyteller:in & Co-Storyteller:in")
         self.st = discord.ui.TextInput(default=data.storyteller.name if data.storyteller else None,
                                        min_length=1, max_length=50)
-        self.co = discord.ui.TextInput(default=data.co_storyteller.name if data.co_storyteller else None,
-                                       required=False, max_length=50, placeholder="leer lassen, wenn es keine:n gibt")
+        self.co_status = discord.ui.RadioGroup()
+        for value, label in CO_ST_LABELS.items():
+            self.co_status.add_option(label=label, value=value, default=value == data.co_st_status)
+        co_default = (data.co_storyteller.name if data.co_storyteller else "") if data.co_st_status == CO_ST_TAKEN \
+            else data.co_st_note
+        self.co = discord.ui.TextInput(default=co_default or None, required=False, max_length=100,
+                                       placeholder="z. B. Rosanna oder „gern Neulinge“")
         self.add_item(discord.ui.Label(text="Storyteller:in", component=self.st))
-        self.add_item(discord.ui.Label(text="Co-Storyteller:in", component=self.co))
+        self.add_item(discord.ui.Label(text="Co-Storytellen möglich?", component=self.co_status))
+        self.add_item(discord.ui.Label(text="Co-Storyteller:in oder Hinweis", description="Optional",
+                                       component=self.co))
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
-        _apply_people(ctx, d, self.st.value, self.co.value)
+        _apply_people(ctx, d, self.st.value, self.co.value, self.co_status.value or CO_ST_NO)
         ctx.save(d)
         await show(interaction, ctx)
 
 
-def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str | None):
-    """Storyteller/Co-ST aus Freitext; ein unveränderter Name behält seine User-ID."""
+def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str | None, co_status: str):
+    """Storyteller/Co-ST aus Freitext; ein unveränderter Name behält seine User-ID.
+    Bei „Ja, vergeben“ ist der Text der Name der Co-Storyteller:in, sonst ein Hinweis."""
     st_name = st_text.strip()
     old_st = d.storyteller
     if old_st is not None and old_st.name == st_name:
@@ -741,11 +750,16 @@ def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str |
         d.storyteller = Person(name=st_name, user_id=ctx.member.id)
     else:
         d.storyteller = Person(name=st_name)
-    co_name = (co_text or "").strip()
-    if not co_name:
-        d.co_storyteller = None
-    elif d.co_storyteller is None or d.co_storyteller.name != co_name:
-        d.co_storyteller = Person(name=co_name)
+    co = (co_text or "").strip()
+    d.co_st_status = co_status
+    if co_status != CO_ST_TAKEN:
+        d.co_storyteller, d.co_st_note = None, co
+    else:
+        d.co_st_note = ""
+        if not co:
+            d.co_storyteller = None
+        elif d.co_storyteller is None or d.co_storyteller.name != co:
+            d.co_storyteller = Person(name=co[:50])
 
 
 def _label_checkboxes(data: EventData, allow_academy: bool) -> discord.ui.CheckboxGroup:
@@ -782,35 +796,6 @@ def _level_radio(data: EventData) -> discord.ui.RadioGroup:
     for lvl in LEVELS:
         radio.add_option(label=lvl, value=lvl, default=lvl == data.level)
     return radio
-
-
-class DescriptiveModal(_WizardModal):
-    """„Beschreibung“: Titel, Beschreibung, Storyteller:in, Co-Storyteller:in."""
-
-    def __init__(self, draft_id: int, data: EventData):
-        super().__init__(draft_id, "Beschreibung")
-        self.title_text = discord.ui.TextInput(default=(data.title or base_title(data))[:TITLE_MAX_LENGTH],
-                                               required=False, max_length=TITLE_MAX_LENGTH)
-        self.text = discord.ui.TextInput(style=discord.TextStyle.paragraph, default=data.description or None,
-                                         placeholder="Worauf können sich die Mitspieler:innen freuen?",
-                                         required=False, max_length=DESCRIPTION_MAX_LENGTH)
-        self.st = discord.ui.TextInput(default=data.storyteller.name if data.storyteller else None,
-                                       min_length=1, max_length=50)
-        self.co = discord.ui.TextInput(default=data.co_storyteller.name if data.co_storyteller else None,
-                                       required=False, max_length=50, placeholder="leer lassen, wenn es keine:n gibt")
-        self.add_item(discord.ui.Label(text="Titel", description="Leer = automatisch. Die Symbole kommen davor.",
-                                       component=self.title_text))
-        self.add_item(discord.ui.Label(text="Beschreibung", component=self.text))
-        self.add_item(discord.ui.Label(text="Storyteller:in", component=self.st))
-        self.add_item(discord.ui.Label(text="Co-Storyteller:in", component=self.co))
-
-    async def handle(self, interaction, ctx: WizardContext):
-        d = ctx.data
-        d.title = _title_from_input(d, self.title_text.value)
-        d.description = (self.text.value or "").strip()
-        _apply_people(ctx, d, self.st.value, self.co.value)
-        ctx.save(d)
-        await show(interaction, ctx)
 
 
 class SelectionModal(_WizardModal):

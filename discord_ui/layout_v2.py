@@ -83,7 +83,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     from events.parse import format_start
     from events.schema import (CAMERA_LABELS, IMAGE_AUTO, IMAGE_CUSTOM, RATING_SOURCE_RATER, SCRIPT_BASE,
                                missing_for_publish)
-    from events.templates import LABEL_EMOJI, RATING_WORDS, full_title
+    from events.templates import LABEL_EMOJI, RATING_WORDS, co_st_text, full_title
     from logic.event_builder import embed_color
     from logic.event_images import IMAGE_FILENAME, has_auto_image
 
@@ -152,7 +152,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
 
     # Leitung
     st = _value(d.storyteller.name) if d.storyteller else MISSING_MARK
-    co = _value(d.co_storyteller.name if d.co_storyteller else "keins")
+    co = _value(co_st_text(d))
     container.add_item(discord.ui.Separator())
     container.add_item(section(_block("Leitung", f"Storyteller: {st}", f"Co-Storyteller: {co}"), "people"))
 

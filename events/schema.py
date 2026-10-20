@@ -118,6 +118,11 @@ class ScriptRef:
         return "Freie Skriptwahl" if self.kind == SCRIPT_FREE else self.name
 
 
+# Co-Storytelling (Dalyan, 20.10.2026): „Co-Storytellen möglich: Ja / Nein | frei / vergeben“, Standard Nein
+CO_ST_NO, CO_ST_OPEN, CO_ST_TAKEN = "no", "open", "taken"
+CO_ST_LABELS = {CO_ST_NO: "Nein", CO_ST_OPEN: "Ja, frei", CO_ST_TAKEN: "Ja, vergeben"}
+
+
 @dataclass
 class EventData:
     """Alle Felder, die ein Storyteller festlegt. Entwurf und fertiges Event teilen sie."""
@@ -131,7 +136,9 @@ class EventData:
     is_recorded: bool = False
     camera: str = DEFAULT_CAMERA
     storyteller: Person | None = None
-    co_storyteller: Person | None = None
+    co_storyteller: Person | None = None  # nur bei CO_ST_TAKEN: wer co-storytellt (Titel, Reminder)
+    co_st_status: str = "no"              # CO_ST_NO / CO_ST_OPEN / CO_ST_TAKEN
+    co_st_note: str = ""                  # Freitext bei „Nein“ oder „Ja, frei“
     script: ScriptRef | None = None
     rating: str | None = None
     rating_source: str | None = None
@@ -164,6 +171,8 @@ class EventData:
         start = d.pop("start", None)
         st = d.pop("storyteller", None)
         co = d.pop("co_storyteller", None)
+        if co and "co_st_status" not in d:  # Daten aus der Zeit vor dem Status: Name gesetzt = vergeben
+            d["co_st_status"] = CO_ST_TAKEN
         script = d.pop("script", None)
         known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
         return cls(

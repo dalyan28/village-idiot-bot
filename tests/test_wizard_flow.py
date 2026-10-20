@@ -239,7 +239,8 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     # 5. Standardwerte nur über die Dialoge: Co-ST als Text, Dauer, Kamera
     inter = click(bot, draft.id, "edit_field", "people")
     modal = inter.response.modal
-    modal.st._value, modal.co._value = "Dalyan", "Rosanna"
+    assert [o.value for o in modal.co_status.options if o.default] == ["no"]  # Standard: Nein
+    modal.st._value, modal.co._value, modal.co_status._value = "Dalyan", "Rosanna", "taken"
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     inter = click(bot, draft.id, "edit_field", "frame")
     modal = inter.response.modal

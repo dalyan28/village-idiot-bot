@@ -514,6 +514,9 @@ Dritte Runde Feedback (20.10.2026):
   die Storytelling-Hinweise und Regeln, Links in `events/templates.py`, bis dahin „(Link folgt)“). Der Button
   „Termin festlegen“ öffnet das Modal; danach wird dieselbe Nachricht zur Skript-Karte. Bei offenem Entwurf:
   „Entwurf fortsetzen“ / „Neu beginnen“. Buttons: DynamicItem `botc:<guild_id>:new|resume`.
+- **Co-Storytelling** (Dalyan, 20.10.2026): „Co-Storytellen möglich: Ja / Nein | frei / vergeben“. Status
+  `co_st_status` = Nein (Standard) / Ja, frei / Ja, vergeben, dazu ein Freitextfeld im Dialog „Leitung“: bei „vergeben“
+  der Name (geht in Titel und Reminder), sonst ein Hinweis (`co_st_note`). Anzeige z. B. „Ja, frei · gern Neulinge“.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`

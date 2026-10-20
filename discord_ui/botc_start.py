@@ -45,7 +45,7 @@ def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord
         container.add_item(intro)
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
     container.add_item(discord.ui.TextDisplay(
-        "Als Erstes legst du den Termin fest und ob es eine Academy-, Casual- oder aufgezeichnete Runde ist. "
+        "Als Erstes legst du den Termin und ein paar Optionen für die Runde fest. "
         "Danach suchst du dir das Skript aus, entweder über botcscripts.com, als Basis-Skript oder als "
         "eigenes JSON.\n\n"
         "Am Ende siehst du eine Zusammenfassung, in der du noch eine kurze Beschreibung schreibst, alles "

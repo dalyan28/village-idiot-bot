@@ -161,3 +161,19 @@ def academy_description(rating: str | None) -> str:
 # Links in der Startnachricht von /botc. Leer = Platzhalter „(Link folgt)“, bis die Beiträge feststehen.
 STORYTELLER_GUIDE_URL = ""  # Hinweise zum Mitspielen und Storytellen (Wochenplan-Beitrag)
 RULES_URL = ""  # Server-Regeln
+
+
+def co_st_text(data, name: str | None = None) -> str:
+    """Co-Storytelling als Text: „Nein“, „Ja, frei“ oder „Ja, vergeben (Name)“, Freitext angehängt.
+    `name`: aktueller Anzeigename der Co-Storyteller:in, sonst der gespeicherte."""
+    from events.schema import CO_ST_LABELS, CO_ST_NO, CO_ST_TAKEN
+
+    status = data.co_st_status if data.co_st_status in CO_ST_LABELS else CO_ST_NO
+    text = CO_ST_LABELS[status]
+    if status == CO_ST_TAKEN:
+        who = name or (data.co_storyteller.name if data.co_storyteller else "")
+        return f"{text} ({who})" if who else text
+    note = data.co_st_note.strip()
+    if status == CO_ST_NO and note:
+        return note  # reiner Freitext
+    return f"{text} · {note}" if note else text
