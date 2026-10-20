@@ -88,3 +88,37 @@ def test_long_lists_fit_into_field():
 def test_helpers_ignore_unknown_characters():
     assert npc_characters(["unknown"]) is None
     assert highlight_characters(["unknown"]) is None
+
+
+def test_demons_field_lists_demons_including_homebrew():
+    """Eigenes Feld „Dämonen“ (Dalyan, 20.10.2026); Homebrew-Dämonen kommen aus dem Skript-JSON."""
+    content = [{"id": "_meta", "name": "Boozling"}, "imp", {"id": "boo", "name": "Boo", "team": "demon"},
+               {"id": "x", "name": "Kein Dämon", "team": "townsfolk"}]
+    d = data()
+    d.script.content = content
+    f = fields(build_event_embed(d, "Dalyan", lists()))
+    assert f["Dämonen"] == "Imp, Fang Gu, Boo"
+
+
+def test_character_emojis_prefix_names(monkeypatch):
+    """Mit hochgeladenen App-Emojis steht das Icon vor jedem Charakternamen."""
+    from types import SimpleNamespace
+    from logic import character_emojis
+
+    class E(SimpleNamespace):
+        def __str__(self):
+            return f"<:{self.name}:1>"
+    character_emojis.set_emojis([E(name="imp"), E(name="fanggu"), E(name="unbekannt")])
+    try:
+        assert character_emojis.emoji_for("unbekannt") == ""  # nur bekannte Charaktere
+        f = fields(build_event_embed(data(), "Dalyan", lists()))
+        assert f["Dämonen"] == "<:imp:1> Imp, <:fanggu:1> Fang Gu"
+        assert "<:imp:1> **Imp**" in f["Highlights"] or "<:imp:1> Imp" in f["Highlights"]
+    finally:
+        character_emojis.set_emojis([])
+
+
+def test_emoji_name_is_valid():
+    from logic.character_emojis import emoji_name
+    assert emoji_name("fortune_teller") == "fortune_teller"
+    assert emoji_name("x") is None

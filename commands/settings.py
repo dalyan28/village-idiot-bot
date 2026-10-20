@@ -52,6 +52,9 @@ class Settings(commands.Cog):
                    f"**Jinxes:** {result.get('jinxes_count', 0)}\n"
                    f"**Neue Icons:** {result['new_icons']}\n"
                    f"**Übersprungen:** {result['skipped_icons']}")
+        emojis = await self._sync_emojis()  # neue Charaktere bekommen auch ihr Emoji
+        if emojis is not None:
+            summary += f"\n**Charakter-Emojis:** {emojis['emojis']} ({emojis['created']} neu)"
         if result["errors"]:
             errors = "\n".join(f"• {e}" for e in result["errors"])
             await interaction.followup.send(f"⚠️ Update mit Fehlern:\n{errors}\n\n{summary}", ephemeral=True)
@@ -62,16 +65,28 @@ class Settings(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        """Beim ersten Start ohne Icons (frisches Volume) die Icons automatisch laden."""
+        """Beim ersten Start ohne Icons (frisches Volume) die Icons automatisch laden,
+        danach fehlende Charakter-Emojis hochladen."""
         if self._icons_checked:
             return
         self._icons_checked = True
         from logic.script_cache import ICONS_DIR_VOLUME, update_characters_from_tpi
-        if os.path.isdir(ICONS_DIR_VOLUME) and os.listdir(ICONS_DIR_VOLUME):
-            return
-        logger.info("Keine Charakter-Icons vorhanden, lade sie von der offiziellen Quelle ...")
-        result = await update_characters_from_tpi()
-        logger.info("Icons geladen: %d neu, Fehler: %s", result["new_icons"], result["errors"] or "keine")
+        if not (os.path.isdir(ICONS_DIR_VOLUME) and os.listdir(ICONS_DIR_VOLUME)):
+            logger.info("Keine Charakter-Icons vorhanden, lade sie von der offiziellen Quelle ...")
+            result = await update_characters_from_tpi()
+            logger.info("Icons geladen: %d neu, Fehler: %s", result["new_icons"], result["errors"] or "keine")
+        await self._sync_emojis()
+
+    async def _sync_emojis(self) -> dict | None:
+        from logic import character_emojis
+        try:
+            result = await character_emojis.sync(self.bot)
+        except discord.HTTPException:
+            logger.exception("Charakter-Emojis konnten nicht geladen werden")
+            return None
+        logger.info("Charakter-Emojis: %d vorhanden, %d neu hochgeladen, ohne Icon: %d",
+                    result["emojis"], result["created"], len(result["missing_icon"]))
+        return result
 
 
 async def setup(bot):

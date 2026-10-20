@@ -30,6 +30,7 @@ from events.schema import (
 )
 from events.service import RsvpLists
 from events.templates import BASE3_SCRIPT_URLS, full_description, full_title
+from logic.character_emojis import with_emoji
 from logic.script_cache import STATIC_DIR, load_characters
 
 logger = logging.getLogger(__name__)
@@ -133,13 +134,14 @@ def highlight_characters(char_ids: list[str], limit: int = HIGHLIGHTS_LIMIT) -> 
         name = char_info.get("character_name", char_id)
         score = ratings.get(name, {}).get("score", 0)
         if score > 0:
-            scored.append((name, score))
+            scored.append((char_id, name, score))
     if not scored:
         return None
 
-    scored.sort(key=lambda x: x[1], reverse=True)
+    scored.sort(key=lambda x: x[2], reverse=True)
     return ", ".join(
-        f"**{name}**" if score >= HIGHLIGHT_BOLD_SCORE else name for name, score in scored[:limit]
+        with_emoji(char_id, f"**{name}**" if score >= HIGHLIGHT_BOLD_SCORE else name)
+        for char_id, name, score in scored[:limit]
     )
 
 
@@ -147,11 +149,28 @@ def npc_characters(char_ids: list[str]) -> str | None:
     """Fabled und Loric des Skripts."""
     characters_db = load_characters()
     npcs = [
-        characters_db[c].get("character_name", c)
+        with_emoji(c, characters_db[c].get("character_name", c))
         for c in char_ids
         if c in characters_db and characters_db[c].get("character_type", "").lower() in ("fabled", "loric")
     ]
     return ", ".join(npcs) if npcs else None
+
+
+def demon_characters(char_ids: list[str], content: list | None = None) -> str | None:
+    """Dämonen des Skripts (Dalyan, 20.10.2026). Homebrew-Dämonen kommen aus dem Skript-JSON."""
+    characters_db = load_characters()
+    demons, seen = [], set()
+    for c in char_ids:
+        info = characters_db.get(c)
+        if info and info.get("character_type", "").lower() == "demon" and c not in seen:
+            seen.add(c)
+            demons.append(with_emoji(c, info.get("character_name", c)))
+    for entry in content or []:
+        if (isinstance(entry, dict) and str(entry.get("team", "")).lower() == "demon"
+                and entry.get("id") not in seen and entry.get("name")):
+            seen.add(entry.get("id"))
+            demons.append(str(entry["name"]))
+    return ", ".join(demons) if demons else None
 
 
 def _script_value(data: EventData) -> str:
@@ -218,6 +237,9 @@ def build_event_embed(
         highlights = highlight_characters(char_ids)
         if highlights:
             embed.add_field(name="Highlights", value=highlights, inline=False)
+        demons = demon_characters(char_ids, data.script.content)
+        if demons:
+            embed.add_field(name="Dämonen", value=demons[:1024], inline=False)
 
     # ── RSVP-Listen (inline, eine Reihe) ─────────────────────────────
     accepted_text = _format_list(rsvps.players, name_for)
