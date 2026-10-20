@@ -912,9 +912,6 @@ async def open_edit(interaction, ctx: WizardContext, choice: str):
         if choice == "rating":
             await interaction.response.send_modal(RatingModal(ctx.draft.id, d))
             return
-        if choice == "script" and is_v2(ctx.draft):
-            await interaction.response.send_modal(ScriptModal(ctx.draft.id, d))
-            return
         step = {"script": STEP_SCRIPT, "image": STEP_IMAGE}[choice]
         await goto(interaction, ctx, step + RETURN_SUFFIX)
     elif choice == "description":
@@ -1023,74 +1020,6 @@ async def _script_from_upload(attachment: discord.Attachment) -> ScriptRef:
                        characters=parsed["characters"], content=content)
     script.teensy = is_teensy(script)
     return script
-
-
-SCRIPT_SEARCH = "search"
-SCRIPT_FILE = "upload"
-
-
-class ScriptModal(_WizardModal):
-    """/botc2: Skript per Dialog. Basis-Skript, freie Wahl, Suche auf botcscripts.com oder JSON-Upload.
-
-    Suchtreffer erscheinen danach als Auswahlliste in der Zusammenfassung (bei genau einem Treffer
-    wird er direkt übernommen) – es gibt keine eigene Skript-Seite mehr.
-    """
-
-    def __init__(self, draft_id: int, data: EventData):
-        super().__init__(draft_id, "Skript")
-        s = data.script
-        current = (s.base_key if s and s.kind == SCRIPT_BASE else "free" if s and s.kind == SCRIPT_FREE
-                   else SCRIPT_SEARCH if s and s.kind == SCRIPT_BOTCSCRIPTS else SCRIPT_FILE if s else "")
-        self.kind = discord.ui.RadioGroup()
-        for value, label in (*BASE3_FULL_NAMES.items(), ("free", "Freie Skriptwahl"),
-                             (SCRIPT_SEARCH, "Auf botcscripts.com suchen"), (SCRIPT_FILE, "Eigenes JSON hochladen")):
-            self.kind.add_option(label=label, value=value, default=value == current)
-        self.query = discord.ui.TextInput(required=False, max_length=100, placeholder="z. B. Boozling",
-                                          default=s.name if s and s.kind == SCRIPT_BOTCSCRIPTS else None)
-        self.file = discord.ui.FileUpload(required=False, min_values=0, max_values=1)
-        self.add_item(discord.ui.Label(text="Skript", component=self.kind))
-        self.add_item(discord.ui.Label(text="Suchbegriff", description="Nur bei „Auf botcscripts.com suchen“",
-                                       component=self.query))
-        self.add_item(discord.ui.Label(text="Skript-JSON", description="Nur bei „Eigenes JSON hochladen“",
-                                       component=self.file))
-
-    async def handle(self, interaction, ctx: WizardContext):
-        choice = self.kind.value or ""
-        if choice == SCRIPT_FILE:
-            if not self.file.values:
-                raise service.ServiceError("Bitte hänge die Skript-JSON-Datei an.")
-            await _set_script(interaction, ctx, await _script_from_upload(self.file.values[0]))
-            return
-        if choice == SCRIPT_SEARCH:
-            query = (self.query.value or "").strip()
-            if len(query) < 2:
-                raise service.ServiceError("Bitte gib einen Suchbegriff mit mindestens 2 Zeichen ein.")
-            await busy(interaction, ctx, f"Ich suche „{_esc(query)}“ auf botcscripts.com.")
-            try:
-                results = await botcscripts.search_scripts(query, limit=SEARCH_LIMIT)
-            except botcscripts.BotcScriptsUnavailable:
-                raise service.ServiceError(OUTAGE_SEARCH) from None
-            found = [r for r in results if r.get("botcscripts_id") and r.get("version")]
-            if len(found) == 1:  # eindeutig → direkt übernehmen
-                ctx.set_ui({**ctx.ui, "search_results": [_result_entry(found[0])]})
-                await _pick_botcscripts(interaction, ctx, f"{found[0]['botcscripts_id']}|{found[0]['version']}")
-                return
-            ui = ctx.ui
-            ui["query"] = query
-            ui["search_results"] = [_result_entry(r) for r in found]
-            ctx.set_ui(ui)
-            notice = None if found else f"Keine Treffer für „{_esc(query)}“. Versuch einen anderen Suchbegriff."
-            await show(interaction, ctx, notice=notice)
-            return
-        await _pick_base(interaction, ctx, choice)
-
-
-def _result_entry(r: dict) -> dict:
-    """Suchtreffer, wie er in drafts.ui gespeichert wird."""
-    return {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", ""),
-            "type": r.get("script_type", ""), "likes": r.get("likes") or 0,
-            "special": bool(special_reasons(ScriptRef(kind=SCRIPT_BOTCSCRIPTS, characters=r.get("characters") or [],
-                                                      content=r.get("content"))))}
 
 
 class TitleModal(_WizardModal):

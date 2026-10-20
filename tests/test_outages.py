@@ -95,8 +95,8 @@ def test_wizard_shows_rater_outage_and_manual_rating_clears_it(env, monkeypatch)
     assert d.data.rating == "yellow" and "rating_error" not in d.ui
 
 
-def test_script_dialog_search_outage_message(env, monkeypatch):
-    from discord_ui.wizard import ScriptModal
+def test_search_outage_message(env, monkeypatch):
+    from discord_ui.wizard import SearchModal
 
     async def down(query, limit=10):
         raise botcscripts.BotcScriptsUnavailable("timeout")
@@ -105,9 +105,8 @@ def test_script_dialog_search_outage_message(env, monkeypatch):
     monkeypatch.setattr(botcscripts, "search_scripts", down)
     draft = new_draft(bot)
     bot.store.set_draft_ui(draft.id, {"v2": True})
-    bot.store.update_draft(draft.id, bot.store.get_draft(draft.id).data, "preview", 0)
-    modal = ScriptModal(draft.id, bot.store.get_draft(draft.id).data)
-    modal.kind._value, modal.query._value = "search", "boo"
+    modal = SearchModal(draft.id, "")
+    modal.query._value = "boo"
     inter = FakeInteraction(bot, bot.guild.get_member(USER))
     run(modal.on_submit(inter))
     texts = " ".join(i.content for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
@@ -116,7 +115,7 @@ def test_script_dialog_search_outage_message(env, monkeypatch):
 
 def test_busy_message_while_searching(env, monkeypatch):
     """Während der Suche ersetzt eine Statusmeldung (ohne Buttons) die Karte, danach kommt die Karte zurück."""
-    from discord_ui.wizard import ScriptModal
+    from discord_ui.wizard import SearchModal
 
     async def search(query, limit=10):
         return []
@@ -125,9 +124,8 @@ def test_busy_message_while_searching(env, monkeypatch):
     monkeypatch.setattr(botcscripts, "search_scripts", search)
     draft = new_draft(bot)
     bot.store.set_draft_ui(draft.id, {"v2": True})
-    bot.store.update_draft(draft.id, bot.store.get_draft(draft.id).data, "preview", 0)
-    modal = ScriptModal(draft.id, bot.store.get_draft(draft.id).data)
-    modal.kind._value, modal.query._value = "search", "boo"
+    modal = SearchModal(draft.id, "")
+    modal.query._value = "boo"
     inter = FakeInteraction(bot, bot.guild.get_member(USER))
     screens = []
 

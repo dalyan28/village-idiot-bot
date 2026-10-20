@@ -432,29 +432,21 @@ def test_botc_works_in_dms(env, monkeypatch):
     assert stranger.response.modal is None and "keinem Server" in stranger.sent[0]
 
 
-def test_botc2_script_dialog(env, monkeypatch):
-    """/botc2: Skript per Dialog – Basis-Skript, Suche mit mehreren Treffern (Liste), genau ein Treffer (direkt)."""
-    from discord_ui.wizard import ScriptModal
+def test_botc2_script_first_with_result_list(env, monkeypatch):
+    """/botc2: Skript-Karte zuerst; Suche zeigt Treffer mit „Wählen“, danach direkt die Zusammenfassung.
+    „Ändern“ beim Skript führt zurück zur Skript-Karte, „Weiter“ wieder zur Zusammenfassung."""
+    from discord_ui.wizard import SearchModal
     from logic import botcscripts
     bot = env
     draft = new_draft(bot)
     bot.store.set_draft_ui(draft.id, {"v2": True})
-    bot.store.update_draft(draft.id, bot.store.get_draft(draft.id).data, "preview", int(NOW.timestamp()))
     user = bot.guild.get_member(USER)
 
-    inter = click(bot, draft.id, "fix_field", "script")
-    modal = inter.response.modal
-    assert isinstance(modal, ScriptModal)
-    modal.kind._value = "bad_moon_rising"
-    run(modal.on_submit(FakeInteraction(bot, user)))
-    d = bot.store.get_draft(draft.id)
-    assert d.data.script.base_key == "bad_moon_rising" and d.step == "preview"
-
-    hits = [{"botcscripts_id": str(i), "version": "1.0", "name": f"Boo {i}", "author": "A",
+    hits = [{"botcscripts_id": str(i), "version": "1.0", "name": f"Boo {i}", "author": "A", "likes": 10 - i,
              "characters": ["imp"], "content": [], "script_type": "Full"} for i in range(3)]
 
     async def fake_search(query, limit=10):
-        return hits if query == "boo" else hits[:1]
+        return hits
 
     async def fake_download(script_id, version):
         return [{"id": "_meta", "name": f"Boo {script_id}", "author": "A"}, {"id": "imp"}, {"id": "washerwoman"}]
@@ -466,20 +458,25 @@ def test_botc2_script_dialog(env, monkeypatch):
     monkeypatch.setattr(botcscripts, "download_script", fake_download)
     monkeypatch.setattr(wizard, "rate_script", no_rater)
 
-    modal = ScriptModal(draft.id, bot.store.get_draft(draft.id).data)
-    modal.kind._value, modal.query._value = "search", "boo"
+    inter = click(bot, draft.id, "search")
+    assert isinstance(inter.response.modal, SearchModal)
+    modal = inter.response.modal
+    modal.query._value = "boo"
     inter = FakeInteraction(bot, user)
     run(modal.on_submit(inter))
-    assert len(bot.store.get_draft(draft.id).ui["search_results"]) == 3
-    assert isinstance(inter.screen["view"], discord.ui.LayoutView)
-    choose(bot, draft.id, "result", "2|1.0")
-    d = bot.store.get_draft(draft.id)
-    assert d.data.script.name == "Boo 2" and not d.ui.get("search_results")
+    sections = [i for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.Section)]
+    assert [s.accessory.custom_id.split(":")[2] for s in sections] == ["pick_result"] * 3
+    texts = " ".join(i.content for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert "10 Likes" in texts
 
-    modal = ScriptModal(draft.id, d.data)
-    modal.kind._value, modal.query._value = "search", "eindeutig"
-    run(modal.on_submit(FakeInteraction(bot, user)))
-    assert bot.store.get_draft(draft.id).data.script.name == "Boo 0"  # genau ein Treffer → direkt übernommen
+    click(bot, draft.id, "pick_result", "2")
+    d = bot.store.get_draft(draft.id)
+    assert d.data.script.name == "Boo 2" and d.step == "preview"
+
+    click(bot, draft.id, "edit_field", "script")
+    assert step(bot, draft.id) == "script:p"
+    click(bot, draft.id, "next")
+    assert step(bot, draft.id) == "preview"
 
 
 @pytest.mark.parametrize("guild_id", [GUILD, None])  # auf dem Server und in den DMs
@@ -504,5 +501,5 @@ def test_botc_modal_submit_creates_draft_and_confirms(env, guild_id):
     assert inter.sent and inter.sent[0].startswith("Termin erkannt:")
     assert ("Check deine DMs" in inter.sent[0]) == (guild_id is not None)
     draft = bot.store.list_drafts(USER)[0]
-    assert draft.step == "preview" and draft.ui.get("v2")
+    assert draft.step == "script" and draft.ui.get("v2")  # /botc2 beginnt mit der Skriptwahl
     assert sent_dm  # Zusammenfassung per DM geschickt

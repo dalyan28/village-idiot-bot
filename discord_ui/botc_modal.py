@@ -159,8 +159,7 @@ class BotcModal(discord.ui.Modal):
             )
             return
         if self.v2:
-            self.store.set_draft_ui(draft.id, {"v2": True})
-            self.store.update_draft(draft.id, draft.data, "preview", int(wizard.now().timestamp()))
+            self.store.set_draft_ui(draft.id, {"v2": True})  # beginnt mit der Skriptwahl
             draft = self.store.get_draft(draft.id)
 
         where = "Check deine DMs, dort geht es weiter." if interaction.guild_id else "Weiter geht es hier unten."

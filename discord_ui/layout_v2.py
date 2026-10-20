@@ -165,9 +165,6 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     missing = missing_for_publish(d)
     status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
               else "Alles da. Wenn es passt: **Veröffentlichen**.")
-    results = (draft.ui or {}).get("search_results") or []
-    if results:
-        status += f"\n👇 Wähle unten deinen Treffer für „{esc((draft.ui or {}).get('query', ''))}“."
     if notice:
         status += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(status))
@@ -248,17 +245,6 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
 
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
-    if results:
-        pick_row = discord.ui.ActionRow()
-        options = []
-        for r in results[:25]:
-            details = [f"von {r['author']}" if r.get("author") else "", f"v{r['version']}",
-                       f"{r['likes']} Likes" if r.get("likes") else "",
-                       "Teensyville" if r.get("type") == "Teensyville" else "", "⭐" if r.get("special") else ""]
-            options.append(discord.SelectOption(label=r["name"][:100], value=f"{r['id']}|{r['version']}",
-                                                description=" · ".join(x for x in details if x)[:100] or None))
-        pick_row.add_item(wz.WizardSelect(draft.id, "result", options, "Treffer wählen …"))
-        layout.add_item(pick_row)
     row = discord.ui.ActionRow()
     if missing:
         # Statt Veröffentlichen: je fehlender Angabe ein roter Button, der direkt dorthin führt

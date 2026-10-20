@@ -148,14 +148,10 @@ def test_no_duplicate_custom_ids_on_any_page(store, step):
     assert len(ids) == len(set(ids)), ids
 
 
-def test_worst_case_missing_items_and_search_results_fit(store):
-    """Fehlende Angaben + Trefferliste gleichzeitig: Grenze von 40 Komponenten einhalten."""
+def test_worst_case_missing_items_fit(store):
+    """Alle Pflichtangaben fehlen: Grenze von 40 Komponenten einhalten, keine doppelten IDs."""
     draft = make_draft(store, "preview", script=None, description="", rating=None, rating_source=None)
-    store.set_draft_ui(draft.id, {"query": "boo", "search_results": [
-        {"id": str(i), "version": "1", "name": f"Skript {i}", "author": "A", "type": "Full", "special": False}
-        for i in range(10)]})
     layout, _ = summary_for(store, store.get_draft(draft.id))
     assert sum(1 for _ in layout.walk_children()) <= 40
     ids = _custom_ids(layout)
     assert len(ids) == len(set(ids))
-    assert any(c.endswith(":result") for c in ids)  # Trefferliste in der Zusammenfassung
