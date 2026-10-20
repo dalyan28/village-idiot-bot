@@ -549,6 +549,14 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
   Zu definieren: welche Rolle das ist und wie sie heißt (eigene Rolle, Event-Team oder Storyteller-Rolle;
   einstellbar wie `/set_event_roles`), der Template-Text (einer oder mehrere zur Auswahl, wer pflegt sie), Icon und
   Titel, ob es RSVP-Buttons und eine Spielerzahl braucht, und ob Briefings in der Übersicht auftauchen.
+- **Events ohne Skript** (Dalyan, 20.10.2026): Nicht jedes Event hat mit Clocktower zu tun (z. B. Spieleabend,
+  Community-Treffen). Die Skriptwahl muss sich dann ganz überspringen lassen, nicht nur verschieben wie bei
+  „Später wählen“. Idee: im Skript-Dialog eine Option „Kein Skript (anderes Event)“.
+  Folgen, die zu klären bzw. umzusetzen sind: Skript und Schwierigkeit sind dann keine Pflichtangaben mehr
+  (`missing_for_publish`), dafür ein eigener Titel (der automatische „{Skript} mit {ST}“ passt nicht); keine
+  Schwierigkeits-Symbole und kein ⭐ im Titel; kein Skript-Bild und kein Basis-3-Thumbnail; keine NPCs, Highlights
+  und Demons im Post; Reminder ohne Skript-JSON. Offen: ob solche Events eigene Labels/Symbole bekommen, wer sie
+  anlegen darf (Storyteller-Rolle oder Event-Team) und wie sie in der Übersicht erscheinen.
 
 ## Vor dem Merge nach main
 
