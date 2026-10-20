@@ -103,8 +103,20 @@ def test_search_results_as_sections_with_choose_button(store):
     sections = [i for i in layout.walk_children() if isinstance(i, discord.ui.Section)]
     assert [s.accessory.custom_id for s in sections] == [f"wiz:{draft.id}:pick_result:{i}" for i in range(5)]
     texts = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "Teensyville" in texts and "⭐ Abweichung" in texts and "3 weitere Treffer" in texts
+    assert "Teensyville" in texts and "⭐ Abweichung" in texts and "Seite 1 von 2" in texts
+    buttons = {b.custom_id: b for b in (getattr(i, "item", i) for i in layout.walk_children()) if isinstance(b, discord.ui.Button)}
+    assert buttons[f"wiz:{draft.id}:page:0"].disabled  # erste Seite: kein Zurück
+    assert not buttons[f"wiz:{draft.id}:page:1"].disabled
+    assert f"wiz:{draft.id}:script_dialog" in buttons  # zurück zum Skript-Dialog
     assert sum(1 for _ in layout.walk_children()) <= 40
+
+    # Seite 2: Treffer 5–7, Indizes bleiben global
+    store.set_draft_ui(draft.id, {**store.get_draft(draft.id).ui, "page": 1})
+    layout = asyncio.run(go())
+    sections = [i for i in layout.walk_children() if isinstance(i, discord.ui.Section)]
+    assert [s.accessory.custom_id for s in sections] == [f"wiz:{draft.id}:pick_result:{i}" for i in range(5, 8)]
+    buttons = {b.custom_id: b for b in (getattr(i, "item", i) for i in layout.walk_children()) if isinstance(b, discord.ui.Button)}
+    assert buttons[f"wiz:{draft.id}:page:2"].disabled  # letzte Seite: kein Weiter
 
 
 def test_event_card_v2_within_limits():

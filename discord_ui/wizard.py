@@ -71,7 +71,7 @@ from logic.script_flags import is_teensy, special_reasons
 logger = logging.getLogger(__name__)
 
 WIZARD_COLOR = 0x5865F2
-SEARCH_LIMIT = 10
+SEARCH_LIMIT = 50  # nach Likes sortiert; /botc2 blättert in Seiten durch (layout_v2.RESULTS_PER_PAGE)
 OUTAGE_SEARCH = ("botcscripts.com antwortet gerade nicht (zu langsam oder nicht erreichbar). Du kannst ein Basis-Skript oder die freie Skriptwahl nehmen, dein Skript als JSON hochladen oder es gleich nochmal versuchen.")
 PREVIEW_IMAGE = "vorschau.png"
 
@@ -701,7 +701,7 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
     elif was_teensy and not script.teensy and d.max_players == TEENSY_MAX_PLAYERS:
         d.max_players = DEFAULT_MAX_PLAYERS
     ui = ctx.ui
-    for key in ("search_results", "query", "rating_detail"):
+    for key in ("search_results", "query", "page", "rating_detail"):
         ui.pop(key, None)
 
     if script.kind in (SCRIPT_BOTCSCRIPTS, SCRIPT_UPLOAD):
@@ -751,6 +751,49 @@ async def _pick_base(interaction, ctx: WizardContext, key: str):
 @action("search")
 async def _search(interaction, ctx: WizardContext, arg):
     await interaction.response.send_modal(SearchModal(ctx.draft.id, ctx.ui.get("query", "")))
+
+
+@action("script_dialog")
+async def _script_dialog(interaction, ctx: WizardContext, arg):
+    await interaction.response.send_modal(ScriptModal(ctx.draft.id, ctx.ui.get("query", "")))
+
+
+@action("page")
+async def _page(interaction, ctx: WizardContext, arg):
+    """Suchtreffer blättern (/botc2)."""
+    ui = ctx.ui
+    ui["page"] = max(0, int(arg)) if (arg or "").isdigit() else 0
+    ctx.set_ui(ui)
+    await show(interaction, ctx)
+
+
+async def _run_search(interaction, ctx: WizardContext, query: str):
+    """Suche auf botcscripts.com; Treffer (nach Likes sortiert) landen in der Skript-Karte."""
+    await busy(interaction, ctx, f"Ich suche „{_esc(query)}“ auf botcscripts.com.")
+    try:
+        results = await botcscripts.search_scripts(query, limit=SEARCH_LIMIT)
+    except botcscripts.BotcScriptsUnavailable:
+        raise service.ServiceError(OUTAGE_SEARCH) from None
+    ui = ctx.ui
+    ui["query"] = query
+    ui["page"] = 0
+    ui["search_results"] = [_result_entry(r) for r in results if r.get("botcscripts_id") and r.get("version")]
+    ctx.set_ui(ui)
+    step = ctx.draft.step
+    if not step.startswith(STEP_SCRIPT):
+        # aus der Zusammenfassung heraus gesucht: Treffer zeigen, nach der Wahl zurück
+        step = STEP_SCRIPT + (RETURN_SUFFIX if step == STEP_PREVIEW or returns_to_preview(step) else "")
+    ctx.save(step=step)
+    notice = None if ui["search_results"] else f"Keine Treffer für „{_esc(query)}“. Versuch einen anderen Suchbegriff."
+    await show(interaction, ctx, notice)
+
+
+def _result_entry(r: dict) -> dict:
+    """Suchtreffer, wie er in drafts.ui gespeichert wird."""
+    return {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", ""),
+            "type": r.get("script_type", ""), "likes": r.get("likes") or 0,
+            "special": bool(special_reasons(ScriptRef(kind=SCRIPT_BOTCSCRIPTS, characters=r.get("characters") or [],
+                                                      content=r.get("content"))))}
 
 
 async def _pick_botcscripts(interaction, ctx: WizardContext, value: str):
@@ -904,6 +947,9 @@ async def _fix_field(interaction, ctx: WizardContext, arg):
 
 async def open_edit(interaction, ctx: WizardContext, choice: str):
     d = ctx.draft.data
+    if choice == "script" and is_v2(ctx.draft):
+        await interaction.response.send_modal(ScriptModal(ctx.draft.id, ctx.ui.get("query", "")))
+        return
     if choice in ("script", "rating", "image"):
         if choice == "rating":
             await interaction.response.send_modal(RatingModal(ctx.draft.id, d))
@@ -969,24 +1015,52 @@ class SearchModal(_WizardModal):
                                        component=self.query))
 
     async def handle(self, interaction, ctx: WizardContext):
-        query = self.query.value.strip()
-        await busy(interaction, ctx, f"Ich suche „{_esc(query)}“ auf botcscripts.com.")
-        try:
-            results = await botcscripts.search_scripts(query, limit=SEARCH_LIMIT)
-        except botcscripts.BotcScriptsUnavailable:
-            raise service.ServiceError(OUTAGE_SEARCH) from None
-        ui = ctx.ui
-        ui["query"] = query
-        ui["search_results"] = [
-            {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", ""),
-             "type": r.get("script_type", ""), "likes": r.get("likes") or 0,
-             "special": bool(special_reasons(ScriptRef(kind=SCRIPT_BOTCSCRIPTS, characters=r.get("characters") or [],
-                                                       content=r.get("content"))))}
-            for r in results if r.get("botcscripts_id") and r.get("version")
-        ]
-        ctx.set_ui(ui)
-        ctx.save(step=STEP_SCRIPT + (RETURN_SUFFIX if returns_to_preview(ctx.draft.step) else ""))
-        await show(interaction, ctx)
+        await _run_search(interaction, ctx, self.query.value.strip())
+
+
+SCRIPT_FILE = "upload"
+
+
+class ScriptModal(_WizardModal):
+    """/botc2: Skript per Dialog, die Suche steht ganz oben (Dalyan, 20.10.2026).
+
+    Discord-Dialoge haben außer „Absenden“ keine Buttons. Steht ein Suchbegriff drin, wird gesucht
+    und die Auswahl darunter ignoriert; „Absenden“ ist damit der Such-Button.
+    """
+
+    def __init__(self, draft_id: int, query: str = ""):
+        super().__init__(draft_id, "Skript wählen")
+        self.query = discord.ui.TextInput(required=False, max_length=100, default=query or None,
+                                          placeholder="Name des Skripts, z. B. Boozling")
+        self.kind = discord.ui.RadioGroup(required=False)
+        for value, label in (*BASE3_FULL_NAMES.items(), ("free", "Freie Skriptwahl"),
+                             (SCRIPT_FILE, "Eigenes JSON hochladen")):
+            self.kind.add_option(label=label, value=value)
+        self.file = discord.ui.FileUpload(required=False, min_values=0, max_values=1)
+        self.add_item(discord.ui.Label(text="Auf botcscripts.com suchen",
+                                       description="Suchbegriff eintragen und abschicken",
+                                       component=self.query))
+        self.add_item(discord.ui.Label(text="Oder direkt wählen", description="Nur wenn das Suchfeld leer ist",
+                                       component=self.kind))
+        self.add_item(discord.ui.Label(text="Skript-JSON", description="Nur bei „Eigenes JSON hochladen“",
+                                       component=self.file))
+
+    async def handle(self, interaction, ctx: WizardContext):
+        query = (self.query.value or "").strip()
+        if query:
+            if len(query) < 2:
+                raise service.ServiceError("Bitte gib einen Suchbegriff mit mindestens 2 Zeichen ein.")
+            await _run_search(interaction, ctx, query)
+            return
+        choice = self.kind.value or ""
+        if self.file.values:  # Datei angehängt: zählt auch ohne Auswahl „Eigenes JSON hochladen“
+            await _set_script(interaction, ctx, await _script_from_upload(self.file.values[0]))
+            return
+        if choice == SCRIPT_FILE:
+            raise service.ServiceError("Bitte hänge die Skript-JSON-Datei an.")
+        if not choice:
+            raise service.ServiceError("Gib einen Suchbegriff ein oder wähl ein Skript aus.")
+        await _pick_base(interaction, ctx, choice)
 
 
 class ScriptUploadModal(_WizardModal):

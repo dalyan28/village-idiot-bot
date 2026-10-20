@@ -264,30 +264,37 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     return layout, [f for f in files if f.filename == IMAGE_FILENAME]
 
 
-SEARCH_RESULTS_SHOWN = 5  # Treffer als Abschnitte mit „Wählen“ (je 3 Komponenten, Grenze 40)
+RESULTS_PER_PAGE = 5  # Treffer als Abschnitte mit „Wählen“ (je 3 Komponenten, Grenze 40)
 
 
 async def script_layout(bot: discord.Client, store, draft, notice: str | None = None):
-    """Skriptwahl für /botc2: Basis-Skripte als Buttons, Suchtreffer als Liste mit „Wählen“."""
+    """Skriptwahl für /botc2: ein Button öffnet den Skript-Dialog (Suche zuerst),
+    Suchtreffer stehen seitenweise in der Karte."""
     from discord_ui import wizard as wz  # zirkulären Import vermeiden
     from events.schema import SCRIPT_BOTCSCRIPTS
 
     d, ui = draft.data, draft.ui or {}
     esc = discord.utils.escape_markdown
+    results = ui.get("search_results") or []
     container = discord.ui.Container(accent_colour=0x5865F2)
     container.add_item(discord.ui.TextDisplay("### Skript wählen"))
-    intro = ("Wähle ein Basis-Skript oder die freie Wahl, such auf botcscripts.com oder lade ein Skript-JSON hoch.")
+    intro = ("Such dein Skript auf **botcscripts.com**, oder nimm ein Basis-Skript, "
+             "die freie Wahl oder ein eigenes JSON.")
     if d.script:
         intro = f"Aktuell: **{esc(d.script.display_name)}**\n" + intro
     if notice:
         intro += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(intro))
 
-    results = ui.get("search_results") or []
+    layout = discord.ui.LayoutView(timeout=None)
     if results:
+        pages = (len(results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE
+        page = min(int(ui.get("page") or 0), pages - 1)
+        first = page * RESULTS_PER_PAGE
         container.add_item(discord.ui.Separator())
-        container.add_item(discord.ui.TextDisplay(f"**Treffer für „{esc(ui.get('query', ''))}“**"))
-        for i, r in enumerate(results[:SEARCH_RESULTS_SHOWN]):
+        container.add_item(discord.ui.TextDisplay(
+            f"**Treffer für „{esc(ui.get('query', ''))}“**\n-# nach Likes sortiert · Seite {page + 1} von {pages}"))
+        for i, r in enumerate(results[first:first + RESULTS_PER_PAGE], start=first):
             line = f"**{esc(r['name'])}** v{esc(r['version'])}"
             details = [f"von {esc(r['author'])}" if r.get("author") else "",
                        f"{r['likes']} Likes" if r.get("likes") else ""]
@@ -299,29 +306,24 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
             text = line + ("\n-# " + " · ".join(details) if details else "")
             container.add_item(discord.ui.Section(discord.ui.TextDisplay(text), accessory=wz.WizardButton(
                 draft.id, "pick_result", "Wählen", discord.ButtonStyle.primary, arg=str(i))))
-        if len(results) > SEARCH_RESULTS_SHOWN:
-            container.add_item(discord.ui.TextDisplay(
-                f"-# {len(results) - SEARCH_RESULTS_SHOWN} weitere Treffer. Nicht dabei? Such genauer."))
-    elif ui.get("query"):
-        container.add_item(discord.ui.TextDisplay(f"Keine Treffer für „{esc(ui['query'])}“."))
-
-    layout = discord.ui.LayoutView(timeout=None)
-    layout.add_item(container)
-
-    base_row = discord.ui.ActionRow()
-    for key, name in wz.BASE3_FULL_NAMES.items():
-        base_row.add_item(wz.WizardButton(draft.id, "pick", name, discord.ButtonStyle.primary, arg=key))
-    base_row.add_item(wz.WizardButton(draft.id, "pick", "Freie Skriptwahl", arg="free"))
-    layout.add_item(base_row)
-
-    tool_row = discord.ui.ActionRow()
-    tool_row.add_item(wz.WizardButton(draft.id, "search", "Suchen"))
-    tool_row.add_item(wz.WizardButton(draft.id, "upload", "JSON hochladen"))
-    if d.script is not None:
-        tool_row.add_item(wz.WizardButton(draft.id, "rating_dialog", "Schwierigkeit ändern"))
-    if d.script is not None and d.script.kind == SCRIPT_BOTCSCRIPTS:
-        tool_row.add_item(wz.WizardButton(draft.id, "versions", "Andere Version"))
-    layout.add_item(tool_row)
+        layout.add_item(container)
+        nav = discord.ui.ActionRow()
+        back = wz.WizardButton(draft.id, "page", "◀ Zurück", arg=str(max(page - 1, 0)))
+        back.item.disabled = page == 0
+        forward = wz.WizardButton(draft.id, "page", "Weiter ▶", arg=str(page + 1))
+        forward.item.disabled = page >= pages - 1
+        nav.add_item(back)
+        nav.add_item(forward)
+        nav.add_item(wz.WizardButton(draft.id, "script_dialog", "Neue Suche", discord.ButtonStyle.primary))
+        layout.add_item(nav)
+    else:
+        if ui.get("query") and not notice:
+            container.add_item(discord.ui.TextDisplay(f"Keine Treffer für „{esc(ui['query'])}“."))
+        layout.add_item(container)
+        start = discord.ui.ActionRow()
+        start.add_item(wz.WizardButton(draft.id, "script_dialog", "Skript suchen oder wählen",
+                                       discord.ButtonStyle.primary))
+        layout.add_item(start)
 
     versions = ui.get("versions") or []
     if versions and d.script is not None:
@@ -335,6 +337,8 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
     end_row = discord.ui.ActionRow()
     if d.script is not None:
         end_row.add_item(wz.WizardButton(draft.id, "next", "Zur Zusammenfassung", discord.ButtonStyle.success))
+        if d.script.kind == SCRIPT_BOTCSCRIPTS and not results:
+            end_row.add_item(wz.WizardButton(draft.id, "versions", "Andere Version"))
     end_row.add_item(wz.WizardButton(draft.id, "cancel",
                                      "Abbrechen" if draft.event_id is None else "Bearbeitung verwerfen",
                                      discord.ButtonStyle.secondary))

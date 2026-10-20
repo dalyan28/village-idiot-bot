@@ -453,9 +453,9 @@ def test_botc_works_in_dms(env, monkeypatch):
 
 
 def test_botc2_script_first_with_result_list(env, monkeypatch):
-    """/botc2: Skript-Karte zuerst; Suche zeigt Treffer mit „Wählen“, danach direkt die Zusammenfassung.
-    „Ändern“ beim Skript führt zurück zur Skript-Karte, „Weiter“ wieder zur Zusammenfassung."""
-    from discord_ui.wizard import SearchModal
+    """/botc2: Skript-Karte zuerst; der Dialog sucht (Suchfeld oben), Treffer mit „Wählen“ und Blättern,
+    danach direkt die Zusammenfassung. „Ändern“ beim Skript öffnet wieder den Dialog."""
+    from discord_ui.wizard import ScriptModal
     from logic import botcscripts
     bot = env
     draft = new_draft(bot)
@@ -463,7 +463,7 @@ def test_botc2_script_first_with_result_list(env, monkeypatch):
     user = bot.guild.get_member(USER)
 
     hits = [{"botcscripts_id": str(i), "version": "1.0", "name": f"Boo {i}", "author": "A", "likes": 10 - i,
-             "characters": ["imp"], "content": [], "script_type": "Full"} for i in range(3)]
+             "characters": ["imp"], "content": [], "script_type": "Full"} for i in range(7)]
 
     async def fake_search(query, limit=10):
         return hits
@@ -478,24 +478,45 @@ def test_botc2_script_first_with_result_list(env, monkeypatch):
     monkeypatch.setattr(botcscripts, "download_script", fake_download)
     monkeypatch.setattr(wizard, "rate_script", no_rater)
 
-    inter = click(bot, draft.id, "search")
-    assert isinstance(inter.response.modal, SearchModal)
+    inter = click(bot, draft.id, "script_dialog")
     modal = inter.response.modal
+    assert isinstance(modal, ScriptModal)
+    assert modal.children[0].component is modal.query  # Suche ganz oben
     modal.query._value = "boo"
+    modal.kind._value = "trouble_brewing"  # wird bei Suchbegriff ignoriert
     inter = FakeInteraction(bot, user)
     run(modal.on_submit(inter))
     sections = [i for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.Section)]
-    assert [s.accessory.custom_id.split(":")[2] for s in sections] == ["pick_result"] * 3
+    assert [s.accessory.custom_id.split(":")[2] for s in sections] == ["pick_result"] * 5
     texts = " ".join(i.content for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "10 Likes" in texts
+    assert "10 Likes" in texts and bot.store.get_draft(draft.id).data.script is None
 
-    click(bot, draft.id, "pick_result", "2")
+    inter = click(bot, draft.id, "page", "1")
+    sections = [i for i in inter.screen["view"].walk_children() if isinstance(i, discord.ui.Section)]
+    assert [s.accessory.custom_id.split(":")[3] for s in sections] == ["5", "6"]
+
+    click(bot, draft.id, "pick_result", "6")
     d = bot.store.get_draft(draft.id)
-    assert d.data.script.name == "Boo 2" and d.step == "preview"
+    assert d.data.script.name == "Boo 6" and d.step == "preview"
+    assert "page" not in d.ui and "search_results" not in d.ui
 
-    click(bot, draft.id, "edit_field", "script")
+    # „Ändern“ beim Skript: Dialog; Basis-Skript ohne Suchbegriff → direkt zurück zur Zusammenfassung
+    inter = click(bot, draft.id, "edit_field", "script")
+    modal = inter.response.modal
+    assert isinstance(modal, ScriptModal)
+    modal.query._value = ""
+    modal.kind._value = "trouble_brewing"
+    run(modal.on_submit(FakeInteraction(bot, user)))
+    d = bot.store.get_draft(draft.id)
+    assert d.data.script.name == "Trouble Brewing" and d.step == "preview"
+
+    # Suche aus der Zusammenfassung heraus: Treffer-Karte, nach der Wahl zurück
+    inter = click(bot, draft.id, "edit_field", "script")
+    modal = inter.response.modal
+    modal.query._value = "boo"
+    run(modal.on_submit(FakeInteraction(bot, user)))
     assert step(bot, draft.id) == "script:p"
-    click(bot, draft.id, "next")
+    click(bot, draft.id, "pick_result", "0")
     assert step(bot, draft.id) == "preview"
 
 
