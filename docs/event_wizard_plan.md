@@ -517,6 +517,12 @@ Dritte Runde Feedback (20.10.2026):
 - **Co-Storytelling** (Dalyan, 20.10.2026): „Co-Storytellen möglich: Ja / Nein | frei / vergeben“. Status
   `co_st_status` = Nein (Standard) / Ja, frei / Ja, vergeben, dazu ein Freitextfeld im Dialog „Leitung“: bei „vergeben“
   der Name (geht in Titel und Reminder), sonst ein Hinweis (`co_st_note`). Anzeige z. B. „Ja, frei · gern Neulinge“.
+- **Skriptwahl überspringen** (Dalyan, 20.10.2026): „Später wählen“ auf der Skript-Karte führt direkt zur
+  Zusammenfassung, dort steht das Skript als fehlend (roter Button).
+- **Titel und Beschreibung im Chat** (Dalyan, 20.10.2026): In beiden Dialogen gibt es „Lieber im Chat schreiben“
+  (für Emojis). Die Karte zeigt dann „… im Chat schreiben“ mit „Abbrechen“; die nächste DM-Nachricht wird übernommen
+  (`commands/botc.py`, `take_chat_text`), die Karte aktualisiert und die Nachricht mit ✅ markiert. Wartezustand in
+  `drafts.ui["await_text"]` (Feld und ID der Wizard-Nachricht).
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`

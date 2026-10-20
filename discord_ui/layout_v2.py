@@ -289,6 +289,8 @@ async def script_layout(bot: discord.Client, store, draft, notice: str | None = 
         start = discord.ui.ActionRow()
         start.add_item(wz.WizardButton(draft.id, "script_dialog", "Skript suchen oder wählen",
                                        discord.ButtonStyle.primary))
+        if d.script is None:  # Skriptwahl überspringen, in der Zusammenfassung steht es dann als fehlend
+            start.add_item(wz.WizardButton(draft.id, "skip_script", "Später wählen"))
         layout.add_item(start)
 
     versions = ui.get("versions") or []
@@ -359,6 +361,34 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
     testserver_hooks.wizard_card(layout, draft, "image")  # TESTSERVER
     _shorten(layout)
     return layout, files
+
+
+def chat_wait_layout(bot: discord.Client, draft, notice: str | None = None) -> discord.ui.LayoutView:
+    """Wartet auf Titel bzw. Beschreibung als nächste Chat-Nachricht."""
+    from discord_ui import wizard as wz  # zirkulären Import vermeiden
+    from events.templates import full_title
+
+    esc = discord.utils.escape_markdown
+    field = ((draft.ui or {}).get(wz.AWAIT_KEY) or {}).get("field", "description")
+    name = wz.CHAT_FIELDS.get(field, "Text")
+    guild = bot.get_guild(draft.guild_id)
+    heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
+    head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
+    current = full_title(draft.data) if field == "title" else draft.data.description.strip()
+    text = (f"{head}\n\n**{name} im Chat schreiben**\n"
+            f"Schreib {'den Titel' if field == 'title' else 'die Beschreibung'} jetzt einfach als nächste Nachricht "
+            "hier in den Chat, ich übernehme sie dann automatisch.")
+    if current:
+        text += "\n-# Bisher: " + esc(current[:300]) + (" …" if len(current) > 300 else "")
+    if notice:
+        text += f"\n\n{notice}"
+    container = discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=WIZARD_COLOR)
+    layout = discord.ui.LayoutView(timeout=None)
+    layout.add_item(container)
+    row = discord.ui.ActionRow()
+    row.add_item(wz.WizardButton(draft.id, "chat_cancel", "Abbrechen"))
+    layout.add_item(row)
+    return layout
 
 
 def text_layout(text: str) -> discord.ui.LayoutView:
