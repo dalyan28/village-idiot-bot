@@ -120,7 +120,7 @@ class ReminderCog(commands.Cog):
         if msg.thread is not None:
             return msg.thread
         try:
-            return await msg.create_thread(name=f"📢 {full_title(event.data)}"[:100])
+            return await msg.create_thread(name=full_title(event.data)[:100])
         except discord.HTTPException as e:
             logger.warning("Reminder: Thread konnte nicht erstellt werden: %s", e)
             return None
@@ -140,7 +140,7 @@ class ReminderCog(commands.Cog):
                 name = event.data.script.display_name
                 safe = "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip() or "script"
                 data = json.dumps(content, indent=2, ensure_ascii=False).encode("utf-8")
-                await thread.send(f"📜 Hier ist das Skript **{discord.utils.escape_markdown(name)}** zum Laden:",
+                await thread.send(f"Hier ist das Skript **{discord.utils.escape_markdown(name)}** zum Laden:",
                                   file=discord.File(io.BytesIO(data), filename=f"{safe}.json"))
         logger.info("Reminder %s für Event %s gesendet (%d Empfänger)", cfg.key, event.id, len(people))
 
