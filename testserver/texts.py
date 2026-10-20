@@ -37,7 +37,7 @@ FEATURES = FROM_DALYAN + """
 **Was schon drin ist**
 
 **Event-Ersteller**
-Mit `/botc` geht's los, wie das genau funktioniert, könnt ihr gerne selbst erforschen. Angefangene Entwürfe bleiben 24 Stunden gespeichert. Runden anlegen darf die Storyteller-Rolle, alle Runden verwalten darf das Event-Team. Admins dürfen natürlich immer alles.
+Mit `/botc` geht's los, wie das genau funktioniert, könnt ihr gerne selbst erforschen. Angefangene Entwürfe bleiben 24 Stunden gespeichert. Runden anlegen darf die Storyteller-Rolle, alle Runden verwalten darf das Event-Team. Admins dürfen natürlich immer alles. Die Rollen könnt ihr selbstverständlich frei wählen und benennen, es geht nur darum, dass sich diese Rechte an eine Rolle binden lassen (`/set_event_roles`).
 
 **Skripte und Schwierigkeit**
 botcscripts.com ist direkt angebunden, ihr könnt Skripte dort suchen und die Version wählen. Außerdem gehen die Basis-Skripte, freie Skriptwahl oder ein eigenes JSON. Die Schwierigkeit kommt vom ScriptRater und lässt sich jederzeit überschreiben. Uns ist ja schon aufgefallen, dass der ScriptRater noch nicht perfekt ist. Da arbeite ich dran, das ist aber ein etwas größeres Projekt. Homebrew, Lorics und ähnliche Abweichungen erkennt der Bot und setzt ⭐. Teensyville erkennt er auch und stellt die Spielerzahl auf 6.
