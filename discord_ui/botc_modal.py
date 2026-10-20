@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 OTHER_DATE = "other"
-DATE_CHOICES = 9  # Heute, Morgen und die folgenden Tage; dazu „Anderes Datum“ (Radio: max. 10 Optionen)
+DATE_CHOICES = 5  # Heute, Morgen und drei weitere Tage, dazu „Anderes Datum“ (Dalyan, 20.10.2026)
 
 
 def date_choice_radio(previous: str = "") -> discord.ui.RadioGroup:
