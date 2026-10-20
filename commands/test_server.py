@@ -86,6 +86,7 @@ class TestServerCog(commands.Cog):
         await interaction.response.send_message(texts.SETUP_RUNNING, ephemeral=True)
         result = await server.setup_server(interaction.guild, self.bot.store)
         await server.ensure_sample_event(self.bot, interaction.guild, self.bot.store, interaction.user, result)
+        await server.start_overview(self.bot, interaction.guild, self.bot.store)
         await _followup(interaction, result.summary())
 
     @testserver.command(name="update", description="Die Texte in diesem Channel aktualisieren")

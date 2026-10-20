@@ -417,20 +417,18 @@ async def _delete(obj, label: str, result: DeleteResult):
 
 def _stop_overview(bot, guild_id: int):
     """Laufende automatische Übersicht stoppen, sonst postet sie in einen gelöschten Channel."""
-    import asyncio
-
-    from discord.ext import tasks
-
     overview = bot.cogs.get("Overview") if bot is not None and hasattr(bot, "cogs") else None
     if overview is None:
         return
-    existing = overview.auto_tasks.pop(guild_id, None)
-    if isinstance(existing, asyncio.Task):
-        existing.cancel()
-    elif isinstance(existing, tasks.Loop):
-        existing.stop()
-    for attr in ("smart_dynamic_times", "last_smart_run", "_edit_debounce_start"):
-        getattr(overview, attr, {}).pop(guild_id, None)
-    debounce = getattr(overview, "_edit_debounce_tasks", {}).pop(guild_id, None)
-    if debounce is not None and not debounce.done():
-        debounce.cancel()
+    overview.stop_listening(guild_id)
+
+
+async def start_overview(bot, guild: discord.Guild, store: Store) -> None:
+    """Automatische Übersicht (Listen-Modus) für die Setup-Channels einschalten, wie /automate_overview."""
+    overview = bot.cogs.get("Overview") if bot is not None and hasattr(bot, "cogs") else None
+    channels = registry.get(store, guild.id)["channels"]
+    event_channel = guild.get_channel(channels.get("events") or 0)
+    overview_channel = guild.get_channel(channels.get("overview") or 0)
+    if overview is None or event_channel is None or overview_channel is None:
+        return
+    await overview.start_listening(guild.id, event_channel, overview_channel)

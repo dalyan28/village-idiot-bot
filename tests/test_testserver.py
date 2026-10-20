@@ -437,6 +437,26 @@ def test_delete_all_removes_everything_setup_created(ts):
     assert sum(1 for c in guild.all_channels.values() if c.name == "📝︱feedback") == 1
 
 
+def test_setup_turns_on_listen_mode_and_delete_all_stops_it(ts):
+    """Nach Setup läuft die automatische Übersicht (Listen-Modus) für die Setup-Channels."""
+    from commands.overview import Overview
+
+    bot, guild = ts, FakeServer()
+    overview = Overview(bot)
+    overview.fetch_and_post = lambda *a: _done()
+    bot_with_cog = SimpleNamespace(cogs={"Overview": overview})
+    run(server.setup_server(guild, bot.store))
+    run(server.start_overview(bot_with_cog, guild, bot.store))
+    assert GUILD in overview.listening and bot_config.get_guild_config(GUILD)["auto_active"] is True
+
+    run(server.delete_all(guild, bot.store, bot_with_cog))
+    assert GUILD not in overview.listening
+
+
+async def _done():
+    return None
+
+
 # ── Commands ─────────────────────────────────────────────────────────────────
 
 

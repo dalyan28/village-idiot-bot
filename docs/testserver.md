@@ -8,6 +8,7 @@ Nur auf Branch `testserver`. Der Branch wird nicht gemergt, sondern nach dem Tes
   `🗒️︱texte` (die längeren Bot-Texte zum Gegenlesen), `💬︱chat` und `📝︱feedback`, und „Runden“ mit `📅︱events` und `📋︱übersicht`. Kein Sprachchat. Dazu die Rollen
   „Storyteller“ und „Event-Team“. Trägt Event- und
   Übersichts-Channel ein (wie `/set_event_channel`, `/set_overview_channel`) und die Rollen (wie `/set_event_roles`).
+  Schaltet die automatische Übersicht ein (Listen-Modus, wie `/automate_overview`).
   Postet die Texte (als „Nachricht von Dalyan“). Mehrfach ausführbar: Vorhandenes wird aufgefrischt, Texte werden
   bearbeitet statt neu gepostet.
 - `/testserver beispiel-event`: postet ein volles Beispiel-Event (Boozling, 23 erfundene Anmeldungen: 12 spielen,

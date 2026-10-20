@@ -116,7 +116,6 @@ async def on_guild_join(guild: discord.Guild):
 
 async def restore_auto_tasks():
     from config import load_config
-    from discord.ext import tasks
 
     cfg = load_config() #Logging
     print(f"Config beim Start: {cfg}") #
@@ -136,36 +135,22 @@ async def restore_auto_tasks():
             continue
 
         guild_id = int(guild_id_str)
+        # on_ready kommt auch bei jedem Reconnect: läuft der Listen-Modus schon, nicht neu posten
+        if guild_id in overview_cog.listening:
+            continue
         if not guild_lock.is_allowed(guild_id):
             print(f"Guild {guild_id} ist nicht freigeschaltet, überspringe Automatisierung")
             continue
         event_channel = bot.get_channel(guild_cfg.get("event_channel_id"))
         overview_channel = bot.get_channel(guild_cfg.get("overview_channel_id"))
-        frequenz = guild_cfg.get("auto_interval_hours", 2)
 
         if not event_channel or not overview_channel:
             print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
             continue
 
-        if frequenz == -2:
-            overview_cog.auto_tasks[guild_id] = "listen_mode"
-            await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            label = "Listen Mode"
-        elif frequenz == -1:
-            task = asyncio.create_task(
-                overview_cog._run_smart_scheduler(guild_id, event_channel, overview_channel)
-            )
-            overview_cog.auto_tasks[guild_id] = task
-            label = "Smart Mode"
-        else:
-            @tasks.loop(hours=frequenz)
-            async def auto_job():
-                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            overview_cog.auto_tasks[guild_id] = auto_job
-            overview_cog.auto_tasks[guild_id].start()
-            label = f"{frequenz} Stunden"
-
-        print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
+        # Früher eingestellte Smart- oder Stunden-Modi laufen jetzt ebenfalls als Listen-Modus
+        await overview_cog.start_listening(guild_id, event_channel, overview_channel)
+        print(f"Automatisierung wiederhergestellt für Guild {guild_id} (Listen Mode)")
 
 
 async def main():
