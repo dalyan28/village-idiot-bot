@@ -23,7 +23,7 @@ class TestSettings:
         cfgs = reminders.effective({}, EventData())
         assert cfgs[FIRST].minutes_before == 15 and cfgs[FIRST].post_script and cfgs[FIRST].mode == "ping"
         assert cfgs[SECOND].minutes_before == 5 and cfgs[SECOND].kind == "attendance"
-        assert cfgs[FIRST].recipients == ["accepted"]  # Warteliste nicht mehr standardmäßig
+        assert cfgs[FIRST].recipients == ["accepted", "storyteller"]  # Warteliste nicht, ST schon
         # Anwesenheitsliste kommt mit der ersten Erinnerung, die zweite ist standardmäßig aus
         assert cfgs[FIRST].post_attendance and not cfgs[SECOND].post_attendance
         assert not cfgs[SECOND].enabled
@@ -57,7 +57,7 @@ class TestSettings:
     def test_defaults_are_never_mutated(self):
         cfg = reminders.effective({}, EventData())[FIRST]
         cfg.recipients.append(TO_CO)
-        assert reminders.DEFAULTS[FIRST].recipients == ["accepted"]
+        assert reminders.DEFAULTS[FIRST].recipients == ["accepted", "storyteller"]
 
     def test_validate(self):
         bad = reminders.copy_of(reminders.DEFAULTS[FIRST])
@@ -190,3 +190,13 @@ def test_no_attendance_file_without_recipients():
 
     asyncio.run(go())
     assert "anwesenheit.txt" not in sent
+
+
+def test_storyteller_is_pinged_but_not_on_attendance_list():
+    cfg = reminders.copy_of(reminders.DEFAULTS[FIRST])
+    data = EventData(start=START, storyteller=Person("Dalyan", 7), script=ScriptRef(kind="botcscripts", name="X"))
+    people = reminders.recipients(cfg, lists(), data)
+    assert [p.name for p in people] == ["Anna", "Ben", "Dalyan"]
+    assert "<@7>" in reminders.message_text(cfg, START, people)
+    txt = reminders.attendance_txt(data, people)
+    assert "[ ] Anna" in txt and "Dalyan\n" not in txt.split("\n\n", 1)[1]

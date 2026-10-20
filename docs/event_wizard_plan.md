@@ -144,7 +144,7 @@ Einstellungen je Reminder:
 | Aktiv | ja / nein | ja beim ersten, **nein beim zweiten** (Dalyan, 20.10.2026) |
 | Zeitpunkt | Minuten vor Start | 15 bzw. 5 |
 | Benachrichtigung | Ping / nur Namen | Ping |
-| Empfänger | Zusagen, Warteliste, Vorläufig/Auffüller, Co-ST (Mehrfachauswahl) | Zusagen ohne Warteliste |
+| Empfänger | Zusagen, Warteliste, Vorläufig/Auffüller, Co-ST, Storyteller (Mehrfachauswahl) | Zusagen und Storyteller, ohne Warteliste (ST steht nicht in `anwesenheit.txt`) |
 | Skript-JSON posten | ja / nein | ja beim ersten, nein beim zweiten |
 | Anwesenheitsliste (`anwesenheit.txt`) | ja / nein | ja beim ersten, nein beim zweiten |
 | Art | Erinnerung / Anwesenheitskontrolle (nummerierte Liste) | erster: Erinnerung, zweiter: Anwesenheitskontrolle |

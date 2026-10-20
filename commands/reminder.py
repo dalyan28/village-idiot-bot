@@ -142,7 +142,7 @@ class ReminderCog(commands.Cog):
                 await thread.send(f"Hier ist das Skript **{discord.utils.escape_markdown(name)}** zum Laden:",
                                   file=discord.File(io.BytesIO(data), filename=f"{safe}.json"))
 
-        if cfg.post_attendance and people:
+        if cfg.post_attendance and any(not reminders.same_person(p, event.data.storyteller) for p in people):
             data = reminders.attendance_txt(event.data, people).encode("utf-8")
             await thread.send("Anwesenheitsliste zum Abhaken:",
                               file=discord.File(io.BytesIO(data), filename=reminders.ATTENDANCE_FILENAME))
@@ -175,6 +175,7 @@ class ReminderCog(commands.Cog):
         warteliste="Warteliste benachrichtigen",
         vorlaeufig="Vorläufige bzw. Auffüller benachrichtigen",
         co_st="Co-Storyteller benachrichtigen",
+        storyteller="Storyteller benachrichtigen",
         skript_json="Skript-JSON in den Thread posten",
         anwesenheitsliste="Anwesenheitsliste (anwesenheit.txt) zum Abhaken in den Thread posten",
         zuruecksetzen="Diesen Reminder auf den eingebauten Standard zurücksetzen",
@@ -192,6 +193,7 @@ class ReminderCog(commands.Cog):
                             benachrichtigung: app_commands.Choice[str] | None = None,
                             zusagen: bool | None = None, warteliste: bool | None = None,
                             vorlaeufig: bool | None = None, co_st: bool | None = None,
+                            storyteller: bool | None = None,
                             skript_json: bool | None = None, anwesenheitsliste: bool | None = None,
                             zuruecksetzen: bool | None = None):
         if not await self._check(interaction):
@@ -207,7 +209,8 @@ class ReminderCog(commands.Cog):
             cfg.mode = benachrichtigung.value
         to = list(cfg.recipients)
         for flag, value in ((zusagen, reminders.TO_ACCEPTED), (warteliste, reminders.TO_WAITLIST),
-                            (vorlaeufig, reminders.TO_TENTATIVE), (co_st, reminders.TO_CO)):
+                            (vorlaeufig, reminders.TO_TENTATIVE), (co_st, reminders.TO_CO),
+                            (storyteller, reminders.TO_ST)):
             if flag is True and value not in to:
                 to.append(value)
             elif flag is False and value in to:

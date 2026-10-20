@@ -28,8 +28,10 @@ TO_ACCEPTED = "accepted"
 TO_WAITLIST = "waitlist"
 TO_TENTATIVE = "tentative"
 TO_CO = "co"
-RECIPIENTS = (TO_ACCEPTED, TO_WAITLIST, TO_TENTATIVE, TO_CO)
+TO_ST = "storyteller"
+RECIPIENTS = (TO_ACCEPTED, TO_WAITLIST, TO_TENTATIVE, TO_CO, TO_ST)
 RECIPIENT_LABELS = {
+    TO_ST: "Storyteller",
     TO_ACCEPTED: "Zusagen",
     TO_WAITLIST: "Warteliste",
     TO_TENTATIVE: "Vorläufig / Auffüller",
@@ -59,7 +61,7 @@ class ReminderConfig:
 # Alles kommt auf einmal, wenn der Thread aufgeht: Ping, Skript-JSON, Anwesenheitsliste.
 # Die zweite Erinnerung (Anwesenheitskontrolle) ist standardmäßig aus (Dalyan, 20.10.2026).
 DEFAULTS = {
-    FIRST: ReminderConfig(FIRST, True, 15, MODE_PING, [TO_ACCEPTED], post_script=True, kind=KIND_REMINDER,
+    FIRST: ReminderConfig(FIRST, True, 15, MODE_PING, [TO_ACCEPTED, TO_ST], post_script=True, kind=KIND_REMINDER,
                           post_attendance=True),
     SECOND: ReminderConfig(SECOND, False, 5, MODE_PING, [TO_ACCEPTED], post_script=False, kind=KIND_ATTENDANCE,
                            post_attendance=False),
@@ -150,6 +152,8 @@ def recipients(cfg: ReminderConfig, lists: RsvpLists, data: EventData) -> list[P
         people += lists.tentative
     if TO_CO in cfg.recipients and data.co_storyteller is not None:
         people.append(data.co_storyteller)
+    if TO_ST in cfg.recipients and data.storyteller is not None:  # Storyteller:in wird mit angepingt
+        people.append(data.storyteller)
     seen, unique = set(), []
     for p in people:
         key = p.user_id if p.user_id is not None else ("name", p.name)
@@ -179,9 +183,18 @@ def message_text(cfg: ReminderConfig, start: datetime, people: list[Person], is_
     return text
 
 
+def same_person(a: Person, b: Person | None) -> bool:
+    if b is None:
+        return False
+    if a.user_id is not None and b.user_id is not None:
+        return a.user_id == b.user_id
+    return a.name == b.name
+
+
 def attendance_txt(data: EventData, people: list[Person]) -> str:
     """Anwesenheitsliste zum Abhaken: Titel und Termin, darunter je Person ein Kästchen.
-    Nur Anzeigenamen, keine Mentions oder IDs."""
+    Nur Anzeigenamen, keine Mentions oder IDs. Die Storyteller:in selbst steht nicht drauf."""
+    people = [p for p in people if not same_person(p, data.storyteller)]
     title = data.title.strip() or base_title(data)
     lines = [title]
     if data.start:
