@@ -72,6 +72,7 @@ DESCRIPTION_MAX_LENGTH = 1000  # eigener Text des Erstellers, passt in ein Embed
 # ── Defaults (unverändert aus Branch event-creation) ─────────────────────────
 
 DEFAULT_MAX_PLAYERS = 12
+TEENSY_MAX_PLAYERS = 6  # Teensyville ist für 5–6 Spieler gedacht
 DEFAULT_DURATION_MINUTES = 150
 DEFAULT_LEVEL = "Alle"
 DEFAULT_CAMERA = CAMERA_OPTIONAL
@@ -103,7 +104,8 @@ class ScriptRef:
     base_key: str = ""             # trouble_brewing, bad_moon_rising, sects_and_violets
     botcscripts_id: str = ""
     characters: list[str] = field(default_factory=list)
-    content: list | None = None    # nur bei Upload: das komplette Skript-JSON
+    content: list | None = None    # das komplette Skript-JSON (botcscripts.com oder Upload)
+    teensy: bool = False           # Teensyville-Skript (5–6 Spieler)
 
     @property
     def url(self) -> str:

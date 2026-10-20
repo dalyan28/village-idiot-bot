@@ -493,6 +493,28 @@ Dritte Runde Feedback (20.10.2026):
   der Zusammenfassung tauchen sie nicht mehr auf; die Reminder-Schleife nutzt nur die Server-Einstellung
   (`EventData.reminder_overrides` bleibt im Schema, wird aber nicht mehr gelesen). Reminder-Texte ohne Emojis.
 
+- **/botc2 (Test, Components V2)**: Zusammenfassung in fünf Abschnitten nach Dalyans Gruppierung (Beschreibendes ·
+  Skript & Schwierigkeit · Auswahl: Labels, Level, Kamera · Termin & Rahmen: Datum, Uhrzeit, Dauer, Spieler · Bild),
+  je ein Button; nach der Skriptwahl direkt dorthin; fehlende Angaben mit 🔴 und roten Buttons statt
+  „Veröffentlichen“. Erstes Modal schlank: Datum als Auswahl (Heute, Morgen, die nächsten Tage, Anderes Datum),
+  Uhrzeit, Optionen; Level (Alle) und Spieler (12) mit Standardwert.
+- **Teensyville** erkennt der Bot über `script_type` von botcscripts.com, sonst per Faustregel (höchstens 6
+  Townsfolk): max. Spieler 6 und „Teensy“ vor dem Skriptnamen im Titel.
+
+## Offene Features (Backlog, noch nicht umgesetzt)
+
+Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
+- **Streaming**: Option wie Casual im ersten Modal („Streaming-Angebot“, z. B. Twitch). Setzt automatisch einen
+  Disclaimer in die Beschreibung, dass bei der Veranstaltung Inhalte öffentlich verbreitet werden. Vermutlich eigenes
+  Label mit Symbol; Abgrenzung zu „Aufzeichnung“ klären.
+- **S-Runde** (Nachmittag): Startzeit zwischen 12 und 16 Uhr → groß „S-Runde“ vor dem Titel, z. B. „S-Runde Boozling
+  mit Dalyan“. Genaue Grenzen klären (Vormittag mit dabei?).
+- **T-Runde** (Nacht): Startzeit zwischen 23 und 2 Uhr → „T-Runde Boozling mit Dalyan“.
+- **V2-Ideen aus dem Pitch** (für /botc2 zu erkunden): Suchtreffer als Liste mit „Wählen“-Button; Event-Post als
+  V2-Karte. Bedingung für den Event-Post: rückwärtskompatibel mit Apollo. Die Übersicht liest heute die Embed-Felder
+  „Termin“ und „Akzeptiert (n/m)“; sie müsste V2-Posts des eigenen Bots zusätzlich lesen können (z. B. direkt aus der
+  Datenbank).
+
 ## Offene Fragen
 
 - Academy-Berechtigung im Detail (z. B. Verhältnis zur Storyteller-Rolle). Kann später geklärt werden.

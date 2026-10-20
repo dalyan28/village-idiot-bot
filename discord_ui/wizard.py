@@ -31,6 +31,7 @@ from events.rating import rate_script
 from events.schema import (
     BERLIN_TZ,
     CAMERA_LABELS,
+    DEFAULT_MAX_PLAYERS,
     DESCRIPTION_MAX_LENGTH,
     IMAGE_AUTO,
     IMAGE_CUSTOM,
@@ -45,6 +46,7 @@ from events.schema import (
     SCRIPT_FREE,
     RATINGS,
     SCRIPT_UPLOAD,
+    TEENSY_MAX_PLAYERS,
     TITLE_MAX_LENGTH,
     EventData,
     Person,
@@ -64,7 +66,7 @@ from logic.event_images import (
 )
 from logic.event_builder import embed_color
 from logic.script_cache import get_base_script, validate_script_json
-from logic.script_flags import special_reasons
+from logic.script_flags import is_teensy, special_reasons
 
 logger = logging.getLogger(__name__)
 
@@ -662,8 +664,14 @@ def _after_script(ctx: WizardContext) -> str:
 
 async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice: str | None = None):
     d = ctx.data
+    was_teensy = bool(d.script and d.script.teensy)
     d.script = script
     d.rating, d.rating_source = None, None
+    if script.teensy and d.max_players == DEFAULT_MAX_PLAYERS:
+        d.max_players = TEENSY_MAX_PLAYERS
+        notice = notice or f"Teensyville erkannt: max. Spieler auf {TEENSY_MAX_PLAYERS} gesetzt."
+    elif was_teensy and not script.teensy and d.max_players == TEENSY_MAX_PLAYERS:
+        d.max_players = DEFAULT_MAX_PLAYERS
     ui = ctx.ui
     for key in ("search_results", "query", "rating_detail"):
         ui.pop(key, None)
@@ -705,6 +713,9 @@ async def _search(interaction, ctx: WizardContext, arg):
 
 async def _pick_botcscripts(interaction, ctx: WizardContext, value: str):
     script_id, _, version = value.partition("|")
+    ui = ctx.ui
+    known = [*(ui.get("search_results") or []), *(ui.get("versions") or [])]
+    script_type = next((r.get("type") for r in known if r["id"] == script_id and r["version"] == version), "")
     if not interaction.response.is_done():
         await interaction.response.defer()
     content = await botcscripts.download_script(script_id, version)
@@ -713,10 +724,10 @@ async def _pick_botcscripts(interaction, ctx: WizardContext, value: str):
     parsed, error = validate_script_json(content)
     if error:
         raise service.ServiceError(error)
-    await _set_script(interaction, ctx, ScriptRef(
-        kind=SCRIPT_BOTCSCRIPTS, name=parsed["name"], author=parsed["author"], version=version,
-        botcscripts_id=script_id, characters=parsed["characters"], content=content,
-    ))
+    script = ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name=parsed["name"], author=parsed["author"], version=version,
+                       botcscripts_id=script_id, characters=parsed["characters"], content=content)
+    script.teensy = is_teensy(script, script_type or None)
+    await _set_script(interaction, ctx, script)
 
 
 @select_action("result")
@@ -735,7 +746,8 @@ async def _versions(interaction, ctx: WizardContext, arg):
     await interaction.response.defer()
     found = await botcscripts.search_versions(s.name, s.author)
     ui = ctx.ui
-    ui["versions"] = [{"id": v["botcscripts_id"], "version": v["version"]} for v in found if v.get("version")]
+    ui["versions"] = [{"id": v["botcscripts_id"], "version": v["version"], "type": v.get("script_type", "")}
+                      for v in found if v.get("version")]
     ctx.set_ui(ui)
     notice = None if ui["versions"] else "Ich habe keine weiteren Versionen gefunden."
     await show(interaction, ctx, notice)
@@ -902,7 +914,8 @@ class SearchModal(_WizardModal):
         ui = ctx.ui
         ui["query"] = query
         ui["search_results"] = [
-            {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", "")}
+            {"id": r["botcscripts_id"], "version": r["version"], "name": r["name"], "author": r.get("author", ""),
+             "type": r.get("script_type", "")}
             for r in results if r.get("botcscripts_id") and r.get("version")
         ]
         ctx.set_ui(ui)
@@ -930,10 +943,10 @@ class ScriptUploadModal(_WizardModal):
         parsed, error = validate_script_json(content)
         if error:
             raise service.ServiceError(error)
-        await _set_script(interaction, ctx, ScriptRef(
-            kind=SCRIPT_UPLOAD, name=parsed["name"], author=parsed["author"],
-            characters=parsed["characters"], content=content,
-        ))
+        script = ScriptRef(kind=SCRIPT_UPLOAD, name=parsed["name"], author=parsed["author"],
+                           characters=parsed["characters"], content=content)
+        script.teensy = is_teensy(script)
+        await _set_script(interaction, ctx, script)
 
 
 class TitleModal(_WizardModal):

@@ -14,6 +14,23 @@ from events.schema import SCRIPT_FREE, ScriptRef
 from logic.script_cache import load_characters
 
 NAME_LIMIT = 5
+TEENSY_TYPE = "Teensyville"   # script_type auf botcscripts.com
+TEENSY_MAX_TOWNSFOLK = 6      # Faustregel für Skripte ohne Angabe (z. B. Uploads)
+
+
+def is_teensy(script: ScriptRef | None, script_type: str | None = None) -> bool:
+    """Teensyville? botcscripts.com sagt es über script_type, sonst höchstens 6 Townsfolk."""
+    if script is None or script.kind == SCRIPT_FREE:
+        return False
+    if script_type:
+        return script_type == TEENSY_TYPE
+    db = load_characters()
+    content = {item["id"]: item for item in (script.content or []) if isinstance(item, dict) and item.get("id")}
+    townsfolk = 0
+    for c in script.characters:
+        team = db[c].get("character_type", "") if c in db else str(content.get(c, {}).get("team", ""))
+        townsfolk += team.lower() == "townsfolk"
+    return 0 < townsfolk <= TEENSY_MAX_TOWNSFOLK
 
 
 def _names(names: list[str]) -> str:

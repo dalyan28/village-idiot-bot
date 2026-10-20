@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 import discord
 
@@ -29,6 +30,25 @@ LEVEL_DESCRIPTIONS = {
     "Profi": "Für sehr erfahrene Spieler:innen",
     "Alle": "Jede:r ist willkommen",
 }
+
+
+OTHER_DATE = "other"
+DATE_CHOICES = 9  # Heute, Morgen und die folgenden Tage; dazu „Anderes Datum“ (Radio: max. 10 Optionen)
+
+
+def date_choice_radio(previous: str = "") -> discord.ui.RadioGroup:
+    """Datum als Auswahl: Heute, Morgen, die nächsten Tage, Anderes Datum. Werte im ISO-Format."""
+    from events.parse import WEEKDAY_NAMES
+
+    today = wizard.now().date()
+    radio = discord.ui.RadioGroup()
+    for i in range(DATE_CHOICES):
+        day = today + timedelta(days=i)
+        name = {0: "Heute", 1: "Morgen"}.get(i, WEEKDAY_NAMES[day.weekday()])
+        radio.add_option(label=f"{name} · {day:%d.%m.}", value=day.isoformat(), default=previous == day.isoformat())
+    is_other = bool(previous) and previous not in {o.value for o in radio.options}
+    radio.add_option(label="Anderes Datum (unten eintragen)", value=OTHER_DATE, default=is_other)
+    return radio
 
 
 class BotcModal(discord.ui.Modal):
@@ -64,6 +84,19 @@ class BotcModal(discord.ui.Modal):
             self.options.add_option(label=label, value=value, description=desc, default=value in raw.options)
         self.options.max_values = len(self.options.options)
 
+        if v2:
+            # /botc2: schlanker (Dalyan, 20.10.2026). Datum als Auswahl, Level und Spieler mit Standardwert
+            # (Alle, 12 bzw. 6 bei Teensyville), änderbar in der Zusammenfassung.
+            self.date_choice = date_choice_radio(raw.date_text)
+            self.date.required = False
+            self.date.placeholder = "nur bei „Anderes Datum“, z. B. 24.12."
+            if self.date.default and any(o.value == self.date.default for o in self.date_choice.options):
+                self.date.default = None
+            self.add_item(discord.ui.Label(text="Datum", component=self.date_choice))
+            self.add_item(discord.ui.Label(text="Anderes Datum", component=self.date))
+            self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
+            self.add_item(discord.ui.Label(text="Optionen", component=self.options))
+            return
         self.add_item(discord.ui.Label(text="Datum", component=self.date))
         self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
         self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200", component=self.players))
@@ -71,6 +104,13 @@ class BotcModal(discord.ui.Modal):
         self.add_item(discord.ui.Label(text="Optionen", component=self.options))
 
     def raw_input(self) -> ModalInput:
+        if self.v2:
+            choice = self.date_choice.value or OTHER_DATE
+            return ModalInput(
+                date_text=(self.date.value or "") if choice == OTHER_DATE else choice,
+                time_text=self.time.value or "",
+                options=list(self.options.values),
+            )
         return ModalInput(
             date_text=self.date.value or "",
             time_text=self.time.value or "",

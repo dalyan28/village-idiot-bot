@@ -86,6 +86,8 @@ def base_title(data: EventData) -> str:
     script = data.script.display_name if data.script else "BotC"
     if data.script and data.script.kind == SCRIPT_BASE:
         script = BASE3_FULL_NAMES.get(data.script.base_key, script)
+    if data.script and data.script.teensy and "teensy" not in script.lower():
+        script = f"Teensy {script}"  # Teensyville im Titel kenntlich machen (Dalyan, 20.10.2026)
     if data.storyteller is None:
         return script
     title = f"{script} mit {data.storyteller.name}"

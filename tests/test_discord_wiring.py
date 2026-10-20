@@ -61,3 +61,18 @@ def test_wizard_custom_id_matches_template():
     match = WizardButton.__discord_ui_compiled_template__.fullmatch(custom_id(7, "pick", "trouble_brewing"))
     assert match["arg"] == "trouble_brewing"
     assert len(custom_id(10**18, "select_version", "x" * 40)) <= 100  # Discord-Grenze für custom_id
+
+
+def test_botc2_modal_is_slim_with_date_choices():
+    async def go():
+        return BotcModal(Store(":memory:"), allow_academy=False, v2=True)
+
+    m = run(go())
+    assert len(m.children) == 4  # Datum-Auswahl, anderes Datum, Uhrzeit, Optionen
+    labels = [o.label for o in m.date_choice.options]
+    assert labels[0].startswith("Heute") and labels[1].startswith("Morgen") and len(labels) == 10
+    assert m.date_choice.options[-1].value == "other"
+    m.date_choice._value = m.date_choice.options[1].value
+    m.time._value = "20"
+    raw = m.raw_input()
+    assert raw.date_text == m.date_choice.options[1].value and raw.players_text == "12" and raw.level == "Alle"

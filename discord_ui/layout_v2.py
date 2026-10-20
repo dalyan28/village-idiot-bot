@@ -186,6 +186,8 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
             script_line += f" von {esc(s.author)}"
         if s.version and s.kind != SCRIPT_BASE:
             script_line += f" · v{esc(s.version)}"
+        if s.teensy:
+            script_line += " · Teensyville"
     lines = [_line("Skript", script_line)]
     if d.rating:
         lines.append(_line("Schwierigkeit", f"{wz.LABEL_EMOJI[d.rating]} {wz.RATING_WORDS[d.rating].capitalize()}"))

@@ -35,3 +35,23 @@ def test_long_lists_are_shortened():
     ids = [f"hb{i}" for i in range(8)]
     reasons = special_reasons(ScriptRef(kind=SCRIPT_UPLOAD, name="X", characters=ids))
     assert reasons == ["Homebrew-Charaktere: hb0, hb1, hb2, hb3, hb4 und 3 weitere"]
+
+
+def test_teensy_from_botcscripts_type_and_heuristic():
+    from logic.script_flags import is_teensy
+    tb = get_base_script("trouble_brewing")
+    script = ScriptRef(kind=SCRIPT_UPLOAD, name="X", characters=tb["characters"])
+    assert not is_teensy(script)  # 13 Townsfolk
+    small = ScriptRef(kind=SCRIPT_UPLOAD, name="X", characters=tb["characters"][:6] + ["imp"])
+    assert is_teensy(small)  # Faustregel: höchstens 6 Townsfolk
+    assert is_teensy(script, "Teensyville") and not is_teensy(small, "Full")  # Angabe von botcscripts gewinnt
+    assert not is_teensy(ScriptRef(kind=SCRIPT_FREE))
+
+
+def test_teensy_title():
+    from events.schema import EventData, Person
+    from events.templates import base_title
+    d = EventData(storyteller=Person("Dalyan"), script=ScriptRef(kind=SCRIPT_UPLOAD, name="Boozling", teensy=True))
+    assert base_title(d) == "Teensy Boozling mit Dalyan"
+    d.script.name = "Teensy Brewing"
+    assert base_title(d) == "Teensy Brewing mit Dalyan"  # nicht doppelt
