@@ -1,7 +1,7 @@
 """Einschätzung eines Skripts (grün/gelb/rot) über den ScriptRater.
 
 Der Algorithmus lebt im ScriptRater (widow-botc.com/script-check), nicht im Bot. Gelesen werden
-nur `rating`, `verdict` (optional, Fließtext), `headline`, `reasons` und `metrics.is_homebrew`. Ist der ScriptRater nicht
+nur `rating`, `verdict` und `tagline` (optional, Fließtext), `headline`, `reasons` und `metrics.is_homebrew`. Ist der ScriptRater nicht
 erreichbar oder die Antwort unlesbar, gibt `rate_script` None zurück und der Storyteller
 schätzt selbst ein. Die Basis-Skripte haben eine feste Einschätzung.
 """
@@ -28,6 +28,7 @@ TIMEOUT_SECONDS = 15
 class RatingResult:
     rating: str
     verdict: str = ""        # Einschätzung in einfacher Sprache, falls der ScriptRater sie liefert
+    tagline: str = ""        # für welche Runde das Skript passt (eine Zeile je Farbe)
     headline: str = ""
     reasons: list[str] = field(default_factory=list)
     is_homebrew: bool = False
@@ -46,6 +47,7 @@ def parse_response(payload) -> RatingResult | None:
     return RatingResult(
         rating=payload["rating"],
         verdict=str(payload.get("verdict") or "").strip(),
+        tagline=str(payload.get("tagline") or "").strip(),
         headline=str(payload.get("headline") or ""),
         reasons=[str(r) for r in reasons] if isinstance(reasons, list) else [],
         is_homebrew=bool(metrics.get("is_homebrew") or metrics.get("is_amnesiac")),

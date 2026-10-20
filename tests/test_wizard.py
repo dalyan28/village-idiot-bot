@@ -190,10 +190,12 @@ def test_verdict_text_is_preferred(store):
                        script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="X", version="1", botcscripts_id="5",
                                         characters=["imp"]))
     store.set_draft_ui(draft.id, {"rating_detail": {"verdict": "Viele Charaktere stehen auf keinem Basis-Skript.",
+                                                    "tagline": "Setzt Erfahrung voraus.",
                                                     "reasons": ["Kriterium A"]}})
     screen = render(store, store.get_draft(draft.id))
     rating = next(f.value for f in screen.embeds[0].fields if "Einschätzung" in f.name)
     assert "Viele Charaktere" in rating and "Kriterium A" not in rating
+    assert "> *Setzt Erfahrung voraus.*" in rating
 
 
 def test_custom_title(store):

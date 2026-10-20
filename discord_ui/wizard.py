@@ -496,7 +496,10 @@ def rating_explanation(ui: dict, limit: int = 4) -> str:
     """Begründung vom ScriptRater: der Fließtext, wenn er geliefert wird, sonst die Kriterien."""
     detail = ui.get("rating_detail") or {}
     if detail.get("verdict"):
-        return _esc(detail["verdict"])
+        text = _esc(detail["verdict"])
+        if detail.get("tagline"):
+            text += f"\n*{_esc(detail['tagline'])}*"  # zweite Zeile, wie auf der Ergebnisseite des ScriptRaters
+        return text
     return "\n".join(f"• {_esc(r)}" for r in (detail.get("reasons") or [])[:limit])
 
 
@@ -718,7 +721,8 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
         d.rating = result.rating
         d.is_homebrew = result.is_homebrew
         d.rating_source = RATING_SOURCE_FIXED if script.kind == SCRIPT_BASE else RATING_SOURCE_RATER
-        ui["rating_detail"] = {"verdict": result.verdict, "headline": result.headline, "reasons": result.reasons}
+        ui["rating_detail"] = {"verdict": result.verdict, "tagline": result.tagline,
+                               "headline": result.headline, "reasons": result.reasons}
     ctx.set_ui(ui)
     ctx.save(d)
     await goto(interaction, ctx, _after_script(ctx), notice=notice)
