@@ -480,3 +480,29 @@ def test_botc2_script_dialog(env, monkeypatch):
     modal.kind._value, modal.query._value = "search", "eindeutig"
     run(modal.on_submit(FakeInteraction(bot, user)))
     assert bot.store.get_draft(draft.id).data.script.name == "Boo 0"  # genau ein Treffer → direkt übernommen
+
+
+@pytest.mark.parametrize("guild_id", [GUILD, None])  # auf dem Server und in den DMs
+def test_botc_modal_submit_creates_draft_and_confirms(env, guild_id):
+    """Regression: die Bestätigung nach dem Absenden warf TypeError ('str' object is not callable)."""
+    from discord_ui.botc_modal import BotcModal
+    bot = env
+    member = bot.guild.get_member(USER)
+    sent_dm = []
+
+    async def dm(**kw):
+        sent_dm.append(kw)
+    member.send = dm
+
+    async def go():
+        return BotcModal(bot.store, allow_academy=False, v2=True, guild=bot.guild, member=member)
+    modal = run(go())
+    modal.date_choice._value = modal.date_choice.options[2].value  # übermorgen
+    modal.time_choice._value = "20:00"
+    inter = FakeInteraction(bot, member, guild_id=guild_id)
+    run(modal.on_submit(inter))
+    assert inter.sent and inter.sent[0].startswith("Termin erkannt:")
+    assert ("Check deine DMs" in inter.sent[0]) == (guild_id is not None)
+    draft = bot.store.list_drafts(USER)[0]
+    assert draft.step == "preview" and draft.ui.get("v2")
+    assert sent_dm  # Zusammenfassung per DM geschickt

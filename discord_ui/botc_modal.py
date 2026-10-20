@@ -163,9 +163,9 @@ class BotcModal(discord.ui.Modal):
             self.store.update_draft(draft.id, draft.data, "preview", int(wizard.now().timestamp()))
             draft = self.store.get_draft(draft.id)
 
+        where = "Check deine DMs, dort geht es weiter." if interaction.guild_id else "Weiter geht es hier unten."
         await interaction.response.send_message(
-            f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n"
-            ("Check deine DMs, dort geht es weiter." if interaction.guild_id else "Weiter geht es hier unten."),
+            f"Termin erkannt: **{format_start(draft.data.start, draft.data.duration_minutes)}**\n{where}",
             ephemeral=True,
         )
         await deliver_wizard(interaction, draft)
