@@ -100,7 +100,7 @@ class TestServerCog(commands.Cog):
         result = await server.update_texts(interaction.guild, self.bot.store, only=key)
         await _followup(interaction, result.summary())
 
-    @testserver.command(name="beispiel", description="Volles Beispiel-Event mit 23 erfundenen Anmeldungen posten")
+    @testserver.command(name="beispiel-event", description="Volles Beispiel-Event mit 23 erfundenen Anmeldungen posten")
     async def sample_cmd(self, interaction: discord.Interaction):
         if not await _guard(interaction):
             return

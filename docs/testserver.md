@@ -10,7 +10,7 @@ Nur auf Branch `testserver`. Der Branch wird nicht gemergt, sondern nach dem Tes
   Übersichts-Channel ein (wie `/set_event_channel`, `/set_overview_channel`) und die Rollen (wie `/set_event_roles`).
   Postet die Texte (als „Nachricht von Dalyan“). Mehrfach ausführbar: Vorhandenes wird aufgefrischt, Texte werden
   bearbeitet statt neu gepostet.
-- `/testserver beispiel`: postet ein volles Beispiel-Event (Boozling, 23 erfundene Anmeldungen: 12 spielen,
+- `/testserver beispiel-event`: postet ein volles Beispiel-Event (Boozling, 23 erfundene Anmeldungen: 12 spielen,
   3 auf der Warteliste, 4 vorläufig, 4 Absagen). Setup legt einmal eins an, wenn es noch keins gibt.
 - `/testserver reset`: leert den Event-Channel (Posts und Reminder-Threads) und löscht alle Runden, Anmeldungen,
   Entwürfe und eigenen Bilder dieses Servers aus der Datenbank. Channels bleiben.
