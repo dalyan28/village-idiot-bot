@@ -16,7 +16,7 @@ import discord
 from config import get_guild_config
 from discord_ui import wizard
 from discord_ui.botc_modal import BotcModal
-from discord_ui.members import actor_from_member, fetch_member
+from discord_ui.members import NOT_READY, actor_from_member, fetch_member, is_ready
 from events import guild_lock, permissions, service
 from events.parse import format_start
 from events.templates import RULES_URL, STORYTELLER_GUIDE_URL
@@ -106,10 +106,18 @@ class StartButton(discord.ui.DynamicItem[discord.ui.Button],
     async def callback(self, interaction: discord.Interaction):
         bot, store = interaction.client, interaction.client.store
         guild = bot.get_guild(self.guild_id)
-        member = await fetch_member(bot, self.guild_id, interaction.user.id) if guild else None
-        if guild is None or member is None or not guild_lock.is_allowed(self.guild_id):
-            await interaction.response.send_message("Für diesen Server kannst du gerade keine Runde anlegen.",
+        if guild is None or not is_ready(bot):
+            # Meist ein Neustart (z. B. Deploy): Der Bot kennt den Server erst, wenn er bereit ist
+            await interaction.response.send_message(NOT_READY, ephemeral=True)
+            return
+        if not guild_lock.is_allowed(self.guild_id):
+            await interaction.response.send_message("Dieser Bot ist auf dem Server nicht freigeschaltet.",
                                                     ephemeral=True)
+            return
+        member = await fetch_member(bot, self.guild_id, interaction.user.id)
+        if member is None:
+            await interaction.response.send_message(
+                "Ich konnte dich auf dem Server gerade nicht finden. Versuch es bitte noch einmal.", ephemeral=True)
             return
         problem = start_problem(store, guild, member)
         if problem:
