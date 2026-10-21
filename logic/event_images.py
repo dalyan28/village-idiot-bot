@@ -116,6 +116,8 @@ async def render_image(data: EventData) -> bytes | None:
 
 def thumbnail_path(data: EventData) -> str | None:
     """Academy-Logo vor Basis-Skript-Logo."""
+    if data.is_other_event:
+        return None
     if data.is_academy and os.path.exists(ACADEMY_THUMBNAIL):
         return ACADEMY_THUMBNAIL
     if data.script and data.script.kind == SCRIPT_BASE:

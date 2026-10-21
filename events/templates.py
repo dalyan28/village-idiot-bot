@@ -64,6 +64,8 @@ ACADEMY_MAX_ROUNDS = {
 
 def title_prefix(data: EventData) -> str:
     """Emoji-Präfix vor dem Titel: [Aufzeichnung] [Academy] [Casual] [⭐ Abweichung] [Schwierigkeit]."""
+    if data.is_other_event:
+        return ""  # Event ohne Clocktower: keine Symbole
     parts = []
     if data.is_recorded:
         parts.append(LABEL_EMOJI["recorded"])
@@ -82,7 +84,10 @@ def title_prefix(data: EventData) -> str:
 
 
 def base_title(data: EventData) -> str:
-    """„{Skript} mit {ST}“ bzw. „… mit {ST} und {Co-ST}“ (ohne Symbole)."""
+    """„{Skript} mit {ST}“ bzw. „… mit {ST} und {Co-ST}“ (ohne Symbole). Beim Event ohne Clocktower
+    gibt es keinen automatischen Titel."""
+    if data.is_other_event:
+        return ""
     script = data.script.display_name if data.script else "BotC"
     if data.script and data.script.kind == SCRIPT_BASE:
         script = BASE3_FULL_NAMES.get(data.script.base_key, script)
@@ -99,14 +104,14 @@ def base_title(data: EventData) -> str:
 def full_title(data: EventData) -> str:
     """Titel des Events: Symbole, dann der eigene Titel oder „{Skript} mit {ST}“."""
     prefix = title_prefix(data)
-    title = data.title.strip() or base_title(data)
+    title = data.title.strip() or base_title(data) or "Neues Event"
     return f"{prefix} {title}" if prefix else title
 
 
 def full_description(data: EventData) -> str:
     """Eigener Text des Erstellers; bei Academy folgt der feste Academy-Text."""
     parts = [data.description.strip()] if data.description.strip() else []
-    if data.is_academy:
+    if data.is_academy and not data.is_other_event:
         parts.append(academy_description(data.rating))
     return "\n\n".join(parts)
 

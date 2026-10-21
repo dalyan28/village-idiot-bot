@@ -22,7 +22,8 @@ from datetime import datetime
 
 import discord
 
-from discord_ui.layout_v2 import chat_wait_layout, image_layout, script_layout, summary_layout, text_layout
+from discord_ui.layout_v2 import (chat_wait_layout, image_layout, kind_layout, script_layout, summary_layout,
+                                  text_layout)
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.intake import parse_players
@@ -71,6 +72,7 @@ OUTAGE_SEARCH = ("botcscripts.com antwortet gerade nicht (zu langsam oder nicht 
 STEP_SCRIPT = "script"
 STEP_IMAGE = "image"
 STEP_PREVIEW = "preview"
+STEP_KIND = "kind"  # Zwischenschritt nach „Skriptwahl überspringen“: Clocktower oder anderes Event?
 # Standardwerte (Dauer, Kamera, Co-ST, Level …) werden nicht abgefragt, sondern nur in der
 # Zusammenfassung geändert (Dalyan, 20.10.2026). Die Schwierigkeit legt der Algorithmus fest.
 RETURN_SUFFIX = ":p"
@@ -270,6 +272,8 @@ async def render(bot: discord.Client, draft: Draft, notice: str | None = None):
     if (draft.ui or {}).get(AWAIT_KEY):  # wartet auf Titel/Beschreibung als Chat-Nachricht
         return chat_wait_layout(bot, draft, notice), []
     step = base_step(draft.step)
+    if step == STEP_KIND:
+        return kind_layout(bot, draft), []
     if step == STEP_SCRIPT:
         return await script_layout(bot, bot.store, draft, notice)
     if step == STEP_IMAGE:
@@ -341,6 +345,7 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
     d = ctx.data
     was_teensy = bool(d.script and d.script.teensy)
     d.script = script
+    d.is_other_event = False
     d.rating, d.rating_source = None, None
     if script.teensy and d.max_players == DEFAULT_MAX_PLAYERS:
         d.max_players = TEENSY_MAX_PLAYERS
@@ -397,8 +402,38 @@ async def _pick_base(interaction, ctx: WizardContext, key: str):
 
 @action("skip_script")
 async def _skip_script(interaction, ctx: WizardContext, arg):
-    """Skript später wählen: direkt zur Zusammenfassung, dort steht es als fehlend (Dalyan, 20.10.2026)."""
-    await goto(interaction, ctx, STEP_PREVIEW)
+    """Skriptwahl überspringen: erst fragen, ob es überhaupt eine Clocktower-Runde ist (Dalyan, 20.10.2026)."""
+    await goto(interaction, ctx, STEP_KIND)
+
+
+@action("later_script")
+async def _later_script(interaction, ctx: WizardContext, arg):
+    """Clocktower-Runde, Skript später: zur Zusammenfassung, dort steht das Skript als fehlend."""
+    d = ctx.data
+    d.is_other_event = False
+    await goto(interaction, ctx, STEP_PREVIEW, d)
+
+
+@action("script_back")
+async def _script_back(interaction, ctx: WizardContext, arg):
+    await goto(interaction, ctx, STEP_SCRIPT)
+
+
+@action("other_event")
+async def _other_event(interaction, ctx: WizardContext, arg):
+    """Event ohne Clocktower: alles Clocktower-Spezifische zurücksetzen."""
+    d = ctx.data
+    d.is_other_event = True
+    d.script, d.rating, d.rating_source = None, None, None
+    d.is_special, d.special_reasons = False, []
+    d.is_academy = d.is_casual = d.is_recorded = False
+    d.camera = EventData().camera
+    d.co_storyteller, d.co_st_status, d.co_st_note = None, CO_ST_NO, ""
+    ui = ctx.ui
+    for key in ("search_results", "query", "page", "rating_detail", "rating_error", "versions"):
+        ui.pop(key, None)
+    ctx.set_ui(ui)
+    await goto(interaction, ctx, STEP_PREVIEW, d)
 
 
 @action("script_dialog")
@@ -572,6 +607,11 @@ async def _fix_field(interaction, ctx: WizardContext, arg):
 
 async def open_edit(interaction, ctx: WizardContext, choice: str):
     d = ctx.draft.data
+    if choice == "kind":  # „Art“ beim Event ohne Clocktower: doch eine Runde, also zur Skriptwahl
+        nd = ctx.data
+        nd.is_other_event = False
+        await goto(interaction, ctx, STEP_SCRIPT, nd)
+        return
     if choice == "script":
         await interaction.response.send_modal(ScriptModal(ctx.draft.id, ctx.ui.get("query", "")))
         return
@@ -580,9 +620,17 @@ async def open_edit(interaction, ctx: WizardContext, choice: str):
     elif choice == "image":
         await goto(interaction, ctx, STEP_IMAGE + RETURN_SUFFIX)
     elif choice == "description":
-        await interaction.response.send_modal(DescriptionModal(ctx.draft.id, d.description))
+        # Leer: direkt im Chat schreiben; sonst Dialog mit dem bisherigen Text (Dalyan, 20.10.2026)
+        if not d.description.strip():
+            await _start_chat_input(interaction, ctx, "description")
+        else:
+            await interaction.response.send_modal(DescriptionModal(ctx.draft.id, d.description))
     elif choice == "title":
-        await interaction.response.send_modal(TitleModal(ctx.draft.id, d))
+        # Ein automatischer Titel zählt nicht als leer; leer ist er nur beim Event ohne Clocktower
+        if d.is_other_event and not d.title.strip():
+            await _start_chat_input(interaction, ctx, "title")
+        else:
+            await interaction.response.send_modal(TitleModal(ctx.draft.id, d))
     elif choice == "people":
         await interaction.response.send_modal(PeopleModal(ctx.draft.id, d))
     elif choice == "selection":
@@ -618,6 +666,9 @@ class _WizardModal(discord.ui.Modal):
         await _reply(interaction, "Ein Fehler ist aufgetreten. Bitte versuch es erneut.")
 
 
+SKIP_SCRIPT = "skip"
+
+
 class ScriptModal(_WizardModal):
     """Skript per Dialog, die Suche steht ganz oben (Dalyan, 20.10.2026).
 
@@ -631,14 +682,20 @@ class ScriptModal(_WizardModal):
         self.query = discord.ui.TextInput(required=False, max_length=100, default=query or None,
                                           placeholder="Name des Skripts, z. B. Boozling")
         self.kind = discord.ui.RadioGroup(required=False)
-        for value, label in (*BASE3_FULL_NAMES.items(), ("free", "Freie Skriptwahl")):
+        for value, label in BASE3_FULL_NAMES.items():
             self.kind.add_option(label=label, value=value)
+        # Basis-Skripte und „ohne festes Skript“ getrennt (Dalyan, 20.10.2026)
+        self.open = discord.ui.RadioGroup(required=False)
+        self.open.add_option(label="Freie Skriptwahl", value="free",
+                             description="Ich weiß noch nicht, was ich leiten werde.")
+        self.open.add_option(label="Diesen Schritt überspringen", value=SKIP_SCRIPT,
+                             description="z. B. für ein Event ohne Clocktower")
         self.file = discord.ui.FileUpload(required=False, min_values=0, max_values=1)
         self.add_item(discord.ui.Label(text="Auf botcscripts.com suchen",
                                        description="Suchbegriff eintragen und abschicken",
                                        component=self.query))
-        self.add_item(discord.ui.Label(text="Oder direkt wählen",
-                                       component=self.kind))
+        self.add_item(discord.ui.Label(text="Basis-Skript", component=self.kind))
+        self.add_item(discord.ui.Label(text="Ohne festes Skript", component=self.open))
         self.add_item(discord.ui.Label(text="Oder eigenes Skript-JSON anhängen",
                                        component=self.file))
 
@@ -646,7 +703,10 @@ class ScriptModal(_WizardModal):
         if self.file.values:
             await _set_script(interaction, ctx, await _script_from_upload(self.file.values[0]))
             return
-        choice = self.kind.value or ""
+        choice = self.kind.value or self.open.value or ""
+        if choice == SKIP_SCRIPT:
+            await goto(interaction, ctx, STEP_KIND)
+            return
         if choice:
             await _pick_base(interaction, ctx, choice)
             return
@@ -787,6 +847,11 @@ class PeopleModal(_WizardModal):
         super().__init__(draft_id, "Storyteller:in & Co-Storyteller:in")
         self.st = discord.ui.TextInput(default=data.storyteller.name if data.storyteller else None,
                                        min_length=1, max_length=50)
+        if data.is_other_event:
+            self.co_status = None
+            self.add_item(discord.ui.Label(text="Organisation", description="Wer leitet das Event?",
+                                           component=self.st))
+            return
         self.co_status = discord.ui.RadioGroup()
         for value, label in CO_ST_LABELS.items():
             self.co_status.add_option(label=label, value=value, default=value == data.co_st_status)
@@ -801,12 +866,15 @@ class PeopleModal(_WizardModal):
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
-        _apply_people(ctx, d, self.st.value, self.co.value, self.co_status.value or CO_ST_NO)
+        if self.co_status is None:  # Event ohne Clocktower: nur die Organisation
+            _apply_people(ctx, d, self.st.value, None, None)
+        else:
+            _apply_people(ctx, d, self.st.value, self.co.value, self.co_status.value or CO_ST_NO)
         ctx.save(d)
         await show(interaction, ctx)
 
 
-def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str | None, co_status: str):
+def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str | None, co_status: str | None):
     """Storyteller/Co-ST aus Freitext; ein unveränderter Name behält seine User-ID.
     Bei „Ja, vergeben“ ist der Text der Name der Co-Storyteller:in, sonst ein Hinweis."""
     st_name = st_text.strip()
@@ -817,6 +885,8 @@ def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str |
         d.storyteller = Person(name=st_name, user_id=ctx.member.id)
     else:
         d.storyteller = Person(name=st_name)
+    if co_status is None:  # Co-ST nicht abgefragt (Event ohne Clocktower)
+        return
     co = (co_text or "").strip()
     d.co_st_status = co_status
     if co_status != CO_ST_TAKEN:
@@ -901,7 +971,8 @@ class FrameModal(_WizardModal):
         self.add_item(discord.ui.Label(text="Datum", component=self.date))
         self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
         self.add_item(discord.ui.Label(text="Dauer in Minuten", component=self.duration))
-        self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200", component=self.players))
+        self.add_item(discord.ui.Label(text="Max. Teilnehmer" if data.is_other_event else "Max. Spieler",
+                                       description="1 bis 200", component=self.players))
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data

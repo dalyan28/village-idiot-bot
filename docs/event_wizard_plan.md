@@ -525,6 +525,16 @@ Dritte Runde Feedback (20.10.2026):
   (für Emojis). Die Karte zeigt dann „… im Chat schreiben“ mit „Abbrechen“; die nächste DM-Nachricht wird übernommen
   (`commands/botc.py`, `take_chat_text`), die Karte aktualisiert und die Nachricht mit ✅ markiert. Wartezustand in
   `drafts.ui["await_text"]` (Feld und ID der Wizard-Nachricht).
+- **Skriptwahl überspringen und Events ohne Clocktower** (Dalyan, 20.10.2026): Im Skript-Dialog stehen die
+  Basis-Skripte getrennt von „Ohne festes Skript“ (Freie Skriptwahl: „Ich weiß noch nicht, was ich leiten werde.“
+  und „Diesen Schritt überspringen“). Überspringen (auch „Später wählen“ auf der Karte) führt zum Zwischenschritt
+  „Kein Skript gewählt“: „Ja, Skript wähle ich später“ oder „Nein, anderes Event“. Ein anderes Event
+  (`is_other_event`) braucht nur Titel (Pflicht, kein automatischer), Beschreibung, Termin und Organisation, dazu
+  optional ein eigenes Bild und die max. Teilnehmerzahl. Keine Symbole, kein Skript, keine Schwierigkeit, Labels,
+  Kamera, Level, Co-ST, NPCs/Highlights/Demons. Über „Art“ in der Zusammenfassung geht es zurück zur Skriptwahl.
+- **Leere Felder direkt im Chat** (Dalyan, 20.10.2026): Ist die Beschreibung (bzw. beim anderen Event der Titel)
+  leer, fragt „Ändern“ direkt im Chat statt im Dialog. Mit Inhalt öffnet sich der Dialog mit dem bisherigen Text.
+  Ein automatischer Titel zählt nicht als leer.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
@@ -551,14 +561,6 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
   Zu definieren: welche Rolle das ist und wie sie heißt (eigene Rolle, Event-Team oder Storyteller-Rolle;
   einstellbar wie `/set_event_roles`), der Template-Text (einer oder mehrere zur Auswahl, wer pflegt sie), Icon und
   Titel, ob es RSVP-Buttons und eine Spielerzahl braucht, und ob Briefings in der Übersicht auftauchen.
-- **Events ohne Skript** (Dalyan, 20.10.2026): Nicht jedes Event hat mit Clocktower zu tun (z. B. Spieleabend,
-  Community-Treffen). Die Skriptwahl muss sich dann ganz überspringen lassen, nicht nur verschieben wie bei
-  „Später wählen“. Idee: im Skript-Dialog eine Option „Kein Skript (anderes Event)“.
-  Folgen, die zu klären bzw. umzusetzen sind: Skript und Schwierigkeit sind dann keine Pflichtangaben mehr
-  (`missing_for_publish`), dafür ein eigener Titel (der automatische „{Skript} mit {ST}“ passt nicht); keine
-  Schwierigkeits-Symbole und kein ⭐ im Titel; kein Skript-Bild und kein Basis-3-Thumbnail; keine NPCs, Highlights
-  und Demons im Post; Reminder ohne Skript-JSON. Offen: ob solche Events eigene Labels/Symbole bekommen, wer sie
-  anlegen darf (Storyteller-Rolle oder Event-Team) und wie sie in der Übersicht erscheinen.
 
 ## Vor dem Merge nach main
 
