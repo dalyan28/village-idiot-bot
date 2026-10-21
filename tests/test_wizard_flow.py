@@ -701,3 +701,15 @@ def test_description_via_chat_message(env):
     assert edited and reactions == ["✅"]
     # Danach wartet nichts mehr: weitere Nachrichten werden ignoriert
     assert not run(take_chat_text(bot, msg))
+
+
+def test_start_button_during_restart_says_not_ready(botc_env):
+    """Klick auf „Neu beginnen“, während der Bot nach einem Deploy noch startet: klare Meldung statt
+    „Für diesen Server kannst du keine Runde anlegen“."""
+    from discord_ui.botc_start import StartButton
+    from discord_ui.members import NOT_READY
+    bot = botc_env
+    bot.is_ready = lambda: False
+    inter = FakeInteraction(bot, bot.guild.get_member(USER), message=SimpleNamespace(id=1))
+    run(StartButton(GUILD, "new", "x").callback(inter))
+    assert inter.sent == [NOT_READY] and inter.response.modal is None
