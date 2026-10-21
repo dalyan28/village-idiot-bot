@@ -399,9 +399,7 @@ def kind_layout(bot: discord.Client, draft) -> discord.ui.LayoutView:
     head = f"-# Neue Runde · {esc(guild.name)}" if guild else "-# Neue Runde"
     text = (f"{head}\n\n**Kein Skript gewählt**\n"
             "Spielt ihr bei diesem Event Blood on the Clocktower? Für ein anderes Event, zum Beispiel einen "
-            "Communityabend oder ein Bildungsangebot, fällt alles weg, was nur für eine Runde gebraucht wird: "
-            "Skript, Schwierigkeit, Labels, Kamera und Co-Storytelling. Du brauchst dann nur noch Titel, "
-            "Beschreibung, Termin und Organisation.")
+            "Communityabend oder ein Bildungsangebot, fallen alle Angaben weg, die nur für eine Runde nötig sind.")
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=WIZARD_COLOR))
     row = discord.ui.ActionRow()
