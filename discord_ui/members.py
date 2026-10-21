@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import discord
 
 from events.permissions import Actor
+
+logger = logging.getLogger(__name__)
 
 
 def actor_from_member(member: discord.Member) -> Actor:
@@ -37,7 +41,10 @@ async def fetch_member(bot: discord.Client, guild_id: int, user_id: int) -> disc
             return await guild.fetch_member(user_id)
         except (discord.NotFound, discord.Forbidden):
             return None
-        except discord.HTTPException:
+        except discord.HTTPException as e:
+            # Im Log sichtbar machen (vorher still geschluckt, Dalyan sah nur „keine Runde anlegen“)
+            logger.warning("Mitglied %s auf Server %s nicht abrufbar (Versuch %d): %s",
+                           user_id, guild_id, attempt + 1, e)
             if attempt == 1:
                 return None
     return None
