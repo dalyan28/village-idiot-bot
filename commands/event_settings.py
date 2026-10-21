@@ -36,6 +36,33 @@ class EventSettings(commands.Cog):
         await interaction.response.send_message("Das dürfen nur Event-Team und Admins.", ephemeral=True)
         return False
 
+    @app_commands.command(name="set_start_links",
+                          description="Links in der /botc-Startnachricht setzen (Hinweise, Regeln)")
+    @app_commands.describe(
+        hinweise="Link zum Beitrag mit den Hinweisen zum Mitspielen und Storytellen",
+        regeln="Link zum Kanal oder Beitrag mit den Serverregeln",
+        zuruecksetzen="Beide Links auf den eingebauten Standard zurücksetzen",
+    )
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.guild_only()
+    async def set_start_links(self, interaction: discord.Interaction, hinweise: str | None = None,
+                              regeln: str | None = None, zuruecksetzen: bool = False):
+        """Nur Admins (Server verwalten). Ohne Angaben zeigt der Command die aktuellen Links."""
+        if not interaction.user.guild_permissions.manage_guild:
+            await interaction.response.send_message("Das dürfen nur Admins (Server verwalten).", ephemeral=True)
+            return
+        try:
+            if hinweise or regeln or zuruecksetzen:
+                service.set_start_links(self.bot.store, interaction.guild_id, hinweise, regeln, reset=zuruecksetzen)
+        except service.ServiceError as e:
+            await interaction.response.send_message(str(e), ephemeral=True)
+            return
+        guide, rules = service.get_start_links(self.bot.store, interaction.guild_id)
+        await interaction.response.send_message(
+            "**Links in der Startnachricht**\n"
+            f"Hinweise zum Mitspielen und Storytellen: {guide or 'nicht gesetzt'}\n"
+            f"Serverregeln: {rules or 'nicht gesetzt'}", ephemeral=True, suppress_embeds=True)
+
     @app_commands.command(name="set_event_roles", description="Legt fest, wer Runden anlegen und verwalten darf")
     @app_commands.describe(
         storyteller="Rolle, die mit /botc Runden anlegen darf",

@@ -539,6 +539,11 @@ Dritte Runde Feedback (20.10.2026):
   „01.04“ im Mai, landet im nächsten Jahr) oder dauert das Event länger als 8 Stunden, fragt der Bot nach: „Kurz
   prüfen“ mit „Ja, weiter“ (übernehmen) oder „Nein, zurück“ (Dialog mit den eben gemachten Eingaben). Gilt für das
   erste Modal und für „Termin & Rahmen“; beim Bearbeiten nur, wenn sich Termin oder Dauer ändern.
+- **Startnachricht** (Dalyan, 21.10.2026): „Neues Event anlegen“, kurze Einleitung, Links auf den Beitrag mit
+  den Hinweisen zum Mitspielen und Storytellen und auf den Regel-Kanal, „Los geht es mit dem Termin.“ über dem
+  Button. Ein offener Entwurf steht in derselben Karte (Name und Termin als Werte, zuletzt bearbeitet, Ablauf,
+  rechts das Skript-Bild). Die Links stehen als Standard in `events/templates.py` (Produktiv-Server) und lassen
+  sich je Server mit `/set_start_links` (nur Admins) ändern oder zurücksetzen.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
