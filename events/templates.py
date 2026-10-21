@@ -163,9 +163,10 @@ def academy_description(rating: str | None) -> str:
     )
 
 
-# Links in der Startnachricht von /botc. Leer = Platzhalter „(Link folgt)“, bis die Beiträge feststehen.
-STORYTELLER_GUIDE_URL = ""  # Hinweise zum Mitspielen und Storytellen (Wochenplan-Beitrag)
-RULES_URL = ""  # Server-Regeln
+# Links in der Startnachricht von /botc (Produktiv-Server, Dalyan 21.10.2026). Leer = Platzhalter „(Link folgt)“.
+STORYTELLER_GUIDE_URL = ("https://discord.com/channels/1197876498980421652/1260650800141701121/"
+                         "1548695371402711050")  # Hinweise zum Mitspielen und Storytellen
+RULES_URL = "https://discord.com/channels/1197876498980421652/1197945543893188719"  # Kanal mit den Serverregeln
 
 
 def co_st_text(data, name: str | None = None) -> str:

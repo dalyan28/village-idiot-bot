@@ -83,18 +83,22 @@ class Botc(commands.Cog):
         if problem:
             await interaction.response.send_message(problem, ephemeral=True)
             return
-        layout = start_layout(guild, member.id, service.open_draft(store, guild.id, member.id, wizard.now()))
-        if interaction.guild is None:
-            await interaction.response.send_message(view=layout)
+        # Erst bestätigen: Das Skript-Bild des offenen Entwurfs kann einen Moment dauern (3-Sekunden-Grenze)
+        in_dm = interaction.guild is None
+        await interaction.response.defer(ephemeral=not in_dm)
+        layout, files = await start_layout(guild, member.id,
+                                           service.open_draft(store, guild.id, member.id, wizard.now()))
+        if in_dm:
+            await interaction.followup.send(view=layout, files=files)
             return
         try:
-            await member.send(view=layout)
+            await member.send(view=layout, files=files)
         except discord.Forbidden:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "
                 "(Servereinstellungen → Privatsphäre) und starte `/botc` dann erneut.", ephemeral=True)
             return
-        await interaction.response.send_message("Es geht in deinen DMs weiter.", ephemeral=True)
+        await interaction.followup.send("Es geht in deinen DMs weiter.", ephemeral=True)
 
 
 async def take_chat_text(bot, message: discord.Message) -> bool:
