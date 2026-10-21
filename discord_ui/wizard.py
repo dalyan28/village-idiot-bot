@@ -18,16 +18,16 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import discord
 
-from discord_ui.layout_v2 import (chat_wait_layout, image_layout, kind_layout, script_layout, summary_layout,
-                                  text_layout)
+from discord_ui.layout_v2 import (chat_wait_layout, confirm_layout, image_layout, kind_layout, script_layout,
+                                  summary_layout, text_layout)
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
 from events.intake import parse_players
-from events.parse import ParseError, parse_start
+from events.parse import ParseError, format_start, parse_start
 from events.permissions import Actor
 from events.rating import RatingUnavailable, rate_script
 from events.schema import (
@@ -272,6 +272,8 @@ def draft_creator_name(bot: discord.Client, draft: Draft) -> str:
 
 async def render(bot: discord.Client, draft: Draft, notice: str | None = None):
     """Karte für den aktuellen Schritt: (LayoutView, Dateien)."""
+    if (draft.ui or {}).get(CONFIRM_KEY):  # Termin oder Dauer ungewöhnlich: erst nachfragen
+        return confirm_layout(bot, draft), []
     if (draft.ui or {}).get(AWAIT_KEY):  # wartet auf Titel/Beschreibung als Chat-Nachricht
         return chat_wait_layout(bot, draft, notice), []
     step = base_step(draft.step)
@@ -960,18 +962,76 @@ class SelectionModal(_WizardModal):
         await show(interaction, ctx)
 
 
-class FrameModal(_WizardModal):
-    """„Termin & Rahmen“: Datum, Uhrzeit, Dauer, Spieler."""
+# ── Plausibilität: ungewöhnlicher Termin oder ungewöhnliche Dauer ──────────────
+# Ein Tippfehler wie „01.04“ im Mai landet sonst ohne Warnung im nächsten Jahr (Dalyan, 21.10.2026).
+CONFIRM_KEY = "confirm"
+WARN_DAYS_AHEAD = 90
+WARN_DURATION_MINUTES = 8 * 60
 
-    def __init__(self, draft_id: int, data: EventData):
+
+def plausibility_warnings(d: EventData, now_: datetime) -> list[str]:
+    warnings = []
+    if d.duration_minutes > WARN_DURATION_MINUTES:
+        warnings.append("Dein Event geht länger als 8 Stunden. Bist du dir sicher, dass das richtig ist?")
+    if d.start is not None and d.start - now_ > timedelta(days=WARN_DAYS_AHEAD):
+        warnings.append(f"Dein Event liegt über {WARN_DAYS_AHEAD} Tage in der Zukunft "
+                        f"({format_start(d.start, d.duration_minutes)}). Bist du dir sicher, dass das richtig ist?")
+    return warnings
+
+
+def _frame_prefill(data: EventData) -> tuple[str, str]:
+    start = data.start.astimezone(BERLIN_TZ) if data.start else None
+    return (f"{start:%d.%m.%Y}" if start else "", f"{start:%H:%M}" if start else "")
+
+
+@action("confirm_yes")
+async def _confirm_yes(interaction, ctx: WizardContext, arg):
+    """„Ja, weiter“: die gemerkten Eingaben übernehmen."""
+    ui = ctx.ui
+    pending = ui.pop(CONFIRM_KEY, None) or {}
+    if pending.get("kind") == "frame":
+        d = ctx.data
+        _apply_frame(d, _frame_prefill(d), *pending["inputs"])
+        ctx.save(d)
+    ctx.set_ui(ui)
+    await show(interaction, ctx)
+
+
+@action("confirm_no")
+async def _confirm_no(interaction, ctx: WizardContext, arg):
+    """„Nein, zurück“: den Dialog mit den eben gemachten Eingaben wieder öffnen."""
+    pending = ctx.ui.get(CONFIRM_KEY) or {}
+    if pending.get("kind") == "start":
+        from discord_ui.botc_modal import BotcModal  # zirkulären Import vermeiden
+        from events.intake import ModalInput
+
+        guild = ctx.bot.get_guild(ctx.draft.guild_id)
+        await interaction.response.send_modal(BotcModal(ctx.store, _allow_academy(ctx), ModalInput(**pending["raw"]),
+                                                        guild, ctx.member, origin=interaction.message))
+        return
+    if pending.get("kind") == "frame":
+        await interaction.response.send_modal(FrameModal(ctx.draft.id, ctx.data, inputs=pending["inputs"]))
+        return
+    ui = ctx.ui
+    ui.pop(CONFIRM_KEY, None)
+    ctx.set_ui(ui)
+    await show(interaction, ctx)
+
+
+class FrameModal(_WizardModal):
+    """„Termin & Rahmen“: Datum, Uhrzeit, Dauer, Spieler.
+    `inputs`: Eingaben, die vorbelegt werden sollen (nach „Nein, zurück“)."""
+
+    def __init__(self, draft_id: int, data: EventData, inputs: list[str] | None = None):
         super().__init__(draft_id, "Termin & Rahmen")
-        start = data.start.astimezone(BERLIN_TZ) if data.start else None
-        self.prefill = (f"{start:%d.%m.%Y}" if start else "", f"{start:%H:%M}" if start else "")
-        self.date = discord.ui.TextInput(default=self.prefill[0] or None, placeholder="z. B. Sa, morgen, 24.10.",
+        self.prefill = _frame_prefill(data)
+        date_text, time_text, duration_text, players_text = inputs or (
+            self.prefill[0], self.prefill[1], str(data.duration_minutes), str(data.max_players))
+        self.date = discord.ui.TextInput(default=date_text or None, placeholder="z. B. Sa, morgen, 24.10.",
                                          max_length=30)
-        self.time = discord.ui.TextInput(default=self.prefill[1] or None, placeholder="z. B. 20:00", max_length=10)
-        self.duration = discord.ui.TextInput(default=str(data.duration_minutes), max_length=4)
-        self.players = discord.ui.TextInput(default=str(data.max_players), max_length=3)
+        self.time = discord.ui.TextInput(default=time_text or None, placeholder="z. B. 20:00", max_length=10)
+        self.duration = discord.ui.TextInput(default=duration_text or None, max_length=4)
+        self.players = discord.ui.TextInput(default=players_text or None, max_length=3)
         self.add_item(discord.ui.Label(text="Datum", component=self.date))
         self.add_item(discord.ui.Label(text="Uhrzeit", component=self.time))
         self.add_item(discord.ui.Label(text="Dauer in Minuten", component=self.duration))
@@ -980,7 +1040,19 @@ class FrameModal(_WizardModal):
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
-        _apply_frame(d, self.prefill, self.date.value, self.time.value, self.duration.value, self.players.value)
+        inputs = [self.date.value, self.time.value, self.duration.value, self.players.value]
+        _apply_frame(d, self.prefill, *inputs)
+        ui = ctx.ui
+        old = ctx.draft.data
+        changed = (d.start, d.duration_minutes) != (old.start, old.duration_minutes)
+        warnings = plausibility_warnings(d, now()) if changed else []
+        if warnings:  # erst nachfragen, noch nichts speichern
+            ui[CONFIRM_KEY] = {"kind": "frame", "inputs": inputs, "warnings": warnings}
+            ctx.set_ui(ui)
+            await show(interaction, ctx)
+            return
+        ui.pop(CONFIRM_KEY, None)
+        ctx.set_ui(ui)
         ctx.save(d)
         await show(interaction, ctx)
 

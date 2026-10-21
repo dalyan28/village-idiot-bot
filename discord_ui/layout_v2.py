@@ -395,6 +395,25 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
     return layout, files
 
 
+def confirm_layout(bot: discord.Client, draft) -> discord.ui.LayoutView:
+    """Ungewöhnlicher Termin oder ungewöhnliche Dauer: „Ja, weiter“ oder „Nein, zurück“."""
+    from discord_ui import wizard as wz  # zirkulären Import vermeiden
+
+    esc = discord.utils.escape_markdown
+    pending = (draft.ui or {}).get(wz.CONFIRM_KEY) or {}
+    guild = bot.get_guild(draft.guild_id)
+    heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
+    head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
+    text = f"{head}\n\n**Kurz prüfen**\n" + "\n".join(pending.get("warnings") or [])
+    layout = discord.ui.LayoutView(timeout=None)
+    layout.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=WIZARD_COLOR))
+    row = discord.ui.ActionRow()
+    row.add_item(wz.WizardButton(draft.id, "confirm_yes", "Ja, weiter", discord.ButtonStyle.primary))
+    row.add_item(wz.WizardButton(draft.id, "confirm_no", "Nein, zurück"))
+    layout.add_item(row)
+    return layout
+
+
 def kind_layout(bot: discord.Client, draft) -> discord.ui.LayoutView:
     """Nach „Skriptwahl überspringen“: Clocktower-Runde (Skript später) oder anderes Event?"""
     from discord_ui import wizard as wz  # zirkulären Import vermeiden

@@ -535,6 +535,10 @@ Dritte Runde Feedback (20.10.2026):
 - **Leere Felder direkt im Chat** (Dalyan, 20.10.2026): Ist die Beschreibung (bzw. beim anderen Event der Titel)
   leer, fragt „Ändern“ direkt im Chat statt im Dialog. Mit Inhalt öffnet sich der Dialog mit dem bisherigen Text.
   Ein automatischer Titel zählt nicht als leer.
+- **Plausibilitäts-Warnungen** (Dalyan, 21.10.2026): Liegt der Termin mehr als 90 Tage in der Zukunft (z. B.
+  „01.04“ im Mai, landet im nächsten Jahr) oder dauert das Event länger als 8 Stunden, fragt der Bot nach: „Kurz
+  prüfen“ mit „Ja, weiter“ (übernehmen) oder „Nein, zurück“ (Dialog mit den eben gemachten Eingaben). Gilt für das
+  erste Modal und für „Termin & Rahmen“; beim Bearbeiten nur, wenn sich Termin oder Dauer ändern.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
