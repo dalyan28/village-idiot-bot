@@ -154,6 +154,7 @@ class FakeInteraction:
         self.response = FakeResponse(self)
         self.followup = SimpleNamespace(send=self._followup)
         self.screen, self.sent, self.sent_kw = None, [], []
+        self.channel_id = None
 
     async def _followup(self, content=None, **kw):
         self.sent.append(content)
@@ -186,6 +187,28 @@ def click(bot, draft_id, name, arg=None, user_id=USER):
     inter = FakeInteraction(bot, bot.guild.get_member(user_id))
     run(WizardButton(draft_id, name, "x", arg=arg).callback(inter))
     return inter
+
+
+async def chat_message(bot, content: str, user_id: int = USER) -> bool:
+    """Schickt eine DM an den Bot, wie sie bei „im Chat schreiben“ übernommen wird."""
+    from commands.botc import take_chat_text
+
+    class Card:
+        async def edit(self, **kw):
+            pass
+
+    class Channel:
+        async def fetch_message(self, mid):
+            return Card()
+
+        async def send(self, **kw):
+            pass
+
+    async def react(emoji):
+        pass
+    msg = SimpleNamespace(guild=None, author=SimpleNamespace(id=user_id, bot=False), channel=Channel(),
+                          content=content, add_reaction=react)
+    return await take_chat_text(bot, msg)
 
 
 def screen_text(inter) -> str:
@@ -223,12 +246,14 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     assert bot.store.get_draft(draft.id).data.rating_source == "manual"
 
-    # 3. Fehlende Beschreibung: roter Button öffnet einen Dialog NUR mit dem Beschreibungsfeld
+    # 3. Fehlende Beschreibung: leer, also fragt der Bot direkt im Chat (Dalyan, 20.10.2026)
     inter = click(bot, draft.id, "fix_field", "description")
+    assert inter.response.modal is None and "Beschreibung im Chat schreiben" in screen_text(inter)
+    run(chat_message(bot, "Gemütliche Runde Trouble Brewing."))
+    # Mit Inhalt öffnet „Ändern“ den Dialog mit dem bisherigen Text
+    inter = click(bot, draft.id, "edit_field", "description")
     modal = inter.response.modal
-    assert isinstance(modal, DescriptionModal) and len(modal.children) == 2  # Text + „im Chat schreiben“
-    modal.text._value = "Gemütliche Runde Trouble Brewing."
-    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    assert isinstance(modal, DescriptionModal) and modal.text.default == "Gemütliche Runde Trouble Brewing."
 
     # 4. Bild-Seite aus der Zusammenfassung: „Zur Zusammenfassung“ führt zurück
     inter = click(bot, draft.id, "edit_field", "image")
@@ -651,13 +676,75 @@ def test_dev_reminder_button(env, monkeypatch):
     assert sent == [(event.id, "first", True)] and "Thread" in inter.sent[0]
 
 
-def test_skip_script_goes_to_summary(env):
-    """„Später wählen“: Skriptwahl überspringen, in der Zusammenfassung fehlt das Skript (Dalyan, 20.10.2026)."""
+def test_skip_script_asks_kind_then_summary(env):
+    """„Später wählen“: erst die Frage nach Clocktower; „Ja, Skript wähle ich später“ führt zur
+    Zusammenfassung, dort fehlt das Skript (Dalyan, 20.10.2026)."""
     bot = env
     draft = new_draft(bot)
     inter = click(bot, draft.id, "skip_script")
+    assert step(bot, draft.id) == "kind" and "Spielt ihr bei diesem Event Blood on the Clocktower?" in screen_text(inter)
+    labels = [getattr(i, "item", i).label for i in inter.screen["view"].walk_children()
+              if isinstance(getattr(i, "item", i), discord.ui.Button)]
+    assert labels[:2] == ["Ja, Skript wähle ich später", "Nein, anderes Event"]
+    inter = click(bot, draft.id, "later_script")
     assert step(bot, draft.id) == "preview"
     assert "Skript" in screen_text(inter) and "fehlt noch" in screen_text(inter)
+
+
+def test_script_dialog_skip_option_and_groups(env):
+    from discord_ui.wizard import ScriptModal
+    bot = env
+    draft = new_draft(bot)
+    modal = ScriptModal(draft.id)
+    assert [c.text for c in modal.children] == ["Auf botcscripts.com suchen", "Basis-Skript",
+                                                 "Ohne festes Skript", "Oder eigenes Skript-JSON anhängen"]
+    assert [o.value for o in modal.kind.options] == ["trouble_brewing", "bad_moon_rising", "sects_and_violets"]
+    free = modal.open.options[0]
+    assert free.label == "Freie Skriptwahl" and free.description == "Ich weiß noch nicht, was ich leiten werde."
+    modal.open._value = "skip"
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    assert step(bot, draft.id) == "kind"
+
+
+def test_other_event_needs_fewer_fields_and_posts_without_script(env):
+    """Event ohne Clocktower: nur Titel, Beschreibung, Termin, Organisation; kein Skript, keine Symbole."""
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "skip_script")
+    inter = click(bot, draft.id, "other_event")
+    d = bot.store.get_draft(draft.id)
+    assert d.data.is_other_event and d.step == "preview"
+    text = screen_text(inter)
+    assert "Titel, Beschreibung" in text and "Skript" not in text and "Schwierigkeit" not in text
+    assert "Event ohne Clocktower" in text and "Organisation" in text
+
+    # Titel leer: „Ändern“ fragt direkt im Chat
+    inter = click(bot, draft.id, "fix_field", "title")
+    assert inter.response.modal is None and "Titel im Chat schreiben" in screen_text(inter)
+    run(chat_message(bot, "Spieleabend 🎲"))
+    inter = click(bot, draft.id, "fix_field", "description")
+    run(chat_message(bot, "Wir spielen Brettspiele."))
+    d = bot.store.get_draft(draft.id)
+    assert d.data.title == "Spieleabend 🎲" and d.data.description == "Wir spielen Brettspiele."
+
+    inter = click(bot, draft.id, "publish")
+    event = bot.store.list_events(GUILD)[0]
+    msg = bot.channel.messages[event.message_id]
+    names = [f.name for f in msg.embed.fields]
+    assert msg.embed.title == "Spieleabend 🎲"  # keine Symbole
+    assert "Organisation" in names and "Skript" not in names and "Kamera" not in names
+    assert "Storytelling" not in names and any("Akzeptiert" in n for n in names)
+    assert msg.files == []  # kein Skript-Bild, kein Logo
+
+
+def test_other_event_can_switch_back_to_clocktower(env):
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "skip_script")
+    click(bot, draft.id, "other_event")
+    click(bot, draft.id, "edit_field", "kind")
+    d = bot.store.get_draft(draft.id)
+    assert not d.data.is_other_event and d.step == "script"
 
 
 def test_description_via_chat_message(env):

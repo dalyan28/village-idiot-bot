@@ -37,6 +37,8 @@ MISSING_TARGETS = {
     "Storyteller": ("people", "Storyteller eintragen"),
     "Schwierigkeit": ("rating", "Schwierigkeit wählen"),
     "Termin": ("frame", "Termin eintragen"),
+    "Titel": ("title", "Titel schreiben"),
+    "Organisation": ("people", "Organisation eintragen"),
 }
 
 
@@ -72,59 +74,13 @@ def _small(text: str) -> str:
     return "\n".join(f"-# {line}" for line in text.split("\n") if line.strip())
 
 
-async def summary_layout(bot: discord.Client, store, draft, notice: str | None = None):
-    """Zusammenfassung (Dalyan, 20.10.2026, nach Test auf dem Handy).
-
-    Titel als Überschrift mit eigenem „Ändern“, danach je ein Abschnitt mit kleiner Überschrift:
-    Beschreibung · Skript (mit Schwierigkeit) · Leitung · Auswahl (Labels, Level, Kamera) ·
-    Termin (organisatorisch) · Bild (kleine Vorschau). Alle Buttons heißen „Ändern“; die Beschreibung
-    öffnet einen Dialog nur mit dem Beschreibungsfeld. Gibt (LayoutView, Dateien) zurück.
-    """
+def _botc_sections(container, section, d, draft):
+    """Skript, Schwierigkeit, Leitung, Auswahl (nur bei Clocktower-Runden)."""
     from discord_ui import wizard as wz  # zirkulären Import vermeiden
-    from discord_ui.event_post import build_files
-    from events.parse import format_start
-    from events.schema import (CAMERA_LABELS, IMAGE_AUTO, IMAGE_CUSTOM, RATING_SOURCE_RATER, SCRIPT_BASE,
-                               missing_for_publish)
-    from events.templates import LABEL_EMOJI, RATING_WORDS, co_st_text, full_title
-    from logic.event_builder import embed_color
-    from logic.event_images import IMAGE_FILENAME, has_auto_image
+    from events.schema import CAMERA_LABELS, RATING_SOURCE_RATER, SCRIPT_BASE
+    from events.templates import LABEL_EMOJI, RATING_WORDS, co_st_text
 
-    d = draft.data
     esc = discord.utils.escape_markdown
-    guild = bot.get_guild(draft.guild_id)
-
-    # Abschnitte mit fehlender Pflichtangabe bekommen einen roten Button (Dalyan, 20.10.2026)
-    missing_targets = {MISSING_TARGETS[n][0] for n in missing_for_publish(d) if n in MISSING_TARGETS}
-
-    def section(text: str, target: str, label: str = "Ändern") -> discord.ui.Section:
-        style = discord.ButtonStyle.danger if target in missing_targets else discord.ButtonStyle.secondary
-        return discord.ui.Section(discord.ui.TextDisplay(text),
-                                  accessory=wz.WizardButton(draft.id, "edit_field", label, style, arg=target))
-
-    container = discord.ui.Container(accent_colour=embed_color(d))
-    heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
-    head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
-    # Titel fett statt als Überschrift (wirkte zu groß, Dalyan, 20.10.2026), direkt änderbar
-    title_note = "" if d.title.strip() else "\n-# Titel wird automatisch erstellt"
-    # Servername als eigener Text darüber, damit „Ändern“ neben dem Titel steht und nicht oben am Rand
-    container.add_item(discord.ui.TextDisplay(head))
-    container.add_item(section(f"**{esc(full_title(d))}**{title_note}", "title"))
-    missing = missing_for_publish(d)
-    status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
-              else "Alle Pflichtangaben sind vollständig. Wenn alles passt: **"
-              + ("Veröffentlichen" if draft.event_id is None else "Änderungen speichern") + "**.")
-    if notice:
-        status += f"\n{notice}"
-    container.add_item(discord.ui.TextDisplay(status))
-
-    # Beschreibung (eigener Dialog, nur das Textfeld); Fließtext ohne Code-Markierung
-    description = esc(d.description.strip()) if d.description.strip() else MISSING_MARK
-    if d.is_academy:
-        description += "\n-# Darunter folgt der feste Academy-Text."
-    container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("Beschreibung", description), "description",
-                               "Ändern" if d.description.strip() else "Schreiben"))
-
     # Skript
     s = d.script
     if s is None:
@@ -170,16 +126,92 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
                                       f"Level: {_value(d.level)}",
                                       f"Kamera: {_value(CAMERA_LABELS[d.camera])}"), "selection"))
 
+
+
+async def _other_event_sections(container, section, d, draft):
+    """Event ohne Clocktower: Art (zurück zur Runde möglich) und Organisation."""
+    container.add_item(discord.ui.Separator())
+    container.add_item(section(_block("Art", f"Art: {_value('Event ohne Clocktower')}"), "kind"))
+    org = _value(d.storyteller.name) if d.storyteller else MISSING_MARK
+    container.add_item(discord.ui.Separator())
+    container.add_item(section(_block("Organisation", f"Organisation: {org}"), "people"))
+
+
+async def summary_layout(bot: discord.Client, store, draft, notice: str | None = None):
+    """Zusammenfassung (Dalyan, 20.10.2026, nach Test auf dem Handy).
+
+    Titel als Überschrift mit eigenem „Ändern“, danach je ein Abschnitt mit kleiner Überschrift:
+    Beschreibung · Skript (mit Schwierigkeit) · Leitung · Auswahl (Labels, Level, Kamera) ·
+    Termin (organisatorisch) · Bild (kleine Vorschau). Alle Buttons heißen „Ändern“; die Beschreibung
+    öffnet einen Dialog nur mit dem Beschreibungsfeld. Gibt (LayoutView, Dateien) zurück.
+    """
+    from discord_ui import wizard as wz  # zirkulären Import vermeiden
+    from discord_ui.event_post import build_files
+    from events.parse import format_start
+    from events.schema import IMAGE_AUTO, IMAGE_CUSTOM, missing_for_publish
+    from events.templates import full_title
+    from logic.event_builder import embed_color
+    from logic.event_images import IMAGE_FILENAME, has_auto_image
+
+    d = draft.data
+    esc = discord.utils.escape_markdown
+    guild = bot.get_guild(draft.guild_id)
+
+    # Abschnitte mit fehlender Pflichtangabe bekommen einen roten Button (Dalyan, 20.10.2026)
+    missing_targets = {MISSING_TARGETS[n][0] for n in missing_for_publish(d) if n in MISSING_TARGETS}
+
+    def section(text: str, target: str, label: str = "Ändern") -> discord.ui.Section:
+        style = discord.ButtonStyle.danger if target in missing_targets else discord.ButtonStyle.secondary
+        return discord.ui.Section(discord.ui.TextDisplay(text),
+                                  accessory=wz.WizardButton(draft.id, "edit_field", label, style, arg=target))
+
+    container = discord.ui.Container(accent_colour=embed_color(d))
+    other = d.is_other_event
+    heading = ("Neues Event" if other else "Neue Runde") if draft.event_id is None else \
+        ("Event bearbeiten" if other else "Runde bearbeiten")
+    head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
+    # Servername als eigener Text darüber, damit „Ändern“ neben dem Titel steht und nicht oben am Rand
+    container.add_item(discord.ui.TextDisplay(head))
+    if other and not d.title.strip():
+        # Event ohne Clocktower: kein automatischer Titel, also Pflicht
+        container.add_item(section(f"**Titel**\n{MISSING_MARK}", "title", "Schreiben"))
+    else:
+        # Titel fett statt als Überschrift (wirkte zu groß, Dalyan, 20.10.2026), direkt änderbar
+        title_note = "" if d.title.strip() else "\n-# Titel wird automatisch erstellt"
+        container.add_item(section(f"**{esc(full_title(d))}**{title_note}", "title"))
+    missing = missing_for_publish(d)
+    status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
+              else "Alle Pflichtangaben sind vollständig. Wenn alles passt: **"
+              + ("Veröffentlichen" if draft.event_id is None else "Änderungen speichern") + "**.")
+    if notice:
+        status += f"\n{notice}"
+    container.add_item(discord.ui.TextDisplay(status))
+
+    # Beschreibung (eigener Dialog, nur das Textfeld); Fließtext ohne Code-Markierung
+    description = esc(d.description.strip()) if d.description.strip() else MISSING_MARK
+    if d.is_academy and not other:
+        description += "\n-# Darunter folgt der feste Academy-Text."
+    container.add_item(discord.ui.Separator())
+    container.add_item(section(_block("Beschreibung", description), "description",
+                               "Ändern" if d.description.strip() else "Schreiben"))
+
+    if other:
+        await _other_event_sections(container, section, d, draft)
+    else:
+        _botc_sections(container, section, d, draft)
+
     # Termin & Rahmen
     termin = _value(format_start(d.start, d.duration_minutes)) if d.start else MISSING_MARK
+    who = "Teilnehmer" if other else "Spieler"
     container.add_item(discord.ui.Separator())
-    container.add_item(section(_block("Termin", f"Wann: {termin}", f"Spieler: {_value(f'max. {d.max_players}')}"),
+    container.add_item(section(_block("Termin", f"Wann: {termin}", f"{who}: {_value(f'max. {d.max_players}')}"),
                                "frame"))
 
     # Bild: kleine Vorschau rechts; geändert wird es über „Bild ändern“ unten
     files = await build_files(d)
     has_image = any(f.filename == IMAGE_FILENAME for f in files)
-    image_text = {IMAGE_AUTO: "aus der Skript-JSON" if has_auto_image(d) else "keins (freie Skriptwahl)",
+    image_text = {IMAGE_AUTO: "aus der Skript-JSON" if has_auto_image(d) else
+                  ("kein Bild" if other else "keins (freie Skriptwahl)"),
                   IMAGE_CUSTOM: "eigenes Bild"}.get(d.image_mode, "kein Bild")
     container.add_item(discord.ui.Separator())
     image_block = discord.ui.TextDisplay(_block("Bild", f"Quelle: {_value(image_text)}"))
@@ -361,6 +393,26 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
     testserver_hooks.wizard_card(layout, draft, "image")  # TESTSERVER
     _shorten(layout)
     return layout, files
+
+
+def kind_layout(bot: discord.Client, draft) -> discord.ui.LayoutView:
+    """Nach „Skriptwahl überspringen“: Clocktower-Runde (Skript später) oder anderes Event?"""
+    from discord_ui import wizard as wz  # zirkulären Import vermeiden
+
+    esc = discord.utils.escape_markdown
+    guild = bot.get_guild(draft.guild_id)
+    head = f"-# Neue Runde · {esc(guild.name)}" if guild else "-# Neue Runde"
+    text = (f"{head}\n\n**Kein Skript gewählt**\n"
+            "Spielt ihr bei diesem Event Blood on the Clocktower? Für ein anderes Event, zum Beispiel einen "
+            "Spieleabend oder ein Community-Treffen, brauchst du kein Skript.")
+    layout = discord.ui.LayoutView(timeout=None)
+    layout.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=WIZARD_COLOR))
+    row = discord.ui.ActionRow()
+    row.add_item(wz.WizardButton(draft.id, "later_script", "Ja, Skript wähle ich später", discord.ButtonStyle.primary))
+    row.add_item(wz.WizardButton(draft.id, "other_event", "Nein, anderes Event", discord.ButtonStyle.primary))
+    row.add_item(wz.WizardButton(draft.id, "script_back", "Zurück zur Skriptwahl"))
+    layout.add_item(row)
+    return layout
 
 
 def chat_wait_layout(bot: discord.Client, draft, notice: str | None = None) -> discord.ui.LayoutView:

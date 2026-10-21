@@ -186,6 +186,55 @@ def _script_value(data: EventData) -> str:
     return f"[{text}]({url})" if url else text
 
 
+def _termin(data: EventData) -> str:
+    if not data.start:
+        return "-"
+    ts = int(data.start.timestamp())
+    end_ts = int(data.end.timestamp())
+    return f"<t:{ts}:F> - <t:{end_ts}:t> - <t:{ts}:R>"
+
+
+def _other_event_fields(embed: discord.Embed, data: EventData, organizer: str):
+    """Event ohne Clocktower: Organisation, Beschreibung, Termin (Dalyan, 20.10.2026)."""
+    embed.add_field(name="Organisation", value=organizer, inline=True)
+    description = full_description(data)
+    if description:
+        for field_name, value, inline in _split_field("Beschreibung", description):
+            embed.add_field(name=field_name, value=value, inline=inline)
+    embed.add_field(name="Termin", value=_termin(data), inline=False)
+
+
+def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for):
+    embed.add_field(name="Storytelling", value=st, inline=True)
+    embed.add_field(name="Kamera", value=CAMERA_LABELS.get(data.camera, "-"), inline=True)
+    embed.add_field(name="Erfahrungslevel", value=data.level or "-", inline=True)
+
+    co = co_st_text(data, _name(data.co_storyteller, name_for) if data.co_storyteller else None)
+    embed.add_field(name="Co-Storytelling", value=co, inline=True)
+
+    description = full_description(data)
+    if description:
+        for field_name, value, inline in _split_field("Beschreibung", description):
+            embed.add_field(name=field_name, value=value, inline=inline)
+
+    embed.add_field(name="Skript", value=_script_value(data), inline=True)
+
+    embed.add_field(name="Termin", value=_termin(data), inline=False)
+
+    char_ids = data.script.characters if data.script else []
+    if char_ids:
+        npcs = npc_characters(char_ids)
+        if npcs:
+            embed.add_field(name="NPCs", value=npcs, inline=False)
+        highlights = highlight_characters(char_ids)
+        if highlights:
+            embed.add_field(name="Highlights", value=highlights, inline=False)
+        demons = demon_characters(char_ids, data.script.content)
+        if demons:
+            embed.add_field(name="Demons", value=demons[:1024], inline=False)
+
+
+
 def build_event_embed(
     data: EventData,
     creator_name: str,
@@ -207,39 +256,11 @@ def build_event_embed(
 
     # ── Storytelling + Kamera + Level (inline, eine Reihe) ───────────
     st = _name(data.storyteller, name_for) if data.storyteller else "-"
-    embed.add_field(name="Storytelling", value=st, inline=True)
-    embed.add_field(name="Kamera", value=CAMERA_LABELS.get(data.camera, "-"), inline=True)
-    embed.add_field(name="Erfahrungslevel", value=data.level or "-", inline=True)
-
-    co = co_st_text(data, _name(data.co_storyteller, name_for) if data.co_storyteller else None)
-    embed.add_field(name="Co-Storytelling", value=co, inline=True)
-
-    description = full_description(data)
-    if description:
-        for field_name, value, inline in _split_field("Beschreibung", description):
-            embed.add_field(name=field_name, value=value, inline=inline)
-
-    embed.add_field(name="Skript", value=_script_value(data), inline=True)
-
-    if data.start:
-        ts = int(data.start.timestamp())
-        end_ts = int(data.end.timestamp())
-        termin = f"<t:{ts}:F> - <t:{end_ts}:t> - <t:{ts}:R>"
+    if data.is_other_event:
+        _other_event_fields(embed, data, st)
     else:
-        termin = "-"
-    embed.add_field(name="Termin", value=termin, inline=False)
+        _botc_fields(embed, data, st, name_for)
 
-    char_ids = data.script.characters if data.script else []
-    if char_ids:
-        npcs = npc_characters(char_ids)
-        if npcs:
-            embed.add_field(name="NPCs", value=npcs, inline=False)
-        highlights = highlight_characters(char_ids)
-        if highlights:
-            embed.add_field(name="Highlights", value=highlights, inline=False)
-        demons = demon_characters(char_ids, data.script.content)
-        if demons:
-            embed.add_field(name="Demons", value=demons[:1024], inline=False)
 
     # Abstand vor den RSVP-Listen (Dalyan, 20.10.2026): leere Zeile an das letzte Feld anhängen.
     # Discord schneidet Leerzeilen am Ende ab, ein unsichtbares Zeichen (U+200B) bleibt stehen.
