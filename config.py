@@ -27,11 +27,7 @@ VALID_GUILD_KEYS = {
     "event_channel_id",
     "overview_channel_id",
     "last_overview_message_ids",
-    "auto_interval_hours",
-    "on_new_event",
     "auto_active",
-    "smart_dynamic",
-    "smart_schedule",
 }
 
 

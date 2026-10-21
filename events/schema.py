@@ -134,6 +134,7 @@ class EventData:
     is_casual: bool = False
     is_academy: bool = False
     is_recorded: bool = False
+    is_other_event: bool = False   # Event ohne Clocktower (Dalyan, 20.10.2026): kein Skript, deutlich weniger Felder
     camera: str = DEFAULT_CAMERA
     storyteller: Person | None = None
     co_storyteller: Person | None = None  # nur bei CO_ST_TAKEN: wer co-storytellt (Titel, Reminder)
@@ -243,6 +244,18 @@ def missing_for_publish(data: EventData) -> list[str]:
 
     Bei Academy ist die Beschreibung freiwillig, weil der feste Academy-Text dazukommt.
     """
+    if data.is_other_event:
+        # Event ohne Clocktower: Titel, Beschreibung, Termin, Organisation
+        missing = []
+        if not data.title.strip():
+            missing.append("Titel")
+        if not data.description.strip():
+            missing.append("Beschreibung")
+        if data.start is None:
+            missing.append("Termin")
+        if data.storyteller is None or not data.storyteller.name.strip():
+            missing.append("Organisation")
+        return missing
     missing = []
     if data.start is None:
         missing.append("Termin")

@@ -37,7 +37,7 @@ Bot starten:
 python bot.py
 ```
 
-Dev-Modus (Test-Commands aktivieren):
+Dev-Modus (Button „[Dev] Reminder testen“ am Event-Post):
 ```
 ENV=dev
 ```
@@ -50,10 +50,7 @@ village-idiot-bot/
 ├── config.py                   # Config laden/speichern/bereinigen
 ├── commands/
 │   ├── settings.py             # /set_event_channel, /set_overview_channel
-│   ├── overview.py             # /overview_events, /automate_overview, /stop_automate,
-│   │                           #   /set_schedule, /see_schedule
-│   └── test_commands.py        # Dev-only: /create_test_event, /clear_test_events,
-│                               #   /clear_past_events, /smart_status
+│   ├── overview.py             # /overview_events, /automate_overview, /stop_automate
 ├── logic/
 │   └── parser.py               # Apollo-Nachrichten parsen & Übersicht bauen
 ├── tests/
@@ -71,30 +68,17 @@ village-idiot-bot/
 | `/set_event_channel` | `channel` | Setzt den Channel, aus dem Apollo-Events ausgelesen werden |
 | `/set_overview_channel` | `channel` | Setzt den Channel, in dem die Übersicht gepostet wird |
 | `/overview_events` | `channel` (optional) | Postet die aktuelle Übersicht manuell |
-| `/automate_overview` | `frequenz`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true), `dynamic` (optional, default: true) | Startet die automatische Übersicht |
+| `/automate_overview` | `event_channel` (optional), `overview_channel` (optional) | Startet die automatische Übersicht (Listen-Modus) |
 | `/stop_automate` | – | Stoppt die laufende automatische Übersicht |
-| `/set_schedule` | `zeiten` | Setzt den Smart-Mode-Zeitplan (z.B. `05:00 08:00 12:00`) oder `default` |
-| `/see_schedule` | – | Zeigt den aktuellen Zeitplan und dynamische Zeiten |
 
-**Verfügbare Modi für `/automate_overview`:**
-- **Smart (automatisch)** – Intelligenter Zeitplan (empfohlen, siehe unten)
-- 1 / 2 / 4 / 8 / 12 / 24 Stunden
+### Automatische Übersicht (Listen-Modus)
 
-### Smart Mode
+Die Übersicht aktualisiert sich nur, wenn sich im Event-Channel etwas tut, und sonst nie:
 
-Der Smart Mode aktualisiert die Übersicht nach einem intelligenten Zeitplan statt in einem festen Intervall:
+- **Neues Event:** Die alte Übersicht wird gelöscht und unten im Channel neu gepostet.
+- **Bearbeitung, An- oder Abmeldung, gelöschtes Event:** Die Übersicht wird an Ort und Stelle bearbeitet. Mehrere Änderungen kurz hintereinander werden zusammengefasst (5 bis höchstens 15 Sekunden).
 
-**Standard-Zeitplan:** `05:00, 08:00, 12:00, 16:00, 18:00, 19:00, 19:30, 20:00, 22:00` (Berliner Zeit)
-
-**Dynamische Zeiten:** Wenn ein Event für heute geplant ist, aktualisiert der Bot zusätzlich 30, 20 und 10 Minuten vor dem Eventstart automatisch.
-
-**Regeln:**
-- Feste Zeiten werden übersprungen, wenn das letzte Update weniger als 15 Minuten her ist (z.B. weil gerade ein neues Event gepostet wurde)
-- Dynamische Zeiten werden nie übersprungen
-- Bei neuem Event: sofortige Aktualisierung
-- Bei gelöschtem Event: sofortige Aktualisierung
-
-Mit `/set_schedule` kann der Zeitplan individuell angepasst werden.
+Die Automatik bleibt über Neustarts erhalten. `/testserver setup` schaltet sie auf Testservern gleich mit ein.
 
 ### Tests
 
@@ -146,7 +130,7 @@ Start the bot:
 python bot.py
 ```
 
-Dev mode (enables test commands):
+Dev mode (adds the "[Dev] Reminder testen" button to event posts):
 ```
 ENV=dev
 ```
@@ -158,28 +142,17 @@ ENV=dev
 | `/set_event_channel` | `channel` | Sets the channel from which Apollo events are read |
 | `/set_overview_channel` | `channel` | Sets the channel where the overview will be posted |
 | `/overview_events` | `channel` (optional) | Manually posts the current overview |
-| `/automate_overview` | `frequency`, `event_channel` (optional), `overview_channel` (optional), `on_new_event` (optional, default: true), `dynamic` (optional, default: true) | Starts automated overview posting |
+| `/automate_overview` | `event_channel` (optional), `overview_channel` (optional) | Starts the automated overview (listen mode) |
 | `/stop_automate` | – | Stops the running automated overview |
-| `/set_schedule` | `times` | Sets the Smart Mode schedule (e.g. `05:00 08:00 12:00`) or `default` |
-| `/see_schedule` | – | Shows the current schedule and dynamic times |
 
-**Available modes for `/automate_overview`:**
-- **Smart (automatic)** – Intelligent schedule (recommended, see below)
-- 1 / 2 / 4 / 8 / 12 / 24 hours
+### Automated overview (listen mode)
 
-### Smart Mode
+The overview only updates when something happens in the event channel, never on a timer:
 
-Smart Mode updates the overview on an intelligent schedule instead of a fixed interval:
+- **New event:** the old overview is deleted and reposted at the bottom of the channel.
+- **Edit, sign-up or cancellation, deleted event:** the overview is edited in place. Several changes in quick succession are batched (5 to at most 15 seconds).
 
-**Default schedule:** `05:00, 08:00, 12:00, 16:00, 18:00, 19:00, 19:30, 20:00, 22:00` (Berlin time)
-
-**Dynamic times:** If an event is scheduled for today, the bot additionally updates 30, 20, and 10 minutes before the event start.
-
-**Rules:**
-- Fixed times are skipped if the last update was less than 15 minutes ago
-- Dynamic times are never skipped
-- New event posted: immediate update
-- Event deleted: immediate update
+The automation survives restarts.
 
 ### Notes
 

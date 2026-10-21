@@ -200,3 +200,25 @@ def test_storyteller_is_pinged_but_not_on_attendance_list():
     assert "<@7>" in reminders.message_text(cfg, START, people)
     txt = reminders.attendance_txt(data, people)
     assert "[ ] Anna" in txt and "Dalyan\n" not in txt.split("\n\n", 1)[1]
+
+
+def test_upload_rejects_pixel_bombs_and_downscales(tmp_path, monkeypatch):
+    """Kleine Datei, riesiges Bild: wird abgelehnt, bevor die Pixel dekodiert werden. Normale Bilder
+    werden auf höchstens 1600 px verkleinert."""
+    import io
+    import pytest
+    from PIL import Image
+    from logic import event_images
+
+    monkeypatch.setattr(event_images, "UPLOAD_DIR", str(tmp_path))
+    big = io.BytesIO()
+    Image.new("1", (8000, 8000)).save(big, format="PNG")  # 64 MP, als Datei nur wenige KB
+    assert len(big.getvalue()) < event_images.MAX_UPLOAD_BYTES
+    with pytest.raises(event_images.ImageError):
+        event_images.save_custom_image(big.getvalue())
+
+    ok = io.BytesIO()
+    Image.new("RGB", (3000, 2000), "white").save(ok, format="PNG")
+    name = event_images.save_custom_image(ok.getvalue())
+    with Image.open(tmp_path / name) as saved:
+        assert max(saved.size) == 1600

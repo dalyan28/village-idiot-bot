@@ -5,8 +5,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from discord_ui.botc_start import start_layout, start_problem
-from discord_ui.members import actor_from_member, fetch_member
-from discord_ui.wizard import now
+from discord_ui.members import NOT_READY, actor_from_member, fetch_member, is_ready
+from discord_ui import wizard
 from events import guild_lock, service
 
 
@@ -57,6 +57,9 @@ class Botc(commands.Cog):
         await self._start(interaction)
 
     async def _start(self, interaction: discord.Interaction):
+        if not is_ready(self.bot):
+            await interaction.response.send_message(NOT_READY, ephemeral=True)
+            return
         if interaction.guild is not None:
             await self._start_for(interaction, interaction.guild, interaction.user)
             return
@@ -80,7 +83,7 @@ class Botc(commands.Cog):
         if problem:
             await interaction.response.send_message(problem, ephemeral=True)
             return
-        layout = start_layout(guild, member.id, service.open_draft(store, guild.id, member.id, now()))
+        layout = start_layout(guild, member.id, service.open_draft(store, guild.id, member.id, wizard.now()))
         if interaction.guild is None:
             await interaction.response.send_message(view=layout)
             return
@@ -96,7 +99,6 @@ class Botc(commands.Cog):
 
 async def take_chat_text(bot, message: discord.Message) -> bool:
     """DM-Nachricht als Titel bzw. Beschreibung übernehmen, wenn ein Entwurf darauf wartet."""
-    from discord_ui import wizard
 
     if message.guild is not None or message.author.bot:
         return False

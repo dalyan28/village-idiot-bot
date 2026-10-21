@@ -91,8 +91,10 @@ Dalyan muss den Bot auch auf Test-Servern ausprobieren können. Dafür:
 - **Erlaubte Server sind eine Liste.** Ein Test-Server wird einfach mit seiner ID in `ALLOWED_GUILD_IDS` eingetragen.
 - **Empfohlen: eigene Test-Anwendung im Developer Portal** (eigener Bot-Token, z. B. „Village Idiot Dev“), lokal oder als
   zweiter Railway-Service mit `ENV=dev`. Ihre `ALLOWED_GUILD_IDS` enthält nur die Test-Server, die des Produktiv-Bots nur
-  den echten Server. So landen Test-Events und Test-Commands (`/create_test_event` usw., heute schon an `ENV=dev`
-  gebunden) nie auf dem echten Server, und der Produktiv-Bot muss keinem Test-Server beitreten.
+  den echten Server. So landen Test-Events und Test-Hilfen (z. B. „[Dev] Reminder testen“, an `ENV=dev` bzw.
+  `TEST_SERVER=1` gebunden) nie auf dem echten Server, und der Produktiv-Bot muss keinem Test-Server beitreten.
+  Die alten Test-Commands (`/create_test_event`, `/clear_test_events`, `/clear_past_events`) sind entfernt
+  (Dalyan, 20.10.2026): Beispiel-Events und Aufräumen übernimmt `/testserver` auf dem Testserver.
 - Eigene Datenbank je Umgebung (lokal eine Datei im Projektordner, auf Railway das jeweilige Volume).
 - **Reihenfolge beim Einladen**: erst die ID in `ALLOWED_GUILD_IDS` eintragen und neu starten, dann einladen. Sonst
   verlässt der Bot den Server sofort wieder. Die Log-Meldung beim Verlassen nennt Servername und ID, damit man sie direkt
@@ -523,6 +525,16 @@ Dritte Runde Feedback (20.10.2026):
   (für Emojis). Die Karte zeigt dann „… im Chat schreiben“ mit „Abbrechen“; die nächste DM-Nachricht wird übernommen
   (`commands/botc.py`, `take_chat_text`), die Karte aktualisiert und die Nachricht mit ✅ markiert. Wartezustand in
   `drafts.ui["await_text"]` (Feld und ID der Wizard-Nachricht).
+- **Skriptwahl überspringen und Events ohne Clocktower** (Dalyan, 20.10.2026): Im Skript-Dialog stehen die
+  Basis-Skripte getrennt von „Ohne festes Skript“ (Freie Skriptwahl: „Ich weiß noch nicht, was ich leiten werde.“
+  und „Diesen Schritt überspringen“). Überspringen (auch „Später wählen“ auf der Karte) führt zum Zwischenschritt
+  „Kein Skript gewählt“: „Ja, Skript wähle ich später“ oder „Nein, anderes Event“. Ein anderes Event
+  (`is_other_event`) braucht nur Titel (Pflicht, kein automatischer), Beschreibung, Termin und Organisation, dazu
+  optional ein eigenes Bild und die max. Teilnehmerzahl. Keine Symbole, kein Skript, keine Schwierigkeit, Labels,
+  Kamera, Level, Co-ST, NPCs/Highlights/Demons. Über „Art“ in der Zusammenfassung geht es zurück zur Skriptwahl.
+- **Leere Felder direkt im Chat** (Dalyan, 20.10.2026): Ist die Beschreibung (bzw. beim anderen Event der Titel)
+  leer, fragt „Ändern“ direkt im Chat statt im Dialog. Mit Inhalt öffnet sich der Dialog mit dem bisherigen Text.
+  Ein automatischer Titel zählt nicht als leer.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`

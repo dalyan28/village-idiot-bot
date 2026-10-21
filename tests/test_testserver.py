@@ -168,6 +168,11 @@ def test_history_and_feedback_post_from_wizard(ts, monkeypatch):
     draft = flow.new_draft(bot)
     user = bot.guild.get_member(USER)
     click(bot, draft.id, "pick", "trouble_brewing")
+    # Beschreibung vorbelegen: bei leerer Beschreibung fragt „Ändern“ direkt im Chat statt im Dialog
+    d = bot.store.get_draft(draft.id)
+    data = d.data
+    data.description = "Entwurf"
+    bot.store.update_draft(d.id, data, d.step, d.updated_at)
     inter = click(bot, draft.id, "edit_field", "description")
     modal = inter.response.modal
     modal.text._value = "Gemütliche Runde."
