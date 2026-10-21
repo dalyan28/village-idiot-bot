@@ -35,8 +35,16 @@ DRAFT_IMAGE = "entwurf.png"
 
 
 async def start_layout(guild: discord.Guild, user_id: int, open_draft=None):
+    """Startnachricht mit dem offenen Entwurf (Skript-Bild wird dafür erzeugt). Gibt (LayoutView, Dateien) zurück."""
+    if open_draft is None:
+        return build_start_layout(guild, user_id), []
+    block, files = await _draft_block(open_draft)
+    return build_start_layout(guild, user_id, block), files
+
+
+def build_start_layout(guild: discord.Guild, user_id: int, draft_block=None) -> discord.ui.LayoutView:
     """Startnachricht (Dalyan, 21.10.2026): kurze Einleitung, Links zu Hinweisen und Regeln, ggf. der offene
-    Entwurf mit Bild. Eine Karte, eine Button-Reihe. Gibt (LayoutView, Dateien) zurück."""
+    Entwurf (`draft_block`). Eine Karte, eine Button-Reihe."""
     esc = discord.utils.escape_markdown
     container = discord.ui.Container(accent_colour=START_COLOR)
     intro = discord.ui.TextDisplay(
@@ -56,24 +64,22 @@ async def start_layout(guild: discord.Guild, user_id: int, open_draft=None):
         f"Für alle Events gelten unsere {_link(RULES_URL, 'Serverregeln', bold=True)}."))
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
 
-    files = []
-    if open_draft is None:
+    if draft_block is None:
         container.add_item(discord.ui.TextDisplay("Los geht es mit dem Termin."))
     else:
-        block, files = await _draft_block(open_draft)
-        container.add_item(block)
+        container.add_item(draft_block)
         container.add_item(discord.ui.TextDisplay("Du kannst dort weitermachen oder neu beginnen."))
 
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
     row = discord.ui.ActionRow()
-    if open_draft is not None:
+    if draft_block is not None:
         row.add_item(StartButton(guild.id, "resume", "Entwurf fortsetzen", discord.ButtonStyle.primary))
         row.add_item(StartButton(guild.id, "new", "Neu beginnen", discord.ButtonStyle.secondary))
     else:
         row.add_item(StartButton(guild.id, "new", "Termin festlegen", discord.ButtonStyle.primary))
     layout.add_item(row)
-    return layout, files
+    return layout
 
 
 async def _draft_block(draft):
