@@ -129,3 +129,18 @@ def test_format_start():
     start = datetime(2026, 10, 24, 20, 0, tzinfo=BERLIN_TZ)
     assert format_start(start) == "Samstag, 24.10.2026, 20:00"
     assert format_start(start, 150) == "Samstag, 24.10.2026, 20:00–22:30"
+
+
+@pytest.mark.parametrize("text, expected", [
+    ("04.01", date(2027, 1, 4)),
+    ("04.02.", date(2027, 2, 4)),
+    ("4. Januar", date(2027, 1, 4)),
+    ("04.01.2027", date(2027, 1, 4)),   # Jahr angegeben: wird genommen
+    ("04.01.27", date(2027, 1, 4)),
+    ("20.12.", date(2026, 12, 20)),     # noch in diesem Jahr
+])
+def test_december_dates_roll_into_next_year(text, expected):
+    """Im November/Dezember sind Januar- und Februar-Daten ohne Jahr nicht „vergangen“, sondern im nächsten
+    Jahr (Dalyan, 21.10.2026)."""
+    december = datetime(2026, 12, 15, 12, 0, tzinfo=BERLIN_TZ)
+    assert parse_start(text, "20:00", december).date() == expected

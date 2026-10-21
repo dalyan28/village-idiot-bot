@@ -158,6 +158,7 @@ class FakeInteraction:
 
     async def _followup(self, content=None, **kw):
         self.sent.append(content)
+        self.sent_kw.append(kw)
 
     async def edit_original_response(self, **kw):
         self.screen = kw
@@ -466,9 +467,10 @@ def test_botc_in_channel_sends_start_message_per_dm(botc_env):
     run(botc_cmd.Botc(bot)._start(inter))
     assert inter.sent == ["Es geht in deinen DMs weiter."] and inter.response.modal is None
     start = dms[0]["view"]
-    assert "Termin" in _texts(start) and "Skript" in _texts(start) and "Zusammenfassung" in _texts(start)
+    assert "Neues Event anlegen" in _texts(start) and "Los geht es mit dem Termin." in _texts(start)
+    assert "Zusammenfassung" in _texts(start) and "Hinweisen zum Mitspielen und Storytellen" in _texts(start)
     assert "##" not in _texts(start)  # keine großen Überschriften
-    assert "(Link folgt)" in _texts(start)  # Platzhalter für die Hinweise zum Storytellen und die Regeln
+    assert "1548695371402711050" in _texts(start) and "1197945543893188719" in _texts(start)  # Beitrag, Regeln
     assert _button_ids(start) == [f"botc:{GUILD}:new"]
 
 
@@ -500,7 +502,8 @@ def test_start_message_becomes_script_card(botc_env):
     inter.guild = None
     run(botc_cmd.Botc(bot)._start(inter))
     start = inter.sent_kw[0]["view"]
-    assert "offenen Entwurf" in _texts(start)
+    assert "Offener Entwurf" in _texts(start) and "`ohne Titel`" in _texts(start)  # noch kein Skript, kein Titel
+    assert "läuft <t:" in _texts(start) and "Du kannst dort weitermachen oder neu beginnen." in _texts(start)
     assert _button_ids(start) == [f"botc:{GUILD}:resume", f"botc:{GUILD}:new"]
     resume = FakeInteraction(bot, member, message=origin)
     run(StartButton(GUILD, "resume", "x").callback(resume))
@@ -800,3 +803,50 @@ def test_start_button_during_restart_says_not_ready(botc_env):
     inter = FakeInteraction(bot, bot.guild.get_member(USER), message=SimpleNamespace(id=1))
     run(StartButton(GUILD, "new", "x").callback(inter))
     assert inter.sent == [NOT_READY] and inter.response.modal is None
+
+
+def test_long_duration_asks_before_saving(env):
+    """Dauer über 8 Stunden: Warnung; „Nein, zurück“ öffnet den Dialog mit den Eingaben, „Ja, weiter“ speichert."""
+    from discord_ui.wizard import FrameModal
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "pick", "trouble_brewing")
+    inter = click(bot, draft.id, "edit_field", "frame")
+    modal = inter.response.modal
+    modal.date._value, modal.time._value = modal.prefill
+    modal.duration._value, modal.players._value = "600", "12"
+    inter = FakeInteraction(bot, bot.guild.get_member(USER))
+    run(modal.on_submit(inter))
+    assert "länger als 8 Stunden" in screen_text(inter)
+    assert bot.store.get_draft(draft.id).data.duration_minutes == 150  # noch nicht gespeichert
+
+    inter = click(bot, draft.id, "confirm_no")
+    again = inter.response.modal
+    assert isinstance(again, FrameModal) and again.duration.default == "600"
+
+    click(bot, draft.id, "confirm_yes")
+    d = bot.store.get_draft(draft.id)
+    assert d.data.duration_minutes == 600 and "confirm" not in d.ui
+
+
+def test_far_future_start_asks_in_botc_modal(botc_env):
+    """„01.04“ im Mai landet im nächsten Jahr: Warnung direkt nach dem ersten Dialog."""
+    from discord_ui.botc_modal import BotcModal
+    bot = botc_env
+    member = bot.guild.get_member(USER)
+    origin = SimpleNamespace(id=4711)
+
+    async def go():
+        return BotcModal(bot.store, allow_academy=False, guild=bot.guild, member=member, origin=origin)
+    modal = run(go())
+    modal.date_choice._value, modal.date._value = "other", "01.04."  # NOW ist Oktober → April nächstes Jahr
+    modal.time_choice._value = "20:00"
+    inter = FakeInteraction(bot, member, message=origin)
+    run(modal.on_submit(inter))
+    assert "über 90 Tage in der Zukunft" in screen_text(inter)
+    draft = bot.store.list_drafts(USER)[0]
+    inter = click(bot, draft.id, "confirm_no")
+    again = inter.response.modal
+    assert isinstance(again, BotcModal) and again.date.default == "01.04."
+    inter = click(bot, draft.id, "confirm_yes")
+    assert "Skript wählen" in screen_text(inter)

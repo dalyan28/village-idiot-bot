@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import asdict
 from datetime import timedelta
 
 import discord
@@ -128,6 +129,12 @@ class BotcModal(discord.ui.Modal):
                 ephemeral=True
             )
             return
+        # Termin weit in der Zukunft (z. B. „01.04“ im Mai): erst nachfragen (Dalyan, 21.10.2026)
+        warnings = wizard.plausibility_warnings(draft.data, wizard.now())
+        if warnings:
+            self.store.set_draft_ui(draft.id, {**(draft.ui or {}), wizard.CONFIRM_KEY: {
+                "kind": "start", "raw": asdict(raw), "warnings": warnings}})
+            draft = self.store.get_draft(draft.id)
         # Die Startnachricht wird zur Skript-Karte (sie bestätigt den Termin und sagt, was jetzt kommt)
         layout, files = await wizard.render(interaction.client, draft)
         if self.origin is not None and interaction.message is not None and interaction.message.id == self.origin.id:
