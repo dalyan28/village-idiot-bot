@@ -158,6 +158,7 @@ class FakeInteraction:
 
     async def _followup(self, content=None, **kw):
         self.sent.append(content)
+        self.sent_kw.append(kw)
 
     async def edit_original_response(self, **kw):
         self.screen = kw
@@ -466,9 +467,10 @@ def test_botc_in_channel_sends_start_message_per_dm(botc_env):
     run(botc_cmd.Botc(bot)._start(inter))
     assert inter.sent == ["Es geht in deinen DMs weiter."] and inter.response.modal is None
     start = dms[0]["view"]
-    assert "Termin" in _texts(start) and "Skript" in _texts(start) and "Zusammenfassung" in _texts(start)
+    assert "Neues Event anlegen" in _texts(start) and "Los geht es mit dem Termin." in _texts(start)
+    assert "Zusammenfassung" in _texts(start) and "Hinweisen zum Mitspielen und Storytellen" in _texts(start)
     assert "##" not in _texts(start)  # keine großen Überschriften
-    assert "(Link folgt)" in _texts(start)  # Platzhalter für die Hinweise zum Storytellen und die Regeln
+    assert "1548695371402711050" in _texts(start) and "1197945543893188719" in _texts(start)  # Beitrag, Regeln
     assert _button_ids(start) == [f"botc:{GUILD}:new"]
 
 
@@ -500,7 +502,8 @@ def test_start_message_becomes_script_card(botc_env):
     inter.guild = None
     run(botc_cmd.Botc(bot)._start(inter))
     start = inter.sent_kw[0]["view"]
-    assert "offenen Entwurf" in _texts(start)
+    assert "Offener Entwurf" in _texts(start) and "`ohne Titel`" in _texts(start)  # noch kein Skript, kein Titel
+    assert "läuft <t:" in _texts(start) and "Du kannst dort weitermachen oder neu beginnen." in _texts(start)
     assert _button_ids(start) == [f"botc:{GUILD}:resume", f"botc:{GUILD}:new"]
     resume = FakeInteraction(bot, member, message=origin)
     run(StartButton(GUILD, "resume", "x").callback(resume))

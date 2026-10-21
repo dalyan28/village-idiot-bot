@@ -9,6 +9,7 @@ Der Button ist ein DynamicItem (`botc:<guild_id>:<aktion>`) und funktioniert nac
 
 from __future__ import annotations
 
+import io
 import re
 
 import discord
@@ -24,20 +25,25 @@ from events.templates import RULES_URL, STORYTELLER_GUIDE_URL
 START_COLOR = 0x5865F2
 
 
-def _link(url: str, label: str) -> str:
-    # Bis die Links feststehen, ein sichtbarer Platzhalter für die Tester:innen
-    return f"[{label}]({url})" if url else f"{label} *(Link folgt)*"
+def _link(url: str, label: str, bold: bool = False) -> str:
+    # Ohne Link ein sichtbarer Platzhalter
+    text = f"[{label}]({url})" if url else f"{label} *(Link folgt)*"
+    return f"**{text}**" if bold and url else text
 
 
-def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord.ui.LayoutView:
-    """Startnachricht: was gleich passiert, darunter „Termin festlegen“ bzw. „Entwurf fortsetzen“."""
+DRAFT_IMAGE = "entwurf.png"
+
+
+async def start_layout(guild: discord.Guild, user_id: int, open_draft=None):
+    """Startnachricht (Dalyan, 21.10.2026): kurze Einleitung, Links zu Hinweisen und Regeln, ggf. der offene
+    Entwurf mit Bild. Eine Karte, eine Button-Reihe. Gibt (LayoutView, Dateien) zurück."""
     esc = discord.utils.escape_markdown
-    # Persönlicher Ton, Emojis nur dort, wo man sie auch im Gespräch setzen würde (Dalyan, 20.10.2026)
     container = discord.ui.Container(accent_colour=START_COLOR)
     intro = discord.ui.TextDisplay(
         f"-# {esc(guild.name)}\n\n"
-        "**Neue Runde anlegen**\n"
-        "Schön, dass du eine Runde leiten möchtest! Das dauert nur ein paar Minuten.")
+        "**Neues Event anlegen**\n"
+        "Ich führe dich in ein paar Schritten durch die Erstellung. Bevor etwas veröffentlicht wird, siehst du "
+        "alles in einer Zusammenfassung und kannst es dort noch anpassen.")
     icon = getattr(guild, "icon", None)
     if icon:  # Server-Icon rechts neben dem Titel
         container.add_item(discord.ui.Section(intro, accessory=discord.ui.Thumbnail(icon.url)))
@@ -45,25 +51,18 @@ def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord
         container.add_item(intro)
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
     container.add_item(discord.ui.TextDisplay(
-        "Als Erstes legst du den Termin und ein paar Optionen für die Runde fest. "
-        "Danach suchst du dir das Skript aus, entweder über botcscripts.com, als Basis-Skript oder als "
-        "eigenes JSON.\n\n"
-        "Am Ende siehst du eine Zusammenfassung, in der du noch eine kurze Beschreibung schreibst, alles "
-        "anpassen kannst und die Runde veröffentlichst 🎉"))
+        "Was beim Leiten zählt, welche Symbole es im Wochenplan gibt und eine Vorlage für gute Beschreibungen "
+        f"findest du in den {_link(STORYTELLER_GUIDE_URL, 'Hinweisen zum Mitspielen und Storytellen', bold=True)}. "
+        f"Für alle Events gelten unsere {_link(RULES_URL, 'Serverregeln', bold=True)}."))
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
-    container.add_item(discord.ui.TextDisplay(
-        "Neu im Storytelling? In den "
-        f"{_link(STORYTELLER_GUIDE_URL, 'Hinweisen zum Storytellen')} steht, worauf es ankommt.\n"
-        f"Und wie immer gelten unsere {_link(RULES_URL, 'Serverregeln')}.\n"
-        "-# Dein Entwurf bleibt 24 Stunden gespeichert, du kannst also auch später weitermachen."))
-    if open_draft is not None:
-        d = open_draft.data
-        what = [d.script.display_name if d.script else None,
-                format_start(d.start, d.duration_minutes) if d.start else None]
-        detail = " · ".join(x for x in what if x)
-        container.add_item(discord.ui.Separator())
-        container.add_item(discord.ui.TextDisplay(
-            "**Du hast noch einen offenen Entwurf**" + (f"\n{esc(detail)}" if detail else "")))
+
+    files = []
+    if open_draft is None:
+        container.add_item(discord.ui.TextDisplay("Los geht es mit dem Termin."))
+    else:
+        block, files = await _draft_block(open_draft)
+        container.add_item(block)
+        container.add_item(discord.ui.TextDisplay("Du kannst dort weitermachen oder neu beginnen."))
 
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
@@ -74,7 +73,27 @@ def start_layout(guild: discord.Guild, user_id: int, open_draft=None) -> discord
     else:
         row.add_item(StartButton(guild.id, "new", "Termin festlegen", discord.ButtonStyle.primary))
     layout.add_item(row)
-    return layout
+    return layout, files
+
+
+async def _draft_block(draft):
+    """Offener Entwurf: Name und Termin als Werte, wann zuletzt bearbeitet und wann er abläuft,
+    rechts klein das Skript-Bild (wenn es eins gibt)."""
+    from logic.event_images import render_image
+
+    d = draft.data
+    name = d.title.strip() or (d.script.display_name if d.script else "ohne Titel")
+    lines = ["**Offener Entwurf**", f"`{name.replace('`', 'ˋ')}`"]
+    if d.start:
+        lines.append(f"`{format_start(d.start, d.duration_minutes)}`")
+    expires = draft.updated_at + service.DRAFT_TTL_SECONDS
+    lines.append(f"-# zuletzt bearbeitet <t:{draft.updated_at}:R> · läuft <t:{expires}:R> ab")
+    text = discord.ui.TextDisplay("\n".join(lines))
+    image = await render_image(d) if d.script is not None else None
+    if image is None:
+        return text, []
+    block = discord.ui.Section(text, accessory=discord.ui.Thumbnail(f"attachment://{DRAFT_IMAGE}"))
+    return block, [discord.File(io.BytesIO(image), filename=DRAFT_IMAGE)]
 
 
 def start_problem(store, guild: discord.Guild, member: discord.Member) -> str | None:
@@ -127,7 +146,8 @@ class StartButton(discord.ui.DynamicItem[discord.ui.Button],
         if self.name == "resume":
             draft = service.open_draft(store, guild.id, member.id, wizard.now())
             if draft is None:
-                await interaction.response.edit_message(view=start_layout(guild, member.id))
+                layout, files = await start_layout(guild, member.id)
+                await interaction.response.edit_message(view=layout, attachments=files)
                 await interaction.followup.send("Den Entwurf gibt es nicht mehr. Du kannst neu beginnen.",
                                                 ephemeral=True)
                 return
