@@ -35,6 +35,7 @@ STEP_SCRIPT = "script"
 STEP_PREVIEW = "preview"
 
 GUILD_ACCESS_KEY = "access"
+START_LINKS_KEY = "start_links"  # Links in der /botc-Startnachricht je Server (/set_start_links)
 
 
 class ServiceError(Exception):
@@ -46,6 +47,30 @@ class PermissionDenied(ServiceError):
 
 
 # ── Server-Einstellungen ─────────────────────────────────────────────────────
+
+
+def get_start_links(store: Store, guild_id: int) -> tuple[str, str]:
+    """(Hinweise, Regeln) für die Startnachricht: Server-Einstellung, sonst der eingebaute Standard."""
+    from events.templates import RULES_URL, STORYTELLER_GUIDE_URL
+
+    stored = store.get_guild_settings(guild_id).get(START_LINKS_KEY) or {}
+    return stored.get("guide") or STORYTELLER_GUIDE_URL, stored.get("rules") or RULES_URL
+
+
+def set_start_links(store: Store, guild_id: int, guide: str | None = None, rules: str | None = None,
+                    reset: bool = False):
+    """Setzt einen oder beide Links; `reset` stellt den eingebauten Standard wieder her."""
+    settings = store.get_guild_settings(guild_id)
+    stored = {} if reset else dict(settings.get(START_LINKS_KEY) or {})
+    for key, url in (("guide", guide), ("rules", rules)):
+        if url is None:
+            continue
+        url = url.strip()
+        if not url.startswith("https://"):
+            raise ServiceError("Bitte gib einen vollständigen Link an, der mit https:// beginnt.")
+        stored[key] = url
+    settings[START_LINKS_KEY] = stored
+    store.set_guild_settings(guild_id, settings)
 
 
 def get_access(store: Store, guild_id: int) -> AccessSettings:
