@@ -69,7 +69,7 @@ def generated() -> list[tuple[str, str, str]]:
     """Texte, die der Bot zur Laufzeit baut, mit Beispielwerten."""
     import discord
 
-    from discord_ui.botc_start import start_layout, start_problem
+    from discord_ui.botc_start import build_start_layout, start_problem
     from events import reminders, service
     from events.store import Store
     from events.templates import academy_description
@@ -82,7 +82,7 @@ def generated() -> list[tuple[str, str, str]]:
     service.set_access(store, guild.id, AccessSettings(storyteller_role_id=1))
     with_role = start_problem(store, guild, member)
     store.close()
-    start = "\n".join(i.content for i in start_layout(guild, member.id).walk_children()
+    start = "\n".join(i.content for i in build_start_layout(guild, member.id).walk_children()
                       if isinstance(i, discord.ui.TextDisplay))
 
     when = datetime(2026, 10, 24, 20, 0, tzinfo=BERLIN_TZ)

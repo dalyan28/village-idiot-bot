@@ -528,13 +528,13 @@ def test_texts_channel_copies_match_code():
 
 
 def test_start_message_has_feedback(ts, monkeypatch):
-    from discord_ui.botc_start import StartButton, start_layout
+    from discord_ui.botc_start import StartButton, build_start_layout
     bot = ts
     channel = _with_feedback_channel(bot)
-    layout = start_layout(bot.guild, USER)
+    layout = build_start_layout(bot.guild, USER)
     assert f"fb:s:{GUILD}:start" in ids(layout) and f"botc:{GUILD}:new" in ids(layout)
     monkeypatch.delenv("TEST_SERVER")
-    assert not any(c.startswith("fb:") for c in ids(start_layout(bot.guild, USER)))
+    assert not any(c.startswith("fb:") for c in ids(build_start_layout(bot.guild, USER)))
     monkeypatch.setenv("TEST_SERVER", "1")
 
     # Klick auf „Termin festlegen“ landet in der Historie, Feedback nennt die Startnachricht
