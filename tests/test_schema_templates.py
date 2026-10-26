@@ -162,3 +162,12 @@ class TestTemplates:
 
     def test_camera_off_is_valid(self):
         assert validate(make(camera=CAMERA_OFF), NOW) == []
+
+
+def test_custom_academy_template():
+    """Eigener Academy-Text (Dalyan, 26.10.2026): Stufen-Zeilen werden fett, {hier} nimmt die Zahl daraus."""
+    template = "Hallo Academy!\n💚 bis 50 Runden\n🟡 bis 120 Runden\nDarüber {hier} als Auffüller."
+    text = academy_description("yellow", template)
+    assert "**🟡 bis 120 Runden**" in text and "**💚" not in text and "(hier 120)" in text
+    assert "(s. oben)" in academy_description(None, template)
+    assert full_description(make(is_academy=True, rating="green", description=""), template).startswith("Hallo")

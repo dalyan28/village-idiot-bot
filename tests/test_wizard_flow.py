@@ -895,3 +895,27 @@ def test_my_events_lists_signups_and_leave_button_removes(env):
         assert "Anna" not in str([f.value for f in bot.channel.messages[event.message_id].embed.fields])
     finally:
         me.now = me_now
+
+
+def test_academy_text_command_permissions(env):
+    """/academy_text: Admins, Event-Team und Academy-Berechtigte, sonst niemand (Dalyan, 26.10.2026)."""
+    from commands.event_settings import AcademyTextModal, EventSettings
+    from events.permissions import AccessSettings
+    bot = env
+    cog = EventSettings(bot)
+    stranger = FakeInteraction(bot, bot.guild.get_member(3), guild_id=GUILD)
+    run(cog.academy_text.callback(cog, stranger))
+    assert stranger.response.modal is None and "Academy-Berechtigung" in stranger.sent[0]
+
+    service.set_access(bot.store, GUILD, AccessSettings(academy_user_ids=[3]))
+    academy = FakeInteraction(bot, bot.guild.get_member(3), guild_id=GUILD)
+    run(cog.academy_text.callback(cog, academy))
+    assert isinstance(academy.response.modal, AcademyTextModal)
+
+    admin = FakeInteraction(bot, bot.guild.get_member(USER), guild_id=GUILD)
+    run(cog.academy_text.callback(cog, admin))
+    modal = admin.response.modal
+    modal.text._value = "Neu\n🟡 bis 99 Runden\n{hier}"
+    done = FakeInteraction(bot, bot.guild.get_member(USER), guild_id=GUILD)
+    run(modal.on_submit(done))
+    assert service.get_academy_template(bot.store, GUILD).startswith("Neu")

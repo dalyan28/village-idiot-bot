@@ -233,3 +233,15 @@ def test_start_links_default_override_and_reset():
     service.set_start_links(store, 5, reset=True)
     assert service.get_start_links(store, 5) == (STORYTELLER_GUIDE_URL, RULES_URL)
     store.close()
+
+
+def test_academy_template_store_and_reset():
+    from events.store import Store
+    from events.templates import ACADEMY_TEMPLATE_DEFAULT
+    store = Store(":memory:")
+    assert service.get_academy_template(store, 1) == ACADEMY_TEMPLATE_DEFAULT
+    service.set_academy_template(store, 1, "  Eigener Text  ")
+    assert service.get_academy_template(store, 1) == "Eigener Text"
+    service.set_academy_template(store, 1, None)
+    assert service.get_academy_template(store, 1) == ACADEMY_TEMPLATE_DEFAULT
+    store.close()

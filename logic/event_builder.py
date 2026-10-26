@@ -203,7 +203,7 @@ def _other_event_fields(embed: discord.Embed, data: EventData, organizer: str):
     embed.add_field(name="Termin", value=_termin(data), inline=False)
 
 
-def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for):
+def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for, academy_template: str | None = None):
     embed.add_field(name="Storytelling", value=st, inline=True)
     embed.add_field(name="Kamera", value=camera_text(data), inline=True)
     embed.add_field(name="Erfahrungslevel", value=data.level or "-", inline=True)
@@ -211,7 +211,7 @@ def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for):
     co = discord.utils.escape_markdown(co_st_text(data))
     embed.add_field(name="Co-Storytelling", value=co, inline=True)
 
-    description = full_description(data)
+    description = full_description(data, academy_template)
     if description:
         for field_name, value, inline in _split_field("Beschreibung", description):
             embed.add_field(name=field_name, value=value, inline=inline)
@@ -242,6 +242,7 @@ def build_event_embed(
     thumbnail_url: str | None = None,
     name_for: Callable[[Person], str] | None = None,
     created_at: datetime | None = None,
+    academy_template: str | None = None,
 ) -> discord.Embed:
     """Baut das Event-Embed. `thumbnail_url`/Bild setzt der Aufrufer (Attachments).
 
@@ -258,7 +259,7 @@ def build_event_embed(
     if data.is_other_event:
         _other_event_fields(embed, data, st)
     else:
-        _botc_fields(embed, data, st, name_for)
+        _botc_fields(embed, data, st, name_for, academy_template)
 
 
     # Abstand vor den RSVP-Listen (Dalyan, 20.10.2026): leere Zeile an das letzte Feld anhängen.
