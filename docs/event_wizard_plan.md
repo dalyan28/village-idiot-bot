@@ -555,6 +555,13 @@ Dritte Runde Feedback (20.10.2026):
   „Für welche entscheidest du dich?“ mit einem Button je Runde (`dbl:<event_id>`), der von den anderen abmeldet.
   Vermerkt in `event_reminders` (`conflict:<user_id>`), läuft in der Reminder-Schleife. Ohne Kulanz bei kurzen
   Überschneidungen (bei Bedarf später).
+- **Eigene Standardwerte** (Dalyan, 26.10.2026): `/einstellungen` zeigt eine Übersicht, darin „Standardwerte“
+  (Beschreibung, max. Spieler, Dauer, Erfahrungslevel, Kamera mit eigenem Hinweis, Co-Storytelling mit Hinweis).
+  Pro Person und Server in `user_settings` (JSON mit Version, jedes Feld einzeln geprüft, kaputte Felder fallen
+  auf den eingebauten Standard zurück; Aufräumen, Reset und Delete All fassen die Tabelle nicht an). Rangfolge:
+  eingebaut → eigener Standard → Teensyville setzt immer 6 → Änderung im Entwurf. Ohne Teensyville wieder der
+  Startwert des Entwurfs (`drafts.ui["base_players"]`). Übernommen beim Anlegen (`service.start_draft`).
+  Kamera hat jetzt auch im Event einen eigenen Hinweis (`camera_note`).
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`

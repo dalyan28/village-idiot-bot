@@ -72,6 +72,7 @@ OUTAGE_SEARCH = ("botcscripts.com antwortet gerade nicht (zu langsam oder nicht 
 STEP_SCRIPT = "script"
 STEP_IMAGE = "image"
 STEP_PREVIEW = "preview"
+BASE_PLAYERS_KEY = "base_players"  # Spielerzahl beim Anlegen (eigener Standard bzw. 12), siehe _set_script
 STEP_KIND = "kind"  # Zwischenschritt nach „Skriptwahl überspringen“: Clocktower oder anderes Event?
 # Standardwerte (Dauer, Kamera, Co-ST, Level …) werden nicht abgefragt, sondern nur in der
 # Zusammenfassung geändert (Dalyan, 20.10.2026). Die Schwierigkeit legt der Algorithmus fest.
@@ -349,11 +350,14 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
     d.script = script
     d.is_other_event = False
     d.rating, d.rating_source = None, None
-    if script.teensy and d.max_players == DEFAULT_MAX_PLAYERS:
+    # Teensyville setzt immer 6; danach lässt sich die Zahl im Entwurf ändern (Dalyan, 26.10.2026).
+    # Ohne Teensyville wieder der Startwert des Entwurfs (eigener Standard bzw. 12).
+    base_players = ctx.ui.get(BASE_PLAYERS_KEY, DEFAULT_MAX_PLAYERS)
+    if script.teensy and not was_teensy and d.max_players != TEENSY_MAX_PLAYERS:
         d.max_players = TEENSY_MAX_PLAYERS
         notice = notice or f"Teensyville erkannt: max. Spieler auf {TEENSY_MAX_PLAYERS} gesetzt."
     elif was_teensy and not script.teensy and d.max_players == TEENSY_MAX_PLAYERS:
-        d.max_players = DEFAULT_MAX_PLAYERS
+        d.max_players = base_players
     ui = ctx.ui
     for key in ("search_results", "query", "page", "rating_detail"):
         ui.pop(key, None)
@@ -945,15 +949,19 @@ class SelectionModal(_WizardModal):
         self.options = _label_checkboxes(data, allow_academy)
         self.level = _level_radio(data)
         self.camera = _camera_radio(data)
+        self.camera_note = discord.ui.TextInput(required=False, max_length=100, default=data.camera_note or None,
+                                                placeholder="z. B. „gern mit Kamera“")
         self.add_item(discord.ui.Label(text="Labels", component=self.options))
         self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
         self.add_item(discord.ui.Label(text="Kamera", component=self.camera))
+        self.add_item(discord.ui.Label(text="Hinweis zur Kamera", description="Optional", component=self.camera_note))
 
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
         _apply_labels(d, self.options)
         d.level = self.level.value or d.level
         d.camera = self.camera.value or d.camera
+        d.camera_note = (self.camera_note.value or "").strip()
         ctx.save(d)  # prüft die Academy-Berechtigung
         await show(interaction, ctx)
 

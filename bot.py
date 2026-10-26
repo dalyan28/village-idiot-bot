@@ -159,11 +159,12 @@ async def main():
     from discord_ui.botc_start import StartButton
     from discord_ui.my_events import LeaveButton
     from discord_ui.conflicts import ChooseButton
+    from discord_ui.user_settings import SettingsButton
     from events.store import Store
 
     bot.store = Store()  # SQLite: Events, Entwürfe, Anmeldungen, Server-Einstellungen
     # Buttons und Selects mit ID im custom_id: funktionieren auch nach einem Neustart
-    bot.add_dynamic_items(WizardButton, WizardSelect, EventButton, StartButton, LeaveButton, ChooseButton)
+    bot.add_dynamic_items(WizardButton, WizardSelect, EventButton, StartButton, LeaveButton, ChooseButton, SettingsButton)
     async with bot:
         await bot.load_extension("commands.settings")
         await bot.load_extension("commands.overview")
@@ -171,6 +172,7 @@ async def main():
         await bot.load_extension("commands.botc")
         await bot.load_extension("commands.reminder")
         await bot.load_extension("commands.my_events")
+        await bot.load_extension("commands.user_settings")
         await bot.start(os.getenv("DISCORD_TOKEN"))
 
 

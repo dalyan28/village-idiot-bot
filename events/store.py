@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS guild_settings (
     guild_id    INTEGER PRIMARY KEY,
     data        TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS user_settings (
+    guild_id    INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    data        TEXT NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS events (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id      INTEGER NOT NULL,
@@ -149,6 +156,27 @@ class Store:
                 "INSERT INTO guild_settings (guild_id, data) VALUES (?, ?) "
                 "ON CONFLICT (guild_id) DO UPDATE SET data = excluded.data",
                 (guild_id, json.dumps(data)),
+            )
+
+    # ── Einstellungen pro Person (events/user_settings.py) ──────────────
+
+    def get_user_settings(self, guild_id: int, user_id: int) -> dict:
+        row = self.conn.execute("SELECT data FROM user_settings WHERE guild_id = ? AND user_id = ?",
+                                (guild_id, user_id)).fetchone()
+        if not row:
+            return {}
+        try:
+            data = json.loads(row["data"])
+        except ValueError:
+            return {}  # kaputter Eintrag: eingebaute Standards statt Absturz
+        return data if isinstance(data, dict) else {}
+
+    def set_user_settings(self, guild_id: int, user_id: int, data: dict, now: int):
+        with self.conn:
+            self.conn.execute(
+                "INSERT INTO user_settings (guild_id, user_id, data, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT (guild_id, user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
+                (guild_id, user_id, json.dumps(data), now),
             )
 
     # ── Events ───────────────────────────────────────────────────────────
