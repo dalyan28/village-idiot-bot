@@ -43,14 +43,14 @@ def test_spacer_before_rsvp_lists():
 
 def test_names_are_text_not_mentions():
     embed = build_event_embed(
-        data(co_storyteller=Person("Ro_sa", 9), co_st_status="taken"), "Dalyan",
+        data(co_st_status="taken", co_st_note="Ro_sa"), "Dalyan",
         lists(players=[Person("Anna", 50)], tentative=[Person("*Bob*", 51)]),
     )
     text = " ".join(f.value for f in embed.fields)
     assert "<@" not in text
     f = fields(embed)
     assert f["Storytelling"] == "Dalyan"
-    assert f["Co-Storytelling"] == "Ja, vergeben (Ro\\_sa)"  # Markdown escaped
+    assert f["Co-Storytelling"] == "Ja, vergeben · Ro\\_sa"  # Markdown escaped
     assert any("\\*Bob\\*" in v for v in f.values())
 
 
@@ -136,13 +136,14 @@ def test_emoji_name_is_valid():
 
 
 def test_co_storytelling_states():
-    """Co-Storytellen möglich: Nein (Standard) / Ja, frei / Ja, vergeben, dazu Freitext (Dalyan, 20.10.2026)."""
+    """Status plus optionaler Hinweis, immer „Status · Hinweis“ (Dalyan, 26.10.2026)."""
     from events.schema import EventData as ED
     from events.templates import co_st_text
     assert co_st_text(ED()) == "Nein"
     assert co_st_text(ED(co_st_status="open")) == "Ja, frei"
     assert co_st_text(ED(co_st_status="open", co_st_note="gern Neulinge")) == "Ja, frei · gern Neulinge"
-    assert co_st_text(ED(co_st_note="nach Absprache")) == "nach Absprache"
-    assert co_st_text(ED(co_st_status="taken", co_storyteller=Person("Rosa"))) == "Ja, vergeben (Rosa)"
-    # alte Daten: Name gesetzt, kein Status → vergeben
-    assert ED.from_dict({"co_storyteller": {"name": "Rosa", "user_id": None}}).co_st_status == "taken"
+    assert co_st_text(ED(co_st_note="nach Absprache")) == "Nein · nach Absprache"
+    assert co_st_text(ED(co_st_status="taken", co_st_note="Rosa")) == "Ja, vergeben · Rosa"
+    # alte Daten mit Co-ST-Name: „Ja, vergeben“, der Name wird zum Hinweis
+    old = ED.from_dict({"co_storyteller": {"name": "Rosa", "user_id": None}})
+    assert (old.co_st_status, old.co_st_note) == ("taken", "Rosa")

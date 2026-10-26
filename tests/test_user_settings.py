@@ -124,11 +124,10 @@ def test_settings_cards_and_dialogs(env):
     assert "Ja, frei · gern Neulinge" in texts(screens[-1]["view"])
 
 
-def test_taken_default_becomes_co_storyteller_name():
-    """Standard „Ja, vergeben“ mit Text: der Text ist der Name (Titel, Erinnerung), kein Hinweis."""
+def test_co_st_default_is_status_plus_note():
+    """Standard „Ja, vergeben“ mit Text: Hinweis hinter dem Status, nicht im Titel (Dalyan, 26.10.2026)."""
     from events.schema import EventData, Person, ScriptRef
     from events.templates import base_title, co_st_text
     data = EventData(storyteller=Person("Dalyan"), script=ScriptRef(kind="upload", name="Boozling"))
     UserDefaults(co_st_status="taken", co_st_note="Rosanna").apply(data)
-    assert data.co_storyteller.name == "Rosanna" and data.co_st_note == ""
-    assert co_st_text(data) == "Ja, vergeben (Rosanna)" and base_title(data) == "Boozling mit Dalyan und Rosanna"
+    assert co_st_text(data) == "Ja, vergeben · Rosanna" and base_title(data) == "Boozling mit Dalyan"

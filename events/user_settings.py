@@ -16,8 +16,6 @@ from dataclasses import asdict, dataclass
 from events.schema import (
     CAMERA_LABELS,
     CO_ST_LABELS,
-    CO_ST_TAKEN,
-    Person,
     DESCRIPTION_MAX_LENGTH,
     EventData,
 )
@@ -90,11 +88,7 @@ class UserDefaults:
         if self.co_st_status is not None:
             data.co_st_status = self.co_st_status
         if self.co_st_note:
-            if data.co_st_status == CO_ST_TAKEN:
-                # Bei „Ja, vergeben“ ist der Text der Name der Co-Storyteller:in (Titel, Erinnerung)
-                data.co_storyteller, data.co_st_note = Person(name=self.co_st_note[:50]), ""
-            else:
-                data.co_st_note = self.co_st_note
+            data.co_st_note = self.co_st_note
         return data
 
 

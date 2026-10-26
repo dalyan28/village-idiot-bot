@@ -517,8 +517,9 @@ Dritte Runde Feedback (20.10.2026):
   „Termin festlegen“ öffnet das Modal; danach wird dieselbe Nachricht zur Skript-Karte. Bei offenem Entwurf:
   „Entwurf fortsetzen“ / „Neu beginnen“. Buttons: DynamicItem `botc:<guild_id>:new|resume`.
 - **Co-Storytelling** (Dalyan, 20.10.2026): „Co-Storytellen möglich: Ja / Nein | frei / vergeben“. Status
-  `co_st_status` = Nein (Standard) / Ja, frei / Ja, vergeben, dazu ein Freitextfeld im Dialog „Leitung“: bei „vergeben“
-  der Name (geht in Titel und Reminder), sonst ein Hinweis (`co_st_note`). Anzeige z. B. „Ja, frei · gern Neulinge“.
+  `co_st_status` = Nein (Standard) / Ja, frei / Ja, vergeben, dazu ein optionaler Hinweis (`co_st_note`), immer
+  angezeigt als „Status · Hinweis“, z. B. „Ja, frei · gern Neulinge“. Kein Name, nicht im Titel, kein
+  Reminder-Empfänger (Dalyan, 26.10.2026). Kamera genauso: „Pflicht · Video an“.
 - **Skriptwahl überspringen** (Dalyan, 20.10.2026): „Später wählen“ auf der Skript-Karte führt direkt zur
   Zusammenfassung, dort steht das Skript als fehlend (roter Button).
 - **Titel und Beschreibung im Chat** (Dalyan, 20.10.2026): In beiden Dialogen gibt es „Lieber im Chat schreiben“
