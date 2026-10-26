@@ -18,7 +18,6 @@ from datetime import datetime
 import discord
 
 from events.schema import (
-    CAMERA_LABELS,
     RATING_GREEN,
     RATING_GREEN_YELLOW,
     RATING_RED,
@@ -29,7 +28,7 @@ from events.schema import (
     Person,
 )
 from events.service import RsvpLists
-from events.templates import BASE3_SCRIPT_URLS, co_st_text, full_description, full_title
+from events.templates import BASE3_SCRIPT_URLS, camera_text, co_st_text, full_description, full_title
 from logic.character_emojis import with_emoji
 from logic.script_cache import STATIC_DIR, load_characters
 
@@ -206,7 +205,7 @@ def _other_event_fields(embed: discord.Embed, data: EventData, organizer: str):
 
 def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for):
     embed.add_field(name="Storytelling", value=st, inline=True)
-    embed.add_field(name="Kamera", value=CAMERA_LABELS.get(data.camera, "-"), inline=True)
+    embed.add_field(name="Kamera", value=camera_text(data), inline=True)
     embed.add_field(name="Erfahrungslevel", value=data.level or "-", inline=True)
 
     co = co_st_text(data, _name(data.co_storyteller, name_for) if data.co_storyteller else None)

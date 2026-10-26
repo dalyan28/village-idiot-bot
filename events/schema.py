@@ -136,6 +136,7 @@ class EventData:
     is_recorded: bool = False
     is_other_event: bool = False   # Event ohne Clocktower (Dalyan, 20.10.2026): kein Skript, deutlich weniger Felder
     camera: str = DEFAULT_CAMERA
+    camera_note: str = ""          # eigener Hinweis zur Kamera (Dalyan, 26.10.2026)
     storyteller: Person | None = None
     co_storyteller: Person | None = None  # nur bei CO_ST_TAKEN: wer co-storytellt (Titel, Reminder)
     co_st_status: str = "no"              # CO_ST_NO / CO_ST_OPEN / CO_ST_TAKEN

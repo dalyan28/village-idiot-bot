@@ -77,8 +77,8 @@ def _small(text: str) -> str:
 def _botc_sections(container, section, d, draft):
     """Skript, Schwierigkeit, Leitung, Auswahl (nur bei Clocktower-Runden)."""
     from discord_ui import wizard as wz  # zirkulären Import vermeiden
-    from events.schema import CAMERA_LABELS, RATING_SOURCE_RATER, SCRIPT_BASE
-    from events.templates import LABEL_EMOJI, RATING_WORDS, co_st_text
+    from events.schema import RATING_SOURCE_RATER, SCRIPT_BASE
+    from events.templates import LABEL_EMOJI, RATING_WORDS, camera_text, co_st_text
 
     esc = discord.utils.escape_markdown
     # Skript
@@ -124,7 +124,7 @@ def _botc_sections(container, section, d, draft):
     container.add_item(discord.ui.Separator())
     container.add_item(section(_block("Auswahl", f"Labels: {_value(', '.join(labels) or 'keine')}",
                                       f"Level: {_value(d.level)}",
-                                      f"Kamera: {_value(CAMERA_LABELS[d.camera])}"), "selection"))
+                                      f"Kamera: {_value(camera_text(d))}"), "selection"))
 
 
 

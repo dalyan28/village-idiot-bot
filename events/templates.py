@@ -185,3 +185,12 @@ def co_st_text(data, name: str | None = None) -> str:
     if status == CO_ST_NO and note:
         return note  # reiner Freitext
     return f"{text} · {note}" if note else text
+
+
+def camera_text(data) -> str:
+    """Kamera als Text: „Keine Pflicht“ bzw. mit eigenem Hinweis „Keine Pflicht · gern mit Kamera“."""
+    from events.schema import CAMERA_LABELS
+
+    label = CAMERA_LABELS.get(data.camera, "-")
+    note = (data.camera_note or "").strip()
+    return f"{label} · {note}" if note else label

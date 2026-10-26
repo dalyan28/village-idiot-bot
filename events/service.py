@@ -102,6 +102,9 @@ def start_draft(store: Store, guild_id: int, actor: Actor, user_name: str, data:
     if data.is_academy:
         _require(actor, permissions.CREATE_ACADEMY, access)
     data = normalize(copy.deepcopy(data))
+    # Eigene Standardwerte der Person (Dalyan, 26.10.2026)
+    from events import user_settings
+    user_settings.get(store, guild_id, actor.user_id).apply(data)
     if data.storyteller is None:
         data.storyteller = Person(name=user_name, user_id=actor.user_id)
     errors = validate(data, now)
@@ -111,7 +114,10 @@ def start_draft(store: Store, guild_id: int, actor: Actor, user_name: str, data:
     for old in store.list_drafts(actor.user_id, guild_id):
         if old.event_id is None:
             store.delete_draft(old.id)
-    return store.create_draft(guild_id, actor.user_id, data, STEP_SCRIPT, int(now.timestamp()))
+    draft = store.create_draft(guild_id, actor.user_id, data, STEP_SCRIPT, int(now.timestamp()))
+    # Startwert für die Teensyville-Regel merken (zurück auf diesen Wert, wenn kein Teensyville mehr)
+    store.set_draft_ui(draft.id, {"base_players": data.max_players})
+    return store.get_draft(draft.id)
 
 
 def open_draft(store: Store, guild_id: int, user_id: int, now: datetime) -> Draft | None:
