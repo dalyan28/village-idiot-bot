@@ -564,6 +564,9 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
 - **S-Runde** (Nachmittag): Startzeit zwischen 12 und 16 Uhr → groß „S-Runde“ vor dem Titel, z. B. „S-Runde Boozling
   mit Dalyan“. Genaue Grenzen klären (Vormittag mit dabei?).
 - **T-Runde** (Nacht): Startzeit zwischen 23 und 2 Uhr → „T-Runde Boozling mit Dalyan“.
+- **Kurzfristige Abmeldung** (Dalyan, 26.10.2026, zurückgestellt): Abmeldung < 60 Minuten vor Beginn bei einer
+  Warteliste unter 2 Personen → automatischer Hinweis an den ST im Event-Thread; DM an Nachrückende von der
+  Warteliste.
 - **Storyteller-Briefing**: Im ersten Modal, bei den Optionen (Casual, Academy usw.), erscheint für Leute mit einer
   bestimmten Rolle zusätzlich „Storyteller-Briefing“. Wer das wählt, überspringt praktisch alle Schritte: Der Bot
   erstellt direkt ein Briefing-Event mit einem vorher ausgesuchten Template-Text, dem im Modal festgelegten Datum
