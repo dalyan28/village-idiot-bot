@@ -46,23 +46,34 @@ def my_events(store: Store, guild_id: int, user_id: int, now_: datetime) -> list
 
 
 def my_events_layout(store: Store, guild: discord.Guild, user_id: int, notice: str | None = None):
+    entries = []
+    for event, status in my_events(store, guild.id, user_id, now()):
+        url = (f"https://discord.com/channels/{event.guild_id}/{event.channel_id}/{event.message_id}"
+               if event.channel_id and event.message_id else None)
+        entries.append({"key": event.id, "title": full_title(event.data), "start_ts": int(event.data.start.timestamp()),
+                        "status": status, "url": url})
+    return my_events_card(guild.name, entries, notice, lambda entry: LeaveButton(entry["key"]))
+
+
+def my_events_card(guild_name: str, entries: list[dict], notice: str | None, make_button) -> discord.ui.LayoutView:
+    """Die Karte selbst. `entries`: dicts mit key, title, start_ts, status, url; `make_button(entry)` liefert
+    den „Abmelden“-Button (so lässt sich die Karte auch mit erfundenen Runden zeigen)."""
     esc = discord.utils.escape_markdown
-    entries = my_events(store, guild.id, user_id, now())
     container = discord.ui.Container(accent_colour=LIST_COLOR)
-    head = f"-# {esc(guild.name)}\n\n**Deine Anmeldungen**"
+    head = f"-# {esc(guild_name)}\n\n**Deine Anmeldungen**"
     if notice:
         head += f"\n{notice}"
     if not entries:
         head += "\nDu bist für keine kommende Runde angemeldet."
     container.add_item(discord.ui.TextDisplay(head))
-    for event, status in entries[:MAX_SHOWN]:
-        ts = int(event.data.start.timestamp())
-        title = esc(full_title(event.data))
-        if event.channel_id and event.message_id:
-            title = f"[{title}](https://discord.com/channels/{event.guild_id}/{event.channel_id}/{event.message_id})"
-        text = f"**{title}**\n<t:{ts}:F> · <t:{ts}:R>\nStatus: `{status}`"
+    for entry in entries[:MAX_SHOWN]:
+        ts = entry["start_ts"]
+        title = esc(entry["title"])
+        if entry.get("url"):
+            title = f"[{title}]({entry['url']})"
+        text = f"**{title}**\n<t:{ts}:F> · <t:{ts}:R>\nStatus: `{entry['status']}`"
         container.add_item(discord.ui.Separator())
-        container.add_item(discord.ui.Section(discord.ui.TextDisplay(text), accessory=LeaveButton(event.id)))
+        container.add_item(discord.ui.Section(discord.ui.TextDisplay(text), accessory=make_button(entry)))
     if len(entries) > MAX_SHOWN:
         container.add_item(discord.ui.TextDisplay(
             f"-# Dazu {len(entries) - MAX_SHOWN} weitere. Abmelden kannst du dich dort direkt im Event-Post."))

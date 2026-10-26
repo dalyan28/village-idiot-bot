@@ -17,6 +17,8 @@ import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from logic.script_cache import (
+    HTTP_HEADERS,
+    VOLUME_DIR,
     get_character_icon_path,
     get_jinxes_for_script,
     load_characters,
@@ -98,6 +100,57 @@ def _font(path, size):
 
 # ── Icon Loading ─────────────────────────────────────────────────────────────
 
+# Homebrew-Icons (URLs im Skript-JSON, oft imgur): einmal laden, auf dem Volume zwischenspeichern.
+# imgur antwortet auf die Standardkennung von python-requests mit 429, deshalb eigene Kennung
+# (HTTP_HEADERS). Fehler stehen als Warnung im Log statt still im Debug-Log (Dalyan, 26.10.2026).
+HOMEBREW_ICON_DIR = os.path.join(VOLUME_DIR, "homebrew_icons")
+MAX_ICON_BYTES = 5 * 1024 * 1024
+
+
+def _icon_cache_path(url: str) -> str:
+    import hashlib
+    return os.path.join(HOMEBREW_ICON_DIR, hashlib.sha1(url.encode("utf-8")).hexdigest() + ".img")
+
+
+def _fetch_icon(url: str) -> bytes | None:
+    path = _icon_cache_path(url)
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    try:
+        r = requests.get(url, headers=HTTP_HEADERS, timeout=10)
+    except requests.RequestException as e:
+        logger.warning("Homebrew-Icon nicht geladen: %s (%s)", url, e)
+        return None
+    if r.status_code != 200 or not r.content or len(r.content) > MAX_ICON_BYTES:
+        logger.warning("Homebrew-Icon nicht geladen: %s → HTTP %s", url, r.status_code)
+        return None
+    try:
+        os.makedirs(HOMEBREW_ICON_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(r.content)
+    except OSError:
+        logger.debug("Homebrew-Icon nicht zwischengespeichert: %s", url, exc_info=True)
+    return r.content
+
+
+def _prefetch_icons(content_data: dict):
+    """Alle Homebrew-Icons parallel vorladen (sonst bei 30 eigenen Charakteren über 10 Sekunden)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    urls = set()
+    for hw in content_data.values():
+        image = hw.get("image")
+        if isinstance(image, str):
+            urls.add(image)
+        elif isinstance(image, list):
+            urls.update(u for u in image if isinstance(u, str))
+    urls = [u for u in urls if u.startswith("http") and not os.path.exists(_icon_cache_path(u))]
+    if urls:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(_fetch_icon, urls))
+
+
 def _load_icon(char_id, evil=False, size=ICON_SIZE, icon_urls=None):
     """Lädt ein Icon: lokal zuerst, dann URL-Fallback für Homebrew."""
     icon_path = get_character_icon_path(char_id, evil=evil)
@@ -109,21 +162,21 @@ def _load_icon(char_id, evil=False, size=ICON_SIZE, icon_urls=None):
             pass
 
     if icon_urls:
+        # Laut Skript-Format ist das erste Bild das Standardbild des Charakters (bei Minions und Demons
+        # also schon das böse); weitere Bilder sind Varianten für die andere Gesinnung.
         url = None
-        if isinstance(icon_urls, list) and len(icon_urls) >= 2:
-            url = icon_urls[1] if evil else icon_urls[0]
-        elif isinstance(icon_urls, list) and len(icon_urls) == 1:
+        if isinstance(icon_urls, list) and icon_urls:
             url = icon_urls[0]
         elif isinstance(icon_urls, str):
             url = icon_urls
         if url:
-            try:
-                r = requests.get(url, timeout=10)
-                if r.status_code == 200:
-                    img = Image.open(io.BytesIO(r.content)).convert("RGBA")
+            data = _fetch_icon(url)
+            if data:
+                try:
+                    img = Image.open(io.BytesIO(data)).convert("RGBA")
                     return img.resize((size, size), Image.Resampling.LANCZOS)
-            except Exception as e:
-                logger.debug("Homebrew-Icon download failed for %s: %s", char_id, e)
+                except Exception as e:
+                    logger.warning("Homebrew-Icon für %s ist kein lesbares Bild: %s", char_id, e)
 
     return None
 
@@ -287,6 +340,7 @@ def _generate_sync(script_name, author, char_ids, version="", meta=None, content
                     "image": item.get("image"),
                 }
 
+    _prefetch_icons(content_data)
     cats = _categorize(char_ids, chars_db, content_data)
     jinxes = get_jinxes_for_script(char_ids)
     bootlegger_rules = (meta or {}).get("bootlegger", [])
