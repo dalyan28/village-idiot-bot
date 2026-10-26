@@ -564,6 +564,10 @@ Dritte Runde Feedback (20.10.2026):
   eingebaut → eigener Standard → Teensyville setzt immer 6 → Änderung im Entwurf. Ohne Teensyville wieder der
   Startwert des Entwurfs (`drafts.ui["base_players"]`). Übernommen beim Anlegen (`service.start_draft`).
   Kamera hat jetzt auch im Event einen eigenen Hinweis (`camera_note`).
+- **Nächtliches Aufräumen** (Dalyan, 26.10.2026): Um 2 Uhr (Europe/Berlin) löscht der Bot die Posts und
+  Erinnerungs-Threads aller beendeten Events. Die Daten bleiben wie bisher 30 Tage in der Datenbank (ohne
+  Nachricht, `clear_event_message`); ein beendetes Event ohne Post wird nicht neu gepostet. Der Wochenplan zeigt
+  ohnehin nur Kommendes. Für das Löschen der Threads braucht der Bot „Threads verwalten“.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`

@@ -213,6 +213,11 @@ class Store:
         ).fetchone()
         return self._event(row) if row else None
 
+    def clear_event_message(self, event_id: int):
+        """Post wurde entfernt (nächtliches Aufräumen): Event bleibt, aber ohne Nachricht."""
+        with self.conn:
+            self.conn.execute("UPDATE events SET channel_id = NULL, message_id = NULL WHERE id = ?", (event_id,))
+
     def set_event_message(self, event_id: int, channel_id: int, message_id: int):
         with self.conn:
             self.conn.execute(

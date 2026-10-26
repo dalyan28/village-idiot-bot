@@ -7,14 +7,14 @@ kurz vor Beginn angelegt) wird nachgeholt, solange das Event noch nicht begonnen
 import io
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, time
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 from discord_ui.conflicts import check_decisions
-from discord_ui.event_post import fetch_event_message
+from discord_ui.event_post import fetch_event_message, remove_ended_posts
 from events import guild_lock, reminders, service
 from events.schema import BERLIN_TZ, SCRIPT_BASE, SCRIPT_FREE, ScriptRef
 from events.store import EventRecord, Store
@@ -66,10 +66,12 @@ class ReminderCog(commands.Cog):
         self.store: Store = bot.store
         self.check_reminders.start()
         self.cleanup.start()
+        self.nightly_posts.start()
 
     def cog_unload(self):
         self.check_reminders.cancel()
         self.cleanup.cancel()
+        self.nightly_posts.cancel()
 
     # ── Schleifen ────────────────────────────────────────────────────────
 
@@ -119,6 +121,24 @@ class ReminderCog(commands.Cog):
 
     @cleanup.before_loop
     async def _before_cleanup(self):
+        await self.bot.wait_until_ready()
+
+    @tasks.loop(time=time(2, 0, tzinfo=BERLIN_TZ))
+    async def nightly_posts(self):
+        """Um 2 Uhr nachts: Posts und Erinnerungs-Threads beendeter Events löschen (Dalyan, 26.10.2026).
+        Die Daten bleiben noch 30 Tage in der Datenbank; der Wochenplan zeigt ohnehin nur Kommendes."""
+        t = now()
+        for guild_id in guild_lock.allowed_guild_ids():
+            try:
+                removed = await remove_ended_posts(self.bot, self.store, guild_id, t)
+            except Exception:
+                logger.exception("Nächtliches Aufräumen für Server %s fehlgeschlagen", guild_id)
+                continue
+            if removed:
+                logger.info("Nächtliches Aufräumen: %d Event-Posts entfernt (Server %s)", removed, guild_id)
+
+    @nightly_posts.before_loop
+    async def _before_nightly(self):
         await self.bot.wait_until_ready()
 
     # ── Senden ───────────────────────────────────────────────────────────
