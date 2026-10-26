@@ -13,6 +13,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from discord_ui.conflicts import check_decisions
 from discord_ui.event_post import fetch_event_message
 from events import guild_lock, reminders, service
 from events.schema import BERLIN_TZ, SCRIPT_BASE, SCRIPT_FREE, ScriptRef
@@ -88,6 +89,11 @@ class ReminderCog(commands.Cog):
                         await self.send_reminder(event, cfg)
                     except Exception:
                         logger.exception("Reminder %s für Event %s fehlgeschlagen", cfg.key, event.id)
+            # Doppelanmeldungen: Entscheidungs-DM 3 Stunden vor der frühesten Runde (Dalyan, 26.10.2026)
+            try:
+                await check_decisions(self.bot, self.store, guild_id, t)
+            except Exception:
+                logger.exception("Doppelanmeldungen für Server %s nicht geprüft", guild_id)
 
     @check_reminders.before_loop
     async def _before_reminders(self):
