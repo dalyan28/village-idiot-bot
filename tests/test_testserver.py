@@ -264,11 +264,14 @@ _ids = itertools.count(5000)
 
 
 class FakeMsg:
-    def __init__(self, channel, content):
-        self.id, self.channel, self.content = next(_ids), channel, content
+    def __init__(self, channel, content, view=None):
+        self.id, self.channel, self.content, self.view = next(_ids), channel, content, view
 
-    async def edit(self, content=None, allowed_mentions=None):
-        self.content = content
+    async def edit(self, content=None, allowed_mentions=None, view=None):
+        if view is not None:
+            self.view = view
+        else:
+            self.content = content
 
     async def delete(self):
         self.channel.messages.pop(self.id, None)
@@ -292,8 +295,8 @@ class FakeTextChannel:
         if self.category:
             self.category.channels.remove(self)
 
-    async def send(self, content=None, allowed_mentions=None, **kw):
-        msg = FakeMsg(self, content)
+    async def send(self, content=None, allowed_mentions=None, view=None, **kw):
+        msg = FakeMsg(self, content, view)
         self.messages[msg.id] = msg
         return msg
 
@@ -379,13 +382,24 @@ def test_setup_is_repeatable_and_registers_channels(ts):
     assert access.storyteller_role_id == reg["roles"]["storyteller"]
     assert access.event_team_role_id == reg["roles"]["event_team"]
     welcome = guild.get_channel(reg["channels"]["welcome"])
-    posts = [m.content for m in welcome.messages.values()]
-    # Willkommen, dann Features (zwei Posts, weil über 2000 Zeichen); jeder Text mit Absender
-    assert len(posts) == 3 and [p.startswith(texts.FROM_DALYAN) for p in posts] == [True, True, False]
-    assert "**Commands**" in posts[0] and "**Was schon drin ist**" in posts[1]
-    for key in ("events", "overview", "feedback", "texts", "chat"):
-        assert f"<#{reg['channels'][key]}>" in posts[0], key
-    assert "{" not in "".join(posts)
+    msgs = list(welcome.messages.values())
+    # Kurze Willkommensnachricht, darunter die Test-Karte (Dalyan, 26.10.2026)
+    assert len(msgs) == 2 and msgs[0].content.startswith(texts.FROM_DALYAN) and msgs[1].view is not None
+    assert f"<#{reg['channels']['feedback']}>" in msgs[0].content and "{" not in msgs[0].content
+    card = " ".join(i.content for i in msgs[1].view.walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert f"<#{reg['channels']['events']}>" in card
+    ids = [getattr(i, "item", i).custom_id for i in msgs[1].view.walk_children()
+           if isinstance(getattr(i, "item", i), discord.ui.Button)]
+    assert ids == ["tsc:create", "tsc:sample", "tsc:myevents", "tsc:double", "tsc:reminder"]
+
+    # Erneut: Beiträge werden bearbeitet, überzählige gelöscht, die Karte bleibt am Ende
+    extra = run(welcome.send("alter Feature-Text"))
+    reg = registry.get(bot.store, GUILD)
+    reg["messages"]["welcome"] = reg["messages"]["welcome"] + [extra.id]
+    registry.save(bot.store, GUILD, reg)
+    run(server.update_texts(guild, bot.store, only="welcome"))
+    msgs_after = list(welcome.messages.values())
+    assert [m.id for m in msgs_after] == [m.id for m in msgs]  # gleiche Nachrichten, nur bearbeitet
     assert guild.get_channel(reg["channels"]["chat"]).overwrites[guild.default_role].send_messages is True
 
     # Readonly-Channels: niemand außer dem Bot schreibt; im Feedback-Channel schon
@@ -508,13 +522,12 @@ def test_welcome_lists_only_existing_commands(ts):
     names = run(go())
     import re
     listed = list(dict.fromkeys(re.findall(r"`/([a-z_-]+(?: [a-z_-]+)?)`", texts.WELCOME)))
-    assert listed == ["botc", "testserver beispiel-event", "meine_events", "testserver reset", "testserver setup",
-                      "testserver update", "testserver delete_all"]
+    assert listed == ["botc"]  # Willkommen nennt nur /botc, der Rest steht auf der Test-Karte
     assert set(listed) <= set(names)
 
 
 def test_texts_follow_style():
-    for text in (texts.WELCOME, texts.FEATURES, texts.FEEDBACK_INTRO, texts.CHAT_INTRO):
+    for text in (texts.WELCOME, texts.FEEDBACK_INTRO, texts.CHAT_INTRO):
         assert "—" not in text and "–" not in text and text.count("!") == 0
         assert text.startswith("-# Nachricht von Dalyan\n")
         assert all(len(part) <= server.MESSAGE_LIMIT for part in server.split_message(text))
@@ -543,7 +556,8 @@ def test_texts_channel_copies_match_code():
     posts = bot_texts.posts()
     assert posts[0].startswith(texts.FROM_DALYAN) and "relevanten Texte" in posts[0]
     assert len(posts) == 1 + len(bot_texts.GROUPS)
-    assert all(len(p) <= server.MESSAGE_LIMIT for p in posts[:-1])  # Academy-Text darf geteilt werden
+    # Lange Gruppen werden beim Posten an Absätzen geteilt
+    assert all(len(part) <= server.MESSAGE_LIMIT for p in posts for part in server.split_message(p))
     assert "Clocktower Academy" in posts[-1]
 
 
@@ -603,3 +617,29 @@ def test_text_channel_key_only_for_text_channels():
     assert server.text_channel_key(store, 1, 10) == "welcome"
     assert server.text_channel_key(store, 1, 20) is None  # Event-Channel hat keine festen Texte
     assert server.text_channel_key(store, 1, 99) is None
+
+
+def test_test_card_previews_use_fake_data():
+    """[Dev]-Buttons: erfundene Runden und Leute, nichts Echtes wird geändert, niemand gepingt."""
+    from testserver import test_card
+
+    def texts_of(view):
+        return " ".join(i.content for i in view.walk_children() if isinstance(i, discord.ui.TextDisplay))
+
+    msgs = test_card._reminder_messages()
+    assert len(msgs) == 3 and "<@" not in msgs[0]["content"] and "Anna" in msgs[0]["content"]
+    assert msgs[2]["file"].filename == "anwesenheit.txt"
+
+    screens = []
+
+    async def edit_message(**kw):
+        screens.append(kw)
+    inter = SimpleNamespace(guild=SimpleNamespace(name="Test"), guild_id=GUILD,
+                            response=SimpleNamespace(edit_message=edit_message))
+    run(test_card.TestCardButton("leave", 1, 0b111).callback(inter))
+    shown = texts_of(screens[-1]["view"])
+    assert "abgemeldet" in shown and "Test: Es wurde nichts geändert." in shown
+    assert "Trouble Brewing" not in shown.split("abgemeldet", 1)[1]  # aus der Liste raus
+
+    run(test_card.TestCardButton("choose", 0).callback(inter))
+    assert "Erledigt: Du spielst **Boozling mit Mara**" in texts_of(screens[-1]["view"])

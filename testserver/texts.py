@@ -9,62 +9,31 @@ FROM_DALYAN = "-# Nachricht von Dalyan"
 RATER_URL = "https://widow-botc.com/script-check"  # Link zum ScriptRater, erste Erwähnung im Willkommenstext
 
 WELCOME = FROM_DALYAN + """
-**Hey, schön dass ihr da seid.**
-Nachdem sich Apollo verändert hat, haben wir beschlossen, einen eigenen Bot für die Event-Erstellung zu schreiben. Daran sitze ich schon eine ganze Weile (daher kam übrigens auch der [Widow ScriptRater]({rater_url}), mein Tool zum Einstufen von Skripten). Jetzt bin ich bei ungefähr 95 % und würde mich sehr freuen, wenn ihr mit mir drüberschaut und mir ehrlich Feedback gebt. Ich bin da komplett schmerzbefreit und hänge an nichts. Alles darf sich ändern.
+**Hey, das ist der neue Event-Bot für unseren Discord.**
+Mit `/botc` legt ihr ein neues Event an. Mit den Knöpfen unten könnt ihr außerdem Dinge ausprobieren, die sonst erst später oder nur bei anderen passieren, zum Beispiel Erinnerungen oder DMs.
 
-**Commands**
-`/botc` neue Runde anlegen. Wie der Rest funktioniert, seht ihr dann schon.
-`/testserver beispiel-event` ein volles Beispiel-Event mit 23 erfundenen Anmeldungen posten
-`/meine_events` sehen, wofür ihr angemeldet seid, und euch direkt abmelden
+Feedback gern über den Button **Feedback**, den ihr an jeder Karte findet, oder direkt in {feedback}. Vielen Dank fürs Mitmachen."""
 
-Die Testserver-Commands braucht ihr in der Regel nicht, die sind eher für mich:
-`/testserver reset` Event-Channel leeren, alle Runden und Entwürfe weg
-`/testserver setup` Channels und Texte hier auffrischen
-`/testserver update` die Texte im aktuellen Channel auffrischen
-`/testserver delete_all` löscht alle Channels, Rollen und Runden hier. Bitte nicht benutzen, das brauche ich nur, um am Ende alles zu wipen. Kaputt machen könnt ihr damit aber nichts: Mit `/testserver setup` ist der Server wieder eingerichtet. Und schlau wie ich war, wird der Feedback-Channel nicht gelöscht.
+# Test-Karte unter der Willkommensnachricht (testserver/test_card.py)
+TEST_CARD = """**Ausprobieren**
+**Event erstellen**
+-# Startet `/botc`, falls ihr den Command nicht tippen wollt.
+**[Dev] Beispiel-Event posten**
+-# Postet in {events} ein Event mit 23 erfundenen Anmeldungen. So seht ihr volle Listen und die Warteliste.
+**[Dev] Meine Events ansehen**
+-# Zeigt, wie `/meine_events` aussieht, wenn man für mehrere Runden angemeldet ist. Mit dem Command seht ihr eure echten Anmeldungen und könnt euch direkt abmelden.
+**[Dev] Doppelanmeldung testen**
+-# Schickt euch die DM, die man 3 Stunden vor Beginn bekommt, wenn man für zwei Runden zur gleichen Zeit zugesagt hat.
+**[Dev] Erinnerung ansehen**
+-# Schickt euch die Erinnerung, die 15 Minuten vor Start im Thread unter dem Event kommt, mit Skript und Anwesenheitsliste.
 
-**Channels**
-{events} hier landen die Runden
-{overview} hier landet der Wochenplan
-{feedback} hier landet euer Feedback. An jeder Karte im Bot und an jedem Post gibt's dafür den Button **Feedback**, ihr könnt aber auch direkt reinschreiben.
-{texts} die Texte, die der Bot schickt, zum Gegenlesen
-{chat} zum Yappen
-
-Was schon drin ist und was noch offen ist, steht hier drunter.
-
-Vielen Dank für eure Hilfe."""
-
-FEATURES = FROM_DALYAN + """
-**Was schon drin ist**
-
-**Event-Ersteller**
-Mit `/botc` geht's los, wie das genau funktioniert, könnt ihr gerne selbst erforschen. Angefangene Entwürfe bleiben 24 Stunden gespeichert. Runden anlegen darf die Storyteller-Rolle, alle Runden verwalten darf das Event-Team. Admins dürfen natürlich immer alles. Die Rollen könnt ihr selbstverständlich frei wählen und benennen, es geht nur darum, dass sich diese Rechte an eine Rolle binden lassen (`/set_event_roles`).
-
-**Skripte und Schwierigkeit**
-botcscripts.com ist direkt angebunden, ihr könnt Skripte dort suchen und die Version wählen. Außerdem gehen die Basis-Skripte, freie Skriptwahl oder ein eigenes JSON. Die Schwierigkeit kommt vom ScriptRater und lässt sich jederzeit überschreiben. Uns ist ja schon aufgefallen, dass der ScriptRater noch nicht perfekt ist. Da arbeite ich dran, das ist aber ein etwas größeres Projekt. Homebrew, Lorics und ähnliche Abweichungen erkennt der Bot und setzt ⭐. Teensyville erkennt er auch und stellt die Spielerzahl auf 6.
-
-**Skript-Bilder**
-Aus jedem Skript, auch einem hochgeladenen, baut der Bot automatisch ein Bild für den Post. Das Design ist noch nicht final, aber ich bin happy genug damit, dass ich es schon rausgeben würde. Feedback dazu gern, ich bin kein Designer (auch wenn ich es ein paar Semester studiert hab, lol).
-
-**Academy**
-Die Option Academy sieht beim Anlegen nur, wer die Freigabe hat. Hier auf dem Testserver habt ihr volle Rechte, deshalb seht ihr alles. Bei Academy ist schon eine Beschreibung vorausgefüllt. Dafür hab ich die Vorlage genommen, die mal im Umlauf war, die kann man aber ändern. Statt Vorläufig gibt es Auffüller.
-
-**Der Post**
-Die Pflichtangaben, die bisher in der Beschreibung stehen, sind jetzt eigene Felder, und der Bot füllt sie aus dem Dialog. Die Farbe am Rand richtet sich nach der Schwierigkeit.
--# Zum Nachdenken: Brauchen wir all diese Felder? Und brauchen wir den Absagen-Button überhaupt, was bringt der eigentlich?
-
-**Erinnerungen**
-15 Minuten vor Start macht der Bot einen Thread am Post auf, pingt alle an, wie ihr es von Apollo kennt, und postet für den Storyteller das Skript als JSON und die Anwesenheitsliste als TXT zum Abhaken.
-
-**Wochenplan**
-Rückwärtskompatibel mit Apollo. Fällt einer der beiden Bots aus, kann man einfach den anderen nehmen.
-
-**Was noch offen ist**
-**Storyteller-Briefings**: Briefing mit einem Klick aus fester Vorlage, kommt auf jeden Fall noch
-**Meine Runden**: sehen, wo man angemeldet ist, und direkt umstellen
-**Server-Insider**: Srunden und Trunden automatisch nach Startzeit erkennen und in den Titel packen
-**Streaming**: als Option mit Hinweis in der Beschreibung (für unsere Twitch-Streamer). Vielleicht wäre ein Emoji dafür cooler, als groß „Streaming“ hinzuschreiben.
-**Website** (optional, fänd ich aber cool): Runden auch über die Widow-Website anlegen und verwalten, synchron mit Discord. Was ihr dort ändert, steht sofort im Post und umgekehrt."""
+-# Alles mit [Dev] nutzt erfundene Daten. Eure echten Anmeldungen bleiben unverändert, und niemand wird angepingt."""
+TEST_SEE_DMS = "Schau in deine DMs."
+TEST_DM_CLOSED = ("Ich kann dir keine DM schicken. Erlaube DMs von Servermitgliedern "
+                  "(Servereinstellungen → Privatsphäre) und versuch es dann erneut.")
+TEST_REMINDER_NOTE = ("-# Vorschau mit erfundenen Leuten: So sieht die Erinnerung im Thread unter dem Event aus. "
+                      "Dort werden alle angepingt.")
+TEST_MY_EVENTS_NOTE = "-# Vorschau mit erfundenen Runden. Deine echten Anmeldungen siehst du mit `/meine_events`."
 
 CHAT_INTRO = FROM_DALYAN + """
 Unser allgemeiner Chat. Hier können wir uns über alles Mögliche unterhalten."""

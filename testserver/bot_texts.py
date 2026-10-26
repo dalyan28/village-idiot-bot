@@ -54,6 +54,8 @@ COPIED = [
      "Bearbeiten dürfen nur der Ersteller und das Event-Team.", "discord_ui/event_post.py"),
     ("Am Post", "Löschen",
      "Soll dieses Event wirklich gelöscht werden?", "discord_ui/event_post.py"),
+    ("Anmeldungen", "/meine_events ohne Anmeldungen",
+     "Du bist für keine kommende Runde angemeldet.", "discord_ui/my_events.py"),
 ]
 
 
@@ -92,7 +94,35 @@ def generated() -> list[tuple[str, str, str]]:
     from events.schema import EventData, ScriptRef
 
     event = EventData(start=when, storyteller=Person("Dalyan", 3), script=ScriptRef(kind="base", name="Boozling"))
+
+    # Wizard-Karten, die nur in bestimmten Momenten kommen
+    from discord_ui import wizard
+    from discord_ui.layout_v2 import chat_wait_layout, kind_layout
+
+    def card_text(layout) -> str:
+        return "\n".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
+
+    fake_bot = SimpleNamespace(get_guild=lambda gid: guild)
+    draft = SimpleNamespace(id=1, guild_id=guild.id, event_id=None, data=EventData(),
+                            ui={wizard.AWAIT_KEY: {"field": "description"}})
+    kind = card_text(kind_layout(fake_bot, draft))
+    chat = card_text(chat_wait_layout(fake_bot, draft))
+    soon = datetime(2026, 10, 1, 12, 0, tzinfo=BERLIN_TZ)
+    far = EventData(start=datetime(2027, 4, 1, 20, 0, tzinfo=BERLIN_TZ), duration_minutes=600)
+    warnings = "\n".join(wizard.plausibility_warnings(far, soon))
+
+    # Doppelanmeldung: Hinweis beim Zusagen und Entscheidungs-DM (erfundene Runden)
+    from discord_ui.conflicts import signup_hint
+    from testserver.test_card import _double_view, fake_double_group
+    group = fake_double_group()
+    double_hint = signup_hint(group[1], group)
+    double_dm = card_text(_double_view())
     return [
+        ("Im Wizard", "Skriptwahl übersprungen", kind),
+        ("Im Wizard", "Titel oder Beschreibung im Chat schreiben", chat),
+        ("Im Wizard", "Ungewöhnlicher Termin oder ungewöhnliche Dauer", f"**Kurz prüfen**\n{warnings}"),
+        ("Anmeldungen", "Zusage zu zwei Runden zur gleichen Zeit (nur für dich sichtbar)", double_hint),
+        ("Anmeldungen", "DM 3 Stunden vor der früheren Runde", double_dm),
         ("Runde anlegen", "Startnachricht in den DMs", start),
         ("Runde anlegen", "Ohne Storyteller-Rolle", with_role),
         ("Runde anlegen", "Noch keine Storyteller-Rolle eingestellt", no_role),
@@ -103,7 +133,7 @@ def generated() -> list[tuple[str, str, str]]:
     ]
 
 
-GROUPS = ["Runde anlegen", "Im Wizard", "Am Post", "Erinnerungen", "Academy"]
+GROUPS = ["Runde anlegen", "Im Wizard", "Am Post", "Anmeldungen", "Erinnerungen", "Academy"]
 
 
 def posts() -> list[str]:

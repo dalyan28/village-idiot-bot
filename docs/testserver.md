@@ -23,6 +23,11 @@ Nur auf Branch `testserver`. Der Branch wird nicht gemergt, sondern nach dem Tes
 Die Commands laufen nur für Admins (Server verwalten) und nur auf Servern aus `TEST_GUILD_IDS`. Überall sonst
 antworten sie mit einem Hinweis und tun nichts.
 
+- **Willkommen** (Dalyan, 26.10.2026): kurze Nachricht, darunter die Test-Karte (`testserver/test_card.py`) mit
+  „Event erstellen“ und den [Dev]-Buttons Beispiel-Event, Meine Events, Doppelanmeldung und Erinnerung. Die
+  [Dev]-Buttons nutzen erfundene Daten, ändern nichts und pingen niemanden. `/testserver update` bzw. `setup`
+  bearbeiten vorhandene Beiträge, löschen überzählige und hängen fehlende an; die Karte bleibt am Ende.
+
 ## Variablen
 
 Neu (in `.env` bzw. beim Railway-Service eintragen):
