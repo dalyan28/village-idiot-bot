@@ -101,12 +101,19 @@ def test_settings_cards_and_dialogs(env):
         screens.append(kw)
     inter = SimpleNamespace(client=bot, user=SimpleNamespace(id=USER), response=SimpleNamespace(edit_message=edit_message))
 
-    modal = ui.FrameDefaultModal(bot.guild, UserDefaults())
-    modal.players._value, modal.duration._value = "300", ""
+    # Jedes Feld einzeln mit eigenem „Ändern“
+    actions = [s.accessory.custom_id.split(":")[2] for s in card.walk_children() if isinstance(s, discord.ui.Section)]
+    assert actions == ["description", "players", "duration", "level", "camera", "cost"]
+
+    modal = ui.PlayersDefaultModal(bot.guild, UserDefaults())
+    modal.players._value = "300"
     run(modal.on_submit(inter))
     assert "zwischen 1 und 200" in texts(screens[-1]["view"]) and user_settings.get(bot.store, GUILD, USER).is_empty()
 
-    modal.players._value, modal.duration._value = "8", "200"
+    modal.players._value = "8"
+    run(modal.on_submit(inter))
+    modal = ui.DurationDefaultModal(bot.guild, UserDefaults())
+    modal.duration._value = "200"
     run(modal.on_submit(inter))
     assert user_settings.get(bot.store, GUILD, USER) == UserDefaults(max_players=8, duration_minutes=200)
     assert "`8`" in texts(screens[-1]["view"]) and "Gespeichert." in texts(screens[-1]["view"])

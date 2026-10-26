@@ -556,7 +556,8 @@ Dritte Runde Feedback (20.10.2026):
   Vermerkt in `event_reminders` (`conflict:<user_id>`), läuft in der Reminder-Schleife. Ohne Kulanz bei kurzen
   Überschneidungen (bei Bedarf später).
 - **Eigene Standardwerte** (Dalyan, 26.10.2026): `/einstellungen` zeigt eine Übersicht, darin „Standardwerte“
-  (Beschreibung, max. Spieler, Dauer, Erfahrungslevel, Kamera mit eigenem Hinweis, Co-Storytelling mit Hinweis).
+  (Beschreibung, max. Spieler, Dauer, Erfahrungslevel, Kamera mit eigenem Hinweis, Co-Storytelling mit Hinweis),
+  jedes Feld einzeln mit eigenem „Ändern“ und eigenem Dialog.
   Pro Person und Server in `user_settings` (JSON mit Version, jedes Feld einzeln geprüft, kaputte Felder fallen
   auf den eingebauten Standard zurück; Aufräumen, Reset und Delete All fassen die Tabelle nicht an). Rangfolge:
   eingebaut → eigener Standard → Teensyville setzt immer 6 → Änderung im Entwurf. Ohne Teensyville wieder der
