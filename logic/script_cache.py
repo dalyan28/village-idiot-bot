@@ -220,10 +220,14 @@ def get_character_icon_path(char_id: str, evil: bool = False) -> str | None:
 # ── TPI Update ───────────────────────────────────────────────────────────────
 
 
+# Eigene Kennung: Manche Hoster (z. B. imgur) blocken die Standardkennung von python-requests
+HTTP_HEADERS = {"User-Agent": "VillageIdiotBot/1.0 (+https://github.com/dalyan28/village-idiot-bot)"}
+
+
 def _download_file(url: str, timeout: int = 15, silent: bool = False) -> bytes | None:
     """Lädt eine Datei von einer URL. Returns bytes oder None."""
     try:
-        r = requests.get(url, timeout=timeout)
+        r = requests.get(url, timeout=timeout, headers=HTTP_HEADERS)
         if r.status_code == 200:
             return r.content
         if not silent:
