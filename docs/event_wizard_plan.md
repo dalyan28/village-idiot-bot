@@ -579,6 +579,9 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
   (gilt dann als entschuldigt). Unentschuldigte Vorfälle werden gezählt (z. B. 90 Tage), ab einer Schwelle
   bekommt das Serverteam einen Hinweis; Bericht nur für das Team. Datensparsam, automatische Löschung.
   Offen: wer markiert, Schwelle und Zeitraum, Team-Kanal.
+- **Tägliche Datenbank-Sicherung** (Dalyan, 26.10.2026, zurückgestellt): einmal am Tag eine Kopie der
+  SQLite-Datenbank (Events, Anmeldungen, Einstellungen), wahrscheinlich als Datei in einen privaten Admin-Kanal,
+  damit sie auch einen Verlust des Railway-Volumes übersteht. Vorlage: DB-Backups im Ratcon-Bot.
 - **Storyteller-Briefing**: Im ersten Modal, bei den Optionen (Casual, Academy usw.), erscheint für Leute mit einer
   bestimmten Rolle zusätzlich „Storyteller-Briefing“. Wer das wählt, überspringt praktisch alle Schritte: Der Bot
   erstellt direkt ein Briefing-Event mit einem vorher ausgesuchten Template-Text, dem im Modal festgelegten Datum
