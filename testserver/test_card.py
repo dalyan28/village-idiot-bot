@@ -58,7 +58,7 @@ def _day(days: int, hour: int) -> datetime:
 
 def fake_my_events() -> list[dict]:
     return [
-        {"key": 0, "title": "🟡 Boozling mit Mara und Theo", "start_ts": int(_day(2, 20).timestamp()),
+        {"key": 0, "title": "🟡 Boozling mit Mara", "start_ts": int(_day(2, 20).timestamp()),
          "status": "Zugesagt", "url": None},
         {"key": 1, "title": "💚 Trouble Brewing mit Dalyan", "start_ts": int(_day(4, 19).timestamp()),
          "status": "Warteliste, Platz 2", "url": None},

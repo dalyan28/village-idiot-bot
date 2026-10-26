@@ -491,7 +491,7 @@ def test_welcome_lists_only_existing_commands(ts):
         bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
         bot.store = flow.Store(":memory:")
         for ext in ("commands.settings", "commands.overview", "commands.event_settings", "commands.botc",
-                    "commands.reminder", "commands.my_events", "commands.test_server"):
+                    "commands.reminder", "commands.my_events", "commands.user_settings", "commands.test_server"):
             await bot.load_extension(ext)
         names = []
         for c in bot.tree.get_commands():
@@ -502,7 +502,7 @@ def test_welcome_lists_only_existing_commands(ts):
     names = run(go())
     import re
     listed = list(dict.fromkeys(re.findall(r"`/([a-z_-]+(?: [a-z_-]+)?)`", texts.WELCOME)))
-    assert listed == ["botc"]  # Willkommen nennt nur /botc, der Rest steht auf der Test-Karte
+    assert listed == ["botc", "einstellungen"]  # der Rest steht auf der Test-Karte
     assert set(listed) <= set(names)
 
 
@@ -583,7 +583,7 @@ def test_sample_event_is_full_and_created_once(ts):
     msg = bot.channel.messages[event.message_id]
     fields = " ".join(f"{f.name} {f.value}" for f in msg.embed.fields)
     assert "Anna" in fields and "Olivia" in fields and "<@" not in fields
-    assert msg.embed.title.endswith("Boozling mit Mara und Theo")
+    assert msg.embed.title.endswith("Boozling mit Mara")  # Co-ST steht nicht im Titel
     assert "Dalyan" not in fields and "Rosanna" not in fields  # nur erfundene Namen
 
     # Zweites Setup: das Beispiel bleibt, kein zweites
