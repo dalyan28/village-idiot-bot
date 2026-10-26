@@ -158,9 +158,12 @@ async def fetch_event_message(bot: discord.Client, event: EventRecord) -> discor
 
 async def update_event_message(bot: discord.Client, store: Store, event: EventRecord,
                                images_changed: bool) -> discord.Message | None:
-    """Bringt den Event-Post auf den Stand der Datenbank. Fehlt die Nachricht, wird neu gepostet."""
+    """Bringt den Event-Post auf den Stand der Datenbank. Fehlt die Nachricht, wird neu gepostet
+    (außer das Event ist schon vorbei: dessen Post hat das nächtliche Aufräumen entfernt)."""
     msg = await fetch_event_message(bot, event)
     if msg is None:
+        if event.data.end is not None and event.data.end <= now():
+            return None
         return await post_event(bot, store, event)
     if images_changed:
         files = await build_files(event.data)
@@ -170,6 +173,38 @@ async def update_event_message(bot: discord.Client, store: Store, event: EventRe
         content = await render_post(bot, store, event, *_shown_images(msg))
         await msg.edit(**content)
     return msg
+
+
+async def remove_post(bot: discord.Client, store: Store, event: EventRecord) -> bool:
+    """Löscht den Event-Post samt Erinnerungs-Thread. Das Event bleibt in der Datenbank (30 Tage)."""
+    msg = await fetch_event_message(bot, event)
+    if msg is not None:
+        thread = msg.thread
+        if thread is not None:
+            try:
+                await thread.delete()
+            except discord.HTTPException as e:
+                logger.warning("Thread von Event %s nicht gelöscht: %s", event.id, e)
+        try:
+            await msg.delete()
+        except discord.NotFound:
+            pass
+        except discord.HTTPException as e:
+            logger.warning("Post von Event %s nicht gelöscht: %s", event.id, e)
+            return False
+    store.clear_event_message(event.id)
+    return True
+
+
+async def remove_ended_posts(bot: discord.Client, store: Store, guild_id: int, t: datetime) -> int:
+    """Posts aller beendeten Events dieses Servers entfernen (Ende vor `t`)."""
+    removed = 0
+    for event in store.list_events(guild_id, start_until=int(t.timestamp())):
+        if event.message_id is None or event.data.end is None or event.data.end > t:
+            continue
+        if await remove_post(bot, store, event):
+            removed += 1
+    return removed
 
 
 def images_changed(old_data, new_data) -> bool:
