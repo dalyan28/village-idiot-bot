@@ -548,6 +548,13 @@ Dritte Runde Feedback (20.10.2026):
   sie zugesagt hat (mit Warteliste-Platz) oder vorläufig ist, je Event ein Abschnitt mit Link zum Post und
   „Abmelden“ daneben (DynamicItem `leave:<event_id>`). Abmelden aktualisiert Event-Post und Liste. Höchstens 10
   Events (Grenze von 40 Komponenten), danach ein Hinweis.
+- **Doppelanmeldungen** (Dalyan, 26.10.2026): Zwei Zusagen (inkl. Warteliste, ohne „vorläufig“) zu
+  Clocktower-Runden gelten als zeitgleich, wenn sich die Zeiträume (Beginn bis Beginn + Dauer) überschneiden; Events
+  ohne Clocktower zählen nicht. Ketten (A–B, B–C) bilden eine Gruppe. Beim Zusagen ein Hinweis (nur für die Person)
+  mit Link auf die „Regeln zum Anmelden für BotC-Runden“; 3 Stunden vor Beginn der frühesten Runde einmal eine DM
+  „Für welche entscheidest du dich?“ mit einem Button je Runde (`dbl:<event_id>`), der von den anderen abmeldet.
+  Vermerkt in `event_reminders` (`conflict:<user_id>`), läuft in der Reminder-Schleife. Ohne Kulanz bei kurzen
+  Überschneidungen (bei Bedarf später).
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
@@ -564,6 +571,14 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
 - **S-Runde** (Nachmittag): Startzeit zwischen 12 und 16 Uhr → groß „S-Runde“ vor dem Titel, z. B. „S-Runde Boozling
   mit Dalyan“. Genaue Grenzen klären (Vormittag mit dabei?).
 - **T-Runde** (Nacht): Startzeit zwischen 23 und 2 Uhr → „T-Runde Boozling mit Dalyan“.
+- **Kurzfristige Abmeldung** (Dalyan, 26.10.2026, zurückgestellt): Abmeldung < 60 Minuten vor Beginn bei einer
+  Warteliste unter 2 Personen → automatischer Hinweis an den ST im Event-Thread; DM an Nachrückende von der
+  Warteliste.
+- **No-Shows** (Dalyan, 26.10.2026, zurückgestellt): Nach dem Event markiert der ST, wer nicht erschienen ist
+  (Grundlage: Anwesenheitsliste). Die Person bekommt eine freundliche DM mit „Kurze Nachricht an den ST“
+  (gilt dann als entschuldigt). Unentschuldigte Vorfälle werden gezählt (z. B. 90 Tage), ab einer Schwelle
+  bekommt das Serverteam einen Hinweis; Bericht nur für das Team. Datensparsam, automatische Löschung.
+  Offen: wer markiert, Schwelle und Zeitraum, Team-Kanal.
 - **Storyteller-Briefing**: Im ersten Modal, bei den Optionen (Casual, Academy usw.), erscheint für Leute mit einer
   bestimmten Rolle zusätzlich „Storyteller-Briefing“. Wer das wählt, überspringt praktisch alle Schritte: Der Bot
   erstellt direkt ein Briefing-Event mit einem vorher ausgesuchten Template-Text, dem im Modal festgelegten Datum
