@@ -106,59 +106,66 @@ def full_title(data: EventData) -> str:
     return f"{prefix} {title}" if prefix else title
 
 
-def full_description(data: EventData) -> str:
-    """Eigener Text des Erstellers; bei Academy folgt der feste Academy-Text."""
+def full_description(data: EventData, academy_template: str | None = None) -> str:
+    """Eigener Text des Erstellers; bei Academy folgt der Academy-Text (Vorlage des Servers oder eingebaut)."""
     parts = [data.description.strip()] if data.description.strip() else []
     if data.is_academy and not data.is_other_event:
-        parts.append(academy_description(data.rating))
+        parts.append(academy_description(data.rating, academy_template))
     return "\n\n".join(parts)
 
 
-def academy_description(rating: str | None) -> str:
-    """Fester Academy-Text. Die Zeilen der Komplexitätsstufe(n) des Ratings sind **fett**.
+# Academy-Text (Dalyan, 26.10.2026: pro Server anpassbar mit /academy_text). Zeilen, die mit 💚, 🟡 oder 🟥
+# beginnen, werden fett, wenn sie zur Schwierigkeit der Runde passen. {hier} wird zu „(hier 200)“: die größte
+# Zahl aus den fetten Zeilen, sonst „(s. oben)“.
+ACADEMY_TEMPLATE_DEFAULT = (
+    "Dies ist ein Angebot der Clocktower Academy!\n"
+    "\n"
+    "Das heißt, hier dreht sich alles rund ums Erlernen des Spiels. "
+    "Hier findet ihr einen geschützten Rahmen, in dem ihr mit anderen "
+    "Spieler:innen das Spiel entdecken könnt, die ebenfalls noch frisch sind.\n"
+    "\n"
+    "**Was ist der Unterschied zu einer regulären Runde?**\n"
+    "\n"
+    "In Academy-Runden nehmen wir besonders Rücksicht auf neue Spieler:innen. "
+    "Unsere Storyteller erklären an passenden Stellen Interaktionen und "
+    "mechanische Zusammenhänge mit etwas mehr Ruhe und ohne Zeitdruck. "
+    "Generell geben unsere Storyteller etwas mehr Zeit. "
+    "Auch ein leichtes „Unter-die-Arme-Greifen\" ist möglich, wenn ihr mal "
+    "ratlos seid und einen Tipp braucht bzgl. Strategie und Taktik.\n"
+    "\n"
+    "**Wer kann sich anmelden?**\n"
+    "\n"
+    "Prinzipiell haben wir eine maximale Anzahl gespielter Runden für jede Komplexitätsstufe:\n"
+    "💚-Angebote: maximal 100 Runden gespielt\n"
+    "🟡-Angebote: maximal 200 Runden gespielt\n"
+    "🟥-Angebote: maximal 300 Runden gespielt\n"
+    "\n"
+    "Leute über der Stufe {hier} können sich gerne unter "
+    "„Auffüller\" anmelden. Wenn nicht ausreichend Spieler:innen "
+    "angemeldet sind, freuen wir uns immer über „Auffüller\", da sonst "
+    "die Runde teilweise nicht stattfinden kann. In diesem Fall gilt "
+    "aber: Rücksicht (und bisweilen etwas Zurückhaltung) ist geboten!"
+)
+ACADEMY_PLACEHOLDER = "{hier}"
+_LEVEL_EMOJI = {"💚": RATING_GREEN, "🟡": RATING_YELLOW, "🟥": RATING_RED}
 
-    Bei einem Bereich (z. B. grün bis gelb) gilt die höchste Rundenzahl des Bereichs.
-    """
-    rounds_lines_raw = [
-        (RATING_GREEN, "💚-Angebote: maximal 100 Runden gespielt"),
-        (RATING_YELLOW, "🟡-Angebote: maximal 200 Runden gespielt"),
-        (RATING_RED, "🟥-Angebote: maximal 300 Runden gespielt"),
-    ]
+
+def academy_description(rating: str | None, template: str | None = None) -> str:
+    """Academy-Text für eine Runde. Die Zeilen der Komplexitätsstufe(n) des Ratings sind **fett**;
+    bei einem Bereich (z. B. grün bis gelb) gilt für {hier} die höchste Rundenzahl des Bereichs."""
+    import re
+
     covered = RATING_RANGE.get(rating, ())
-    rounds_lines = [f"**{text}**" if key in covered else text for key, text in rounds_lines_raw]
-
-    max_rounds = max((ACADEMY_MAX_ROUNDS[r] for r in covered), default=None)
-    rounds_suffix = f"(hier {max_rounds})" if max_rounds else "(s. oben)"
-
-    return (
-        "Dies ist ein Angebot der Clocktower Academy!\n"
-        "\n"
-        "Das heißt, hier dreht sich alles rund ums Erlernen des Spiels. "
-        "Hier findet ihr einen geschützten Rahmen, in dem ihr mit anderen "
-        "Spieler:innen das Spiel entdecken könnt, die ebenfalls noch frisch sind.\n"
-        "\n"
-        "**Was ist der Unterschied zu einer regulären Runde?**\n"
-        "\n"
-        "In Academy-Runden nehmen wir besonders Rücksicht auf neue Spieler:innen. "
-        "Unsere Storyteller erklären an passenden Stellen Interaktionen und "
-        "mechanische Zusammenhänge mit etwas mehr Ruhe und ohne Zeitdruck. "
-        "Generell geben unsere Storyteller etwas mehr Zeit. "
-        "Auch ein leichtes „Unter-die-Arme-Greifen\" ist möglich, wenn ihr mal "
-        "ratlos seid und einen Tipp braucht bzgl. Strategie und Taktik.\n"
-        "\n"
-        "**Wer kann sich anmelden?**\n"
-        "\n"
-        "Prinzipiell haben wir eine maximale Anzahl gespielter Runden für jede Komplexitätsstufe:\n"
-        f"{rounds_lines[0]}\n"
-        f"{rounds_lines[1]}\n"
-        f"{rounds_lines[2]}\n"
-        "\n"
-        f"Leute über der Stufe {rounds_suffix} können sich gerne unter "
-        "„Auffüller\" anmelden. Wenn nicht ausreichend Spieler:innen "
-        "angemeldet sind, freuen wir uns immer über „Auffüller\", da sonst "
-        "die Runde teilweise nicht stattfinden kann. In diesem Fall gilt "
-        "aber: Rücksicht (und bisweilen etwas Zurückhaltung) ist geboten!"
-    )
+    lines, numbers = [], []
+    for line in (template or ACADEMY_TEMPLATE_DEFAULT).split("\n"):
+        level = next((r for emoji, r in _LEVEL_EMOJI.items() if line.lstrip().startswith(emoji)), None)
+        if level in covered and line.strip():
+            numbers += [int(n) for n in re.findall(r"\d+", line)]
+            if not line.strip().startswith("**"):
+                line = f"**{line.strip()}**"
+        lines.append(line)
+    hint = f"(hier {max(numbers)})" if numbers else "(s. oben)"
+    return "\n".join(lines).replace(ACADEMY_PLACEHOLDER, hint)
 
 
 # Links in der Startnachricht von /botc (Produktiv-Server, Dalyan 21.10.2026). Leer = Platzhalter „(Link folgt)“.

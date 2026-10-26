@@ -76,6 +76,7 @@ async def build_embed(bot: discord.Client, store: Store, event: EventRecord,
         thumbnail_url=f"attachment://{THUMB_FILENAME}" if has_thumbnail else None,
         name_for=_name_resolver(guild),
         created_at=datetime.fromtimestamp(event.created_at, tz=timezone.utc),
+        academy_template=service.get_academy_template(store, event.guild_id),
     )
     if has_image:
         embed.set_image(url=f"attachment://{IMAGE_FILENAME}")

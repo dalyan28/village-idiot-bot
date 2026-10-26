@@ -35,6 +35,7 @@ STEP_SCRIPT = "script"
 STEP_PREVIEW = "preview"
 
 GUILD_ACCESS_KEY = "access"
+ACADEMY_TEMPLATE_KEY = "academy_template"  # eigener Academy-Text des Servers (/academy_text)
 START_LINKS_KEY = "start_links"  # Links in der /botc-Startnachricht je Server (/set_start_links)
 
 
@@ -70,6 +71,24 @@ def set_start_links(store: Store, guild_id: int, guide: str | None = None, rules
             raise ServiceError("Bitte gib einen vollständigen Link an, der mit https:// beginnt.")
         stored[key] = url
     settings[START_LINKS_KEY] = stored
+    store.set_guild_settings(guild_id, settings)
+
+
+def get_academy_template(store: Store, guild_id: int) -> str:
+    """Academy-Text des Servers, sonst der eingebaute."""
+    from events.templates import ACADEMY_TEMPLATE_DEFAULT
+
+    stored = store.get_guild_settings(guild_id).get(ACADEMY_TEMPLATE_KEY)
+    return stored if isinstance(stored, str) and stored.strip() else ACADEMY_TEMPLATE_DEFAULT
+
+
+def set_academy_template(store: Store, guild_id: int, text: str | None):
+    """Eigenen Academy-Text speichern; None oder leer = eingebauter Text."""
+    settings = store.get_guild_settings(guild_id)
+    if text and text.strip():
+        settings[ACADEMY_TEMPLATE_KEY] = text.strip()
+    else:
+        settings.pop(ACADEMY_TEMPLATE_KEY, None)
     store.set_guild_settings(guild_id, settings)
 
 
