@@ -210,7 +210,7 @@ async def update_texts(guild: discord.Guild, store: Store, result: SetupResult |
         values = {k: links.get(k, f"#{k}") for k, _, _ in CHANNEL_PLAN} | {"rater_url": texts.RATER_URL}
         return [text.format(**values) for text in channel_texts]
 
-    posts = {"welcome": filled(texts.WELCOME, texts.FEATURES), "texts": bot_texts.posts(),
+    posts = {"welcome": filled(texts.WELCOME), "texts": bot_texts.posts(),
              "feedback": filled(texts.FEEDBACK_INTRO), "chat": filled(texts.CHAT_INTRO)}
     for key, channel_texts in posts.items():
         if only and key != only:
@@ -221,7 +221,10 @@ async def update_texts(guild: discord.Guild, store: Store, result: SetupResult |
             continue
         parts = [part for text in channel_texts for part in split_message(text)]
         try:
-            reg["messages"][key] = await _post_or_edit(channel, parts, reg["messages"].get(key) or [])
+            ids, appended = await _post_or_edit(channel, parts, reg["messages"].get(key) or [])
+            reg["messages"][key] = ids
+            if key == "welcome":  # Test-Karte direkt unter der Willkommensnachricht
+                reg["messages"][CARD_KEY] = await _post_card(channel, reg, appended)
         except discord.HTTPException as e:
             logger.warning("Testserver: Text für %s fehlgeschlagen: %s", key, e)
             result.failed.append(f"Text in #{channel.name}")
@@ -250,8 +253,9 @@ def split_message(text: str, limit: int = MESSAGE_LIMIT) -> list[str]:
     return parts
 
 
-async def _post_or_edit(channel, parts: list[str], old_ids: list[int]) -> list[int]:
-    """Gleiche Anzahl Nachrichten: bearbeiten. Sonst alte löschen und neu posten."""
+async def _post_or_edit(channel, parts: list[str], old_ids: list[int]) -> tuple[list[int], bool]:
+    """Vorhandene Beiträge der Reihe nach bearbeiten, überzählige löschen, fehlende anhängen
+    (Dalyan, 26.10.2026: nicht mehr alles löschen und neu posten). Gibt (IDs, ob neu angehängt wurde) zurück."""
     old = []
     for mid in old_ids:
         try:
@@ -259,17 +263,46 @@ async def _post_or_edit(channel, parts: list[str], old_ids: list[int]) -> list[i
         except (discord.NotFound, discord.Forbidden):
             pass
     no_pings = discord.AllowedMentions.none()
-    if len(old) == len(parts) and old:
-        for msg, part in zip(old, parts):
-            if msg.content != part:
-                await msg.edit(content=part, allowed_mentions=no_pings)
-        return [m.id for m in old]
-    for msg in old:
+    ids = []
+    for msg, part in zip(old, parts):
+        if msg.content != part:
+            await msg.edit(content=part, allowed_mentions=no_pings)
+        ids.append(msg.id)
+    for msg in old[len(parts):]:
         try:
             await msg.delete()
         except discord.HTTPException:
             pass
-    return [(await channel.send(part, allowed_mentions=no_pings)).id for part in parts]
+    appended = len(parts) > len(old)
+    for part in parts[len(old):]:
+        ids.append((await channel.send(part, allowed_mentions=no_pings)).id)
+    return ids, appended
+
+
+CARD_KEY = "welcome_card"
+
+
+async def _post_card(channel, reg: dict, repost: bool) -> list[int]:
+    """Test-Karte bearbeiten oder (neu) posten. `repost`: Es kamen Beiträge darüber hinzu, also muss die
+    Karte wieder ans Ende."""
+    from testserver.test_card import card_layout
+
+    layout = card_layout(f"<#{reg['channels']['events']}>" if reg["channels"].get("events") else "#events")
+    old = None
+    for mid in reg["messages"].get(CARD_KEY) or []:
+        try:
+            old = await channel.fetch_message(mid)
+        except (discord.NotFound, discord.Forbidden):
+            old = None
+    if old is not None and not repost:
+        await old.edit(view=layout)
+        return [old.id]
+    if old is not None:
+        try:
+            await old.delete()
+        except discord.HTTPException:
+            pass
+    return [(await channel.send(view=layout)).id]
 
 
 # ── Reset ────────────────────────────────────────────────────────────────────

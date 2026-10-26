@@ -13,6 +13,7 @@ from discord.ext import commands
 
 from testserver import is_test_guild, server, texts
 from testserver.feedback import FeedbackButton
+from testserver.test_card import TestCardButton
 from testserver.sample_event import create_sample_event
 
 logger = logging.getLogger(__name__)
@@ -74,10 +75,10 @@ class TestServerCog(commands.Cog):
         self.bot = bot
 
     async def cog_load(self):
-        self.bot.add_dynamic_items(FeedbackButton)
+        self.bot.add_dynamic_items(FeedbackButton, TestCardButton)
 
     async def cog_unload(self):
-        self.bot.remove_dynamic_items(FeedbackButton)
+        self.bot.remove_dynamic_items(FeedbackButton, TestCardButton)
 
     @testserver.command(name="setup", description="Channels, Rollen und Texte anlegen oder auffrischen")
     async def setup_cmd(self, interaction: discord.Interaction):
