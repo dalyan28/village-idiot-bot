@@ -72,31 +72,22 @@ def defaults_layout(guild: discord.Guild, d: UserDefaults, notice: str | None = 
         head += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(head))
 
+    # Jedes Feld einzeln mit eigenem „Ändern“ (Dalyan, 26.10.2026)
     description = esc(d.description.strip()) if d.description.strip() else "`keine`"
-    container.add_item(discord.ui.Separator())
-    container.add_item(_section(f"**Beschreibung**\n{description}", SettingsButton(guild.id, "description")))
-
-    container.add_item(discord.ui.Separator())
-    container.add_item(_section(
-        "**Rahmen**\n"
-        f"Max. Spieler: {_or_default(d.max_players, DEFAULT_MAX_PLAYERS)}\n"
-        f"Dauer: {_or_default(d.duration_minutes, DEFAULT_DURATION_MINUTES, ' Minuten')}\n"
-        f"-# Bei Teensyville setzt der Bot automatisch {TEENSY_MAX_PLAYERS} Spieler.",
-        SettingsButton(guild.id, "frame")))
-
     camera = CAMERA_LABELS[d.camera or DEFAULT_CAMERA] + (f" · {d.camera_note}" if d.camera_note else "")
-    container.add_item(discord.ui.Separator())
-    container.add_item(_section(
-        "**Level und Kamera**\n"
-        f"Erfahrungslevel: {_or_default(d.level, DEFAULT_LEVEL)}\n"
-        f"Kamera: {_value(camera + ('' if d.camera or d.camera_note else ' (Standard)'))}",
-        SettingsButton(guild.id, "selection")))
-
     co = CO_ST_LABELS[d.co_st_status or "no"] + (f" · {d.co_st_note}" if d.co_st_note else "")
-    container.add_item(discord.ui.Separator())
-    container.add_item(_section(
-        f"**Co-Storytelling**\n{_value(co + ('' if d.co_st_status or d.co_st_note else ' (Standard)'))}",
-        SettingsButton(guild.id, "cost")))
+    fields = [
+        ("description", f"**Beschreibung**\n{description}"),
+        ("players", f"**Max. Spieler**\n{_or_default(d.max_players, DEFAULT_MAX_PLAYERS)}\n"
+                    f"-# Bei Teensyville setzt der Bot automatisch {TEENSY_MAX_PLAYERS} Spieler."),
+        ("duration", f"**Dauer**\n{_or_default(d.duration_minutes, DEFAULT_DURATION_MINUTES, ' Minuten')}"),
+        ("level", f"**Erfahrungslevel**\n{_or_default(d.level, DEFAULT_LEVEL)}"),
+        ("camera", f"**Kamera**\n{_value(camera + ('' if d.camera or d.camera_note else ' (Standard)'))}"),
+        ("cost", f"**Co-Storytelling**\n{_value(co + ('' if d.co_st_status or d.co_st_note else ' (Standard)'))}"),
+    ]
+    for action, text in fields:
+        container.add_item(discord.ui.Separator())
+        container.add_item(_section(text, SettingsButton(guild.id, action)))
 
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
@@ -143,53 +134,75 @@ class DescriptionDefaultModal(_DefaultsModal):
         d.description = (self.text.value or "").strip()
 
 
-class FrameDefaultModal(_DefaultsModal):
+def _number(raw: str | None, low: int, high: int, label: str) -> tuple[int | None, str | None]:
+    """Leer = eingebauter Standard (None); sonst Zahl im Bereich oder eine Fehlermeldung."""
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+    if not raw.isdigit() or not low <= int(raw) <= high:
+        return None, f"{label} muss eine Zahl zwischen {low} und {high} sein. Nichts geändert."
+    return int(raw), None
+
+
+class PlayersDefaultModal(_DefaultsModal):
     def __init__(self, guild, defaults: UserDefaults):
-        super().__init__(guild, defaults, "Rahmen")
+        super().__init__(guild, defaults, "Max. Spieler")
         self.players = discord.ui.TextInput(required=False, max_length=3, placeholder=str(DEFAULT_MAX_PLAYERS),
                                             default=str(defaults.max_players) if defaults.max_players else None)
+        self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200, leer = 12", component=self.players))
+
+    def apply(self, d):
+        value, error = _number(self.players.value, *user_settings.MAX_PLAYERS_RANGE, "Die Spielerzahl")
+        if error:
+            return error
+        d.max_players = value
+        return None
+
+
+class DurationDefaultModal(_DefaultsModal):
+    def __init__(self, guild, defaults: UserDefaults):
+        super().__init__(guild, defaults, "Dauer")
         self.duration = discord.ui.TextInput(required=False, max_length=4, placeholder=str(DEFAULT_DURATION_MINUTES),
                                              default=str(defaults.duration_minutes) if defaults.duration_minutes
                                              else None)
-        self.add_item(discord.ui.Label(text="Max. Spieler", description="1 bis 200, leer = 12", component=self.players))
         self.add_item(discord.ui.Label(text="Dauer in Minuten", description="15 bis 1440, leer = 150",
                                        component=self.duration))
 
     def apply(self, d):
-        values = {}
-        for name, raw, (low, high) in (("max_players", self.players.value, user_settings.MAX_PLAYERS_RANGE),
-                                       ("duration_minutes", self.duration.value, user_settings.DURATION_RANGE)):
-            raw = (raw or "").strip()
-            if not raw:
-                values[name] = None
-                continue
-            if not raw.isdigit() or not low <= int(raw) <= high:
-                label = "Die Spielerzahl" if name == "max_players" else "Die Dauer"
-                return f"{label} muss eine Zahl zwischen {low} und {high} sein. Nichts geändert."
-            values[name] = int(raw)
-        d.max_players, d.duration_minutes = values["max_players"], values["duration_minutes"]
+        value, error = _number(self.duration.value, *user_settings.DURATION_RANGE, "Die Dauer")
+        if error:
+            return error
+        d.duration_minutes = value
         return None
 
 
-class SelectionDefaultModal(_DefaultsModal):
+class LevelDefaultModal(_DefaultsModal):
     def __init__(self, guild, defaults: UserDefaults):
-        super().__init__(guild, defaults, "Level und Kamera")
+        super().__init__(guild, defaults, "Erfahrungslevel")
         self.level = discord.ui.RadioGroup()
         for lvl in LEVELS:
             self.level.add_option(label=lvl, value=lvl, default=lvl == (defaults.level or DEFAULT_LEVEL))
+        self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
+
+    def apply(self, d):
+        level = self.level.value or DEFAULT_LEVEL
+        d.level = None if level == DEFAULT_LEVEL else level
+
+
+class CameraDefaultModal(_DefaultsModal):
+    def __init__(self, guild, defaults: UserDefaults):
+        super().__init__(guild, defaults, "Kamera")
         self.camera = discord.ui.RadioGroup()
         for key, label in CAMERA_LABELS.items():
             self.camera.add_option(label=label, value=key, default=key == (defaults.camera or DEFAULT_CAMERA))
         self.camera_note = discord.ui.TextInput(required=False, max_length=user_settings.NOTE_MAX_LENGTH,
                                                 default=defaults.camera_note or None,
                                                 placeholder="z. B. „gern mit Kamera“")
-        self.add_item(discord.ui.Label(text="Erfahrungslevel", component=self.level))
         self.add_item(discord.ui.Label(text="Kamera", component=self.camera))
         self.add_item(discord.ui.Label(text="Hinweis zur Kamera", description="Optional", component=self.camera_note))
 
     def apply(self, d):
-        level, camera = self.level.value or DEFAULT_LEVEL, self.camera.value or DEFAULT_CAMERA
-        d.level = None if level == DEFAULT_LEVEL else level
+        camera = self.camera.value or DEFAULT_CAMERA
         d.camera = None if camera == DEFAULT_CAMERA else camera
         d.camera_note = (self.camera_note.value or "").strip()
 
@@ -211,9 +224,8 @@ class CoStDefaultModal(_DefaultsModal):
         d.co_st_note = (self.note.value or "").strip()
 
 
-MODALS = {"description": DescriptionDefaultModal, "frame": FrameDefaultModal,
-          "selection": SelectionDefaultModal, "cost": CoStDefaultModal}
-
+MODALS = {"description": DescriptionDefaultModal, "players": PlayersDefaultModal, "duration": DurationDefaultModal,
+          "level": LevelDefaultModal, "camera": CameraDefaultModal, "cost": CoStDefaultModal}
 
 class SettingsButton(discord.ui.DynamicItem[discord.ui.Button],
                      template=r"uset:(?P<guild_id>\d+):(?P<action>[a-z]+)"):
