@@ -850,3 +850,43 @@ def test_far_future_start_asks_in_botc_modal(botc_env):
     assert isinstance(again, BotcModal) and again.date.default == "01.04."
     inter = click(bot, draft.id, "confirm_yes")
     assert "Skript wählen" in screen_text(inter)
+
+
+def test_my_events_lists_signups_and_leave_button_removes(env):
+    """/meine_events: je Anmeldung ein Abschnitt mit „Abmelden“; der Klick entfernt die Anmeldung,
+    aktualisiert den Event-Post und zeigt die Liste neu (Dalyan, 26.10.2026)."""
+    from discord_ui.my_events import LeaveButton, my_events_layout
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "pick", "trouble_brewing")
+    d = bot.store.get_draft(draft.id)
+    data = d.data
+    data.description, data.max_players = "x", 1
+    bot.store.update_draft(d.id, data, "preview", int(NOW.timestamp()))
+    click(bot, draft.id, "publish")
+    event = bot.store.list_events(GUILD)[0]
+    msg = bot.channel.messages[event.message_id]
+    for uid in (2, 3):  # Rosanna spielt, Anna steht auf der Warteliste
+        run(EventButton(event.id, "accept").callback(
+            FakeInteraction(bot, bot.guild.get_member(uid), message=msg, guild_id=GUILD)))
+
+    def texts(view):
+        return " ".join(i.content for i in view.walk_children() if isinstance(i, discord.ui.TextDisplay))
+
+    import discord_ui.my_events as me
+    me_now = me.now
+    me.now = lambda: NOW
+    try:
+        layout = my_events_layout(bot.store, bot.guild, 3)
+        assert "Warteliste, Platz 1" in texts(layout)
+        assert [getattr(i, "item", i).custom_id for i in layout.walk_children()
+                if isinstance(getattr(i, "item", i), discord.ui.Button)] == [f"leave:{event.id}"]
+        assert "keine kommende Runde" in texts(my_events_layout(bot.store, bot.guild, USER))
+
+        inter = FakeInteraction(bot, bot.guild.get_member(3), guild_id=GUILD)
+        run(LeaveButton(event.id).callback(inter))
+        assert bot.store.get_rsvp(event.id, 3) is None
+        assert "abgemeldet" in texts(inter.screen["view"])
+        assert "Anna" not in str([f.value for f in bot.channel.messages[event.message_id].embed.fields])
+    finally:
+        me.now = me_now

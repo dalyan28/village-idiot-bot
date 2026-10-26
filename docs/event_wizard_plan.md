@@ -544,6 +544,10 @@ Dritte Runde Feedback (20.10.2026):
   Button. Ein offener Entwurf steht in derselben Karte (Name und Termin als Werte, zuletzt bearbeitet, Ablauf,
   rechts das Skript-Bild). Die Links stehen als Standard in `events/templates.py` (Produktiv-Server) und lassen
   sich je Server mit `/set_start_links` (nur Admins) ändern oder zurücksetzen.
+- **`/meine_events`** (Dalyan, 26.10.2026): zeigt nur für die Person (ephemer) die kommenden Events, für die
+  sie zugesagt hat (mit Warteliste-Platz) oder vorläufig ist, je Event ein Abschnitt mit Link zum Post und
+  „Abmelden“ daneben (DynamicItem `leave:<event_id>`). Abmelden aktualisiert Event-Post und Liste. Höchstens 10
+  Events (Grenze von 40 Komponenten), danach ein Hinweis.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
@@ -560,9 +564,6 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
 - **S-Runde** (Nachmittag): Startzeit zwischen 12 und 16 Uhr → groß „S-Runde“ vor dem Titel, z. B. „S-Runde Boozling
   mit Dalyan“. Genaue Grenzen klären (Vormittag mit dabei?).
 - **T-Runde** (Nacht): Startzeit zwischen 23 und 2 Uhr → „T-Runde Boozling mit Dalyan“.
-- **„Meine Runden“-Command für alle**: Nutzer:innen sehen, für welche Runden sie angemeldet sind (zugesagt,
-  vorläufig, Warteliste), und können die Anmeldung idealerweise direkt dort ändern (absagen, umstellen).
-  Zu definieren: Name des Commands, nur kommende Runden oder auch vergangene, Antwort ephemer oder per DM.
 - **Storyteller-Briefing**: Im ersten Modal, bei den Optionen (Casual, Academy usw.), erscheint für Leute mit einer
   bestimmten Rolle zusätzlich „Storyteller-Briefing“. Wer das wählt, überspringt praktisch alle Schritte: Der Bot
   erstellt direkt ein Briefing-Event mit einem vorher ausgesuchten Template-Text, dem im Modal festgelegten Datum
