@@ -395,6 +395,21 @@ async def image_layout(bot: discord.Client, store, draft, notice: str | None = N
     return layout, files
 
 
+def cancelled_layout(draft) -> discord.ui.LayoutView:
+    """Nach „Abbrechen“ bei einer neuen Runde: Der Entwurf bleibt gespeichert (Dalyan, 26.10.2026)."""
+    from discord_ui import wizard as wz  # zirkulären Import vermeiden
+
+    text = ("**Abgebrochen**\nDein Entwurf bleibt 24 Stunden gespeichert. Mit `/botc` kannst du jederzeit dort "
+            "weitermachen.")
+    layout = discord.ui.LayoutView(timeout=None)
+    layout.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=WIZARD_COLOR))
+    row = discord.ui.ActionRow()
+    row.add_item(wz.WizardButton(draft.id, "resume", "Weitermachen", discord.ButtonStyle.primary))
+    row.add_item(wz.WizardButton(draft.id, "discard", "Entwurf löschen", discord.ButtonStyle.danger))
+    layout.add_item(row)
+    return layout
+
+
 def confirm_layout(bot: discord.Client, draft) -> discord.ui.LayoutView:
     """Ungewöhnlicher Termin oder ungewöhnliche Dauer: „Ja, weiter“ oder „Nein, zurück“."""
     from discord_ui import wizard as wz  # zirkulären Import vermeiden

@@ -44,8 +44,11 @@ COPIED = [
     ("Im Wizard", "Zusammenfassung, wenn alles da ist",
      "Alle Pflichtangaben sind vollständig. Wenn alles passt: **Veröffentlichen**.", "discord_ui/layout_v2.py"),
     ("Im Wizard", "Veröffentlicht", "Dein Event ist veröffentlicht.", "discord_ui/wizard.py"),
-    ("Im Wizard", "Abgebrochen",
-     "Event-Erstellung abgebrochen. Mit `/botc` kannst du jederzeit neu starten.", "discord_ui/wizard.py"),
+    ("Im Wizard", "Abgebrochen (der Entwurf bleibt)",
+     "**Abgebrochen**\nDein Entwurf bleibt 24 Stunden gespeichert. Mit `/botc` kannst du jederzeit dort "
+     "weitermachen.", "discord_ui/layout_v2.py"),
+    ("Im Wizard", "Entwurf gelöscht",
+     "Entwurf gelöscht. Mit `/botc` kannst du jederzeit neu starten.", "discord_ui/wizard.py"),
     ("Im Wizard", "Bearbeitung verworfen",
      "Bearbeitung verworfen, das Event bleibt unverändert.", "discord_ui/wizard.py"),
     ("Am Post", "Bearbeiten",

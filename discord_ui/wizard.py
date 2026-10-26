@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 
 import discord
 
-from discord_ui.layout_v2 import (chat_wait_layout, confirm_layout, image_layout, kind_layout, script_layout,
+from discord_ui.layout_v2 import (cancelled_layout, chat_wait_layout, confirm_layout, image_layout, kind_layout, script_layout,
                                   summary_layout, text_layout)
 from discord_ui.members import actor_from_member, fetch_member
 from events import guild_lock, permissions, service
@@ -334,13 +334,29 @@ async def _next(interaction, ctx: WizardContext, arg):
 
 @action("cancel")
 async def _cancel(interaction, ctx: WizardContext, arg):
+    """Neue Runde: Abbrechen behält den Entwurf (Dalyan, 26.10.2026), Löschen geht ausdrücklich danach.
+    Bearbeitung eines Events: die Änderungen werden verworfen, das Event bleibt unverändert."""
+    if ctx.draft.event_id is None:
+        await interaction.response.edit_message(view=cancelled_layout(ctx.draft), attachments=[])
+        return
+    await _discard(interaction, ctx, arg)
+
+
+@action("discard")
+async def _discard(interaction, ctx: WizardContext, arg):
     d = ctx.draft.data
     if d.image_mode == IMAGE_CUSTOM and not _image_used_by_event(ctx, d.custom_image):
         delete_custom_image(d.custom_image)
     service.discard_draft(ctx.store, ctx.draft, ctx.actor)
-    text = ("Event-Erstellung abgebrochen. Mit `/botc` kannst du jederzeit neu starten."
+    text = ("Entwurf gelöscht. Mit `/botc` kannst du jederzeit neu starten."
             if ctx.draft.event_id is None else "Bearbeitung verworfen, das Event bleibt unverändert.")
     await interaction.response.edit_message(view=text_layout(text), attachments=[])
+
+
+@action("resume")
+async def _resume(interaction, ctx: WizardContext, arg):
+    """„Weitermachen“ nach dem Abbrechen: dieselbe Karte wie vorher."""
+    await show(interaction, ctx)
 
 
 # ── Aktionen: Skript ─────────────────────────────────────────────────────────

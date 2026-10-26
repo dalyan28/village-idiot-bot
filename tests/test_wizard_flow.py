@@ -396,12 +396,17 @@ def test_free_choice_skips_rating_and_has_no_auto_image(env):
     assert d.step == "preview" and d.data.rating == "any" and d.data.rating_source == "fixed"
 
 
-def test_cancel_removes_draft(env):
+def test_cancel_keeps_draft_discard_removes_it(env):
     bot = env
     draft = new_draft(bot)
     inter = click(bot, draft.id, "cancel")
+    # Abbrechen behält den Entwurf (Dalyan, 26.10.2026); „Weitermachen“ zeigt wieder die Karte
+    assert bot.store.get_draft(draft.id) is not None and "Dein Entwurf bleibt 24 Stunden" in screen_text(inter)
+    inter = click(bot, draft.id, "resume")
+    assert "Skript wählen" in screen_text(inter)
+    inter = click(bot, draft.id, "discard")
     assert bot.store.get_draft(draft.id) is None
-    assert "abgebrochen" in screen_text(inter)
+    assert "Entwurf gelöscht" in screen_text(inter)
 
 
 def test_foreign_user_cannot_use_draft(env):
