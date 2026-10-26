@@ -281,7 +281,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
     d = bot.store.get_draft(draft.id)
     assert d.step == "preview"
-    assert d.data.co_storyteller.name == "Rosanna" and d.data.co_storyteller.user_id is None
+    assert (d.data.co_st_status, d.data.co_st_note) == ("taken", "Rosanna")
     assert d.data.storyteller.user_id == USER  # Name unverändert → ID bleibt
     assert d.data.duration_minutes == 180 and d.data.camera == "required"
     assert d.data.start == NOW + timedelta(days=5)  # Termin unverändert
@@ -292,7 +292,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     assert bot.store.get_draft(draft.id) is None
     event = bot.store.list_events(GUILD)[0]
     msg = bot.channel.messages[event.message_id]
-    assert msg.embed.title == "🟡 Trouble Brewing mit Dalyan und Rosanna"
+    assert msg.embed.title == "🟡 Trouble Brewing mit Dalyan"  # Co-ST nicht im Titel
     assert set(msg.files) == {"event_image.png", "thumbnail.png"}
     assert msg.attachments == []  # wie bei Discord: vom Embed referenzierte Anhänge fehlen hier
     # Ersteller:in nur unten: Profilbild, Name, Erstellungsdatum

@@ -186,7 +186,6 @@ class ReminderCog(commands.Cog):
         zusagen="Zusagen benachrichtigen",
         warteliste="Warteliste benachrichtigen",
         vorlaeufig="Vorläufige bzw. Auffüller benachrichtigen",
-        co_st="Co-Storyteller benachrichtigen",
         storyteller="Storyteller benachrichtigen",
         skript_json="Skript-JSON in den Thread posten",
         anwesenheitsliste="Anwesenheitsliste (anwesenheit.txt) zum Abhaken in den Thread posten",
@@ -204,7 +203,7 @@ class ReminderCog(commands.Cog):
                             minuten: app_commands.Range[int, 0, reminders.MAX_MINUTES_BEFORE] | None = None,
                             benachrichtigung: app_commands.Choice[str] | None = None,
                             zusagen: bool | None = None, warteliste: bool | None = None,
-                            vorlaeufig: bool | None = None, co_st: bool | None = None,
+                            vorlaeufig: bool | None = None,
                             storyteller: bool | None = None,
                             skript_json: bool | None = None, anwesenheitsliste: bool | None = None,
                             zuruecksetzen: bool | None = None):
@@ -221,7 +220,7 @@ class ReminderCog(commands.Cog):
             cfg.mode = benachrichtigung.value
         to = list(cfg.recipients)
         for flag, value in ((zusagen, reminders.TO_ACCEPTED), (warteliste, reminders.TO_WAITLIST),
-                            (vorlaeufig, reminders.TO_TENTATIVE), (co_st, reminders.TO_CO),
+                            (vorlaeufig, reminders.TO_TENTATIVE),
                             (storyteller, reminders.TO_ST)):
             if flag is True and value not in to:
                 to.append(value)

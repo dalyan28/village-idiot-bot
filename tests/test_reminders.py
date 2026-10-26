@@ -90,10 +90,10 @@ class TestDue:
 class TestText:
     def test_recipients(self):
         cfg = reminders.copy_of(reminders.DEFAULTS[FIRST])
-        data = EventData(co_storyteller=Person("Rosa", 9))
+        data = EventData()
         assert [p.name for p in reminders.recipients(cfg, lists(), data)] == ["Anna", "Ben"]
-        cfg.recipients = ["accepted", TO_WAITLIST, TO_TENTATIVE, TO_CO]
-        assert [p.name for p in reminders.recipients(cfg, lists(), data)] == ["Anna", "Ben", "Cleo", "Dan", "Rosa"]
+        cfg.recipients = ["accepted", TO_WAITLIST, TO_TENTATIVE]
+        assert [p.name for p in reminders.recipients(cfg, lists(), data)] == ["Anna", "Ben", "Cleo", "Dan"]
 
     def test_ping_vs_names(self):
         cfg = reminders.copy_of(reminders.DEFAULTS[FIRST])

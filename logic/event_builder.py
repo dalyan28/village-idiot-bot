@@ -208,7 +208,7 @@ def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for):
     embed.add_field(name="Kamera", value=camera_text(data), inline=True)
     embed.add_field(name="Erfahrungslevel", value=data.level or "-", inline=True)
 
-    co = co_st_text(data, _name(data.co_storyteller, name_for) if data.co_storyteller else None)
+    co = discord.utils.escape_markdown(co_st_text(data))
     embed.add_field(name="Co-Storytelling", value=co, inline=True)
 
     description = full_description(data)

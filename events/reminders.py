@@ -29,13 +29,12 @@ TO_WAITLIST = "waitlist"
 TO_TENTATIVE = "tentative"
 TO_CO = "co"
 TO_ST = "storyteller"
-RECIPIENTS = (TO_ACCEPTED, TO_WAITLIST, TO_TENTATIVE, TO_CO, TO_ST)
+RECIPIENTS = (TO_ACCEPTED, TO_WAITLIST, TO_TENTATIVE, TO_ST)  # Co-ST ist kein Empfänger mehr (kein Name)
 RECIPIENT_LABELS = {
     TO_ST: "Storyteller",
     TO_ACCEPTED: "Zusagen",
     TO_WAITLIST: "Warteliste",
     TO_TENTATIVE: "Vorläufig / Auffüller",
-    TO_CO: "Co-ST",
 }
 MAX_MINUTES_BEFORE = 24 * 60
 
@@ -150,8 +149,6 @@ def recipients(cfg: ReminderConfig, lists: RsvpLists, data: EventData) -> list[P
         people += lists.waitlist
     if TO_TENTATIVE in cfg.recipients:
         people += lists.tentative
-    if TO_CO in cfg.recipients and data.co_storyteller is not None:
-        people.append(data.co_storyteller)
     if TO_ST in cfg.recipients and data.storyteller is not None:  # Storyteller:in wird mit angepingt
         people.append(data.storyteller)
     seen, unique = set(), []
