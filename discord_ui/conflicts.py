@@ -49,7 +49,9 @@ def signup_hint(event: EventRecord, group: list[EventRecord]) -> str:
             f"Entscheide dich spätestens {conflicts.DECIDE_HOURS_BEFORE} Stunden vor Beginn der früheren Runde.")
 
 
-def decision_layout(group: list[EventRecord], notice: str | None = None) -> discord.ui.LayoutView:
+def decision_layout(group: list[EventRecord], notice: str | None = None, make_button=None) -> discord.ui.LayoutView:
+    """`make_button(event, label)` liefert den Button je Runde (Standard: ChooseButton)."""
+    make_button = make_button or (lambda e, label: ChooseButton(e.id, label))
     lines = ["**Du bist für mehrere Runden zur gleichen Zeit angemeldet**",
              "Für welche entscheidest du dich? Die anderen Anmeldungen nehme ich dann raus."]
     for e in group:
@@ -62,7 +64,7 @@ def decision_layout(group: list[EventRecord], notice: str | None = None) -> disc
     if notice is None:
         row = discord.ui.ActionRow()
         for e in group[:5]:
-            row.add_item(ChooseButton(e.id, f"Ich spiele {_name(e)}"[:70] + f" ({_when(e)})"))
+            row.add_item(make_button(e, f"Ich spiele {_name(e)}"[:70] + f" ({_when(e)})"))
         layout.add_item(row)
     return layout
 
@@ -101,6 +103,12 @@ async def check_decisions(bot: discord.Client, store: Store, guild_id: int, t: d
             await send_decision_dm(bot, rsvp.user_id, group)
 
 
+def choice_notice(chosen: EventRecord, others: list[EventRecord]) -> str:
+    names = ", ".join(discord.utils.escape_markdown(_name(e)) for e in others)
+    return (f"Erledigt: Du spielst **{discord.utils.escape_markdown(_name(chosen))}**."
+            + (f" Von {names} bist du abgemeldet." if others else ""))
+
+
 class ChooseButton(discord.ui.DynamicItem[discord.ui.Button], template=r"dbl:(?P<event_id>\d+)"):
     def __init__(self, event_id: int, label: str = "Diese Runde"):
         super().__init__(discord.ui.Button(label=label, style=discord.ButtonStyle.primary,
@@ -123,10 +131,7 @@ class ChooseButton(discord.ui.DynamicItem[discord.ui.Button], template=r"dbl:(?P
         others = [e for e in group if e.id != chosen.id]
         for e in others:
             store.remove_rsvp(e.id, interaction.user.id)
-        names = ", ".join(discord.utils.escape_markdown(_name(e)) for e in others)
-        notice = (f"Erledigt: Du spielst **{discord.utils.escape_markdown(_name(chosen))}**."
-                  + (f" Von {names} bist du abgemeldet." if others else ""))
-        await interaction.response.edit_message(view=decision_layout(group, notice))
+        await interaction.response.edit_message(view=decision_layout(group, choice_notice(chosen, others)))
         for e in others:
             try:
                 await update_event_message(bot, store, e, images_changed=False)
