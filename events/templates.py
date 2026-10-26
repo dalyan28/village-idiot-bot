@@ -167,6 +167,8 @@ def academy_description(rating: str | None) -> str:
 STORYTELLER_GUIDE_URL = ("https://discord.com/channels/1197876498980421652/1260650800141701121/"
                          "1548695371402711050")  # Hinweise zum Mitspielen und Storytellen
 RULES_URL = "https://discord.com/channels/1197876498980421652/1197945543893188719"  # Kanal mit den Serverregeln
+# Abschnitt „Regeln zum Anmelden für BotC-Runden“ (Hinweis bei Doppelanmeldungen, Dalyan 26.10.2026)
+SIGNUP_RULES_URL = "https://discord.com/channels/1197876498980421652/1197945543893188719/1547344778742595694"
 
 
 def co_st_text(data, name: str | None = None) -> str:

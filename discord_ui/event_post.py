@@ -209,10 +209,18 @@ class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<
 
 
 async def handle_rsvp(interaction: discord.Interaction, store: Store, event: EventRecord, status: str):
-    service.toggle_rsvp(store, event, interaction.user.id, interaction.user.display_name, status, now())
+    new_status = service.toggle_rsvp(store, event, interaction.user.id, interaction.user.display_name, status, now())
     content = await render_post(interaction.client, store, event, *_shown_images(interaction.message))
     # Buttons mitschicken, damit ältere Posts beim nächsten Klick die aktuellen Buttons bekommen
     await interaction.response.edit_message(**content)
+    if new_status == RSVP_ACCEPTED:
+        # Zeitgleich schon woanders zugesagt? Hinweis mit Verweis auf die Anmelderegeln (Dalyan, 26.10.2026)
+        from discord_ui.conflicts import signup_hint
+        from events.conflicts import conflict_group
+
+        group = conflict_group(store, event, interaction.user.id, now())
+        if len(group) > 1:
+            await interaction.followup.send(signup_hint(event, group), ephemeral=True, suppress_embeds=True)
 
 
 async def handle_test_reminder(interaction: discord.Interaction, store: Store, event: EventRecord):
