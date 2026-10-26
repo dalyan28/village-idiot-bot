@@ -568,6 +568,9 @@ Dritte Runde Feedback (20.10.2026):
   Erinnerungs-Threads aller beendeten Events. Die Daten bleiben wie bisher 30 Tage in der Datenbank (ohne
   Nachricht, `clear_event_message`); ein beendetes Event ohne Post wird nicht neu gepostet. Der Wochenplan zeigt
   ohnehin nur Kommendes. Für das Löschen der Threads braucht der Bot „Threads verwalten“.
+- **Abbrechen behält den Entwurf** (Dalyan, 26.10.2026): „Abbrechen“ bei einer neuen Runde löscht nichts; die
+  Karte zeigt „Abgebrochen. Dein Entwurf bleibt 24 Stunden gespeichert …“ mit „Weitermachen“ und „Entwurf löschen“.
+  Beim Bearbeiten eines Events bleibt „Bearbeitung verwerfen“ wie gehabt.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
