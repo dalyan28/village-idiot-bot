@@ -35,15 +35,17 @@ def _link(url: str, label: str, bold: bool = False) -> str:
 DRAFT_IMAGE = "entwurf.png"
 
 
-async def start_layout(guild: discord.Guild, user_id: int, open_draft=None):
-    """Startnachricht mit dem offenen Entwurf (Skript-Bild wird dafür erzeugt). Gibt (LayoutView, Dateien) zurück."""
+async def start_layout(guild: discord.Guild, user_id: int, open_draft=None, links: tuple[str, str] | None = None):
+    """Startnachricht mit dem offenen Entwurf (Skript-Bild wird dafür erzeugt). Gibt (LayoutView, Dateien) zurück.
+    `links`: (Hinweise, Regeln) des Servers, siehe service.get_start_links."""
     if open_draft is None:
-        return build_start_layout(guild, user_id), []
+        return build_start_layout(guild, user_id, links=links), []
     block, files = await _draft_block(open_draft)
-    return build_start_layout(guild, user_id, block), files
+    return build_start_layout(guild, user_id, block, links=links), files
 
 
-def build_start_layout(guild: discord.Guild, user_id: int, draft_block=None) -> discord.ui.LayoutView:
+def build_start_layout(guild: discord.Guild, user_id: int, draft_block=None,
+                       links: tuple[str, str] | None = None) -> discord.ui.LayoutView:
     """Startnachricht (Dalyan, 21.10.2026): kurze Einleitung, Links zu Hinweisen und Regeln, ggf. der offene
     Entwurf (`draft_block`). Eine Karte, eine Button-Reihe."""
     esc = discord.utils.escape_markdown
@@ -58,11 +60,12 @@ def build_start_layout(guild: discord.Guild, user_id: int, draft_block=None) -> 
         container.add_item(discord.ui.Section(intro, accessory=discord.ui.Thumbnail(icon.url)))
     else:
         container.add_item(intro)
+    guide_url, rules_url = links or (STORYTELLER_GUIDE_URL, RULES_URL)
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
     container.add_item(discord.ui.TextDisplay(
         "Was beim Leiten zählt, welche Symbole es im Wochenplan gibt und eine Vorlage für gute Beschreibungen "
-        f"findest du in den {_link(STORYTELLER_GUIDE_URL, 'Hinweisen zum Mitspielen und Storytellen', bold=True)}. "
-        f"Für alle Events gelten unsere {_link(RULES_URL, 'Serverregeln', bold=True)}."))
+        f"findest du in den {_link(guide_url, 'Hinweisen zum Mitspielen und Storytellen', bold=True)}. "
+        f"Für alle Events gelten unsere {_link(rules_url, 'Serverregeln', bold=True)}."))
     container.add_item(discord.ui.Separator(spacing=discord.SeparatorSpacing.large))
 
     if draft_block is None:
@@ -155,7 +158,7 @@ class StartButton(discord.ui.DynamicItem[discord.ui.Button],
         if self.name == "resume":
             draft = service.open_draft(store, guild.id, member.id, wizard.now())
             if draft is None:
-                layout, files = await start_layout(guild, member.id)
+                layout, files = await start_layout(guild, member.id, links=service.get_start_links(store, guild.id))
                 await interaction.response.edit_message(view=layout, attachments=files)
                 await interaction.followup.send("Den Entwurf gibt es nicht mehr. Du kannst neu beginnen.",
                                                 ephemeral=True)

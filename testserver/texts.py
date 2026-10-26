@@ -15,6 +15,7 @@ Nachdem sich Apollo verändert hat, haben wir beschlossen, einen eigenen Bot fü
 **Commands**
 `/botc` neue Runde anlegen. Wie der Rest funktioniert, seht ihr dann schon.
 `/testserver beispiel-event` ein volles Beispiel-Event mit 23 erfundenen Anmeldungen posten
+`/meine_events` sehen, wofür ihr angemeldet seid, und euch direkt abmelden
 
 Die Testserver-Commands braucht ihr in der Regel nicht, die sind eher für mich:
 `/testserver reset` Event-Channel leeren, alle Runden und Entwürfe weg

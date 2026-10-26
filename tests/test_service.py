@@ -217,3 +217,19 @@ def test_cleanup(store):
     later = event.data.start + timedelta(days=31)
     drafts, events = service.cleanup(store, later)
     assert (drafts, events) == (1, 1)
+
+
+
+def test_start_links_default_override_and_reset():
+    from events.store import Store
+    from events.templates import RULES_URL, STORYTELLER_GUIDE_URL
+    store = Store(":memory:")
+    assert service.get_start_links(store, 5) == (STORYTELLER_GUIDE_URL, RULES_URL)
+    service.set_start_links(store, 5, guide="https://discord.com/channels/5/6/7")
+    assert service.get_start_links(store, 5) == ("https://discord.com/channels/5/6/7", RULES_URL)
+    import pytest
+    with pytest.raises(service.ServiceError):
+        service.set_start_links(store, 5, rules="kein Link")
+    service.set_start_links(store, 5, reset=True)
+    assert service.get_start_links(store, 5) == (STORYTELLER_GUIDE_URL, RULES_URL)
+    store.close()

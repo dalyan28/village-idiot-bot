@@ -477,7 +477,7 @@ def test_welcome_lists_only_existing_commands(ts):
         bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
         bot.store = flow.Store(":memory:")
         for ext in ("commands.settings", "commands.overview", "commands.event_settings", "commands.botc",
-                    "commands.reminder", "commands.test_server"):
+                    "commands.reminder", "commands.my_events", "commands.test_server"):
             await bot.load_extension(ext)
         names = []
         for c in bot.tree.get_commands():
@@ -488,7 +488,7 @@ def test_welcome_lists_only_existing_commands(ts):
     names = run(go())
     import re
     listed = list(dict.fromkeys(re.findall(r"`/([a-z_-]+(?: [a-z_-]+)?)`", texts.WELCOME)))
-    assert listed == ["botc", "testserver beispiel-event", "testserver reset", "testserver setup",
+    assert listed == ["botc", "testserver beispiel-event", "meine_events", "testserver reset", "testserver setup",
                       "testserver update", "testserver delete_all"]
     assert set(listed) <= set(names)
 

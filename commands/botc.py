@@ -87,7 +87,8 @@ class Botc(commands.Cog):
         in_dm = interaction.guild is None
         await interaction.response.defer(ephemeral=not in_dm)
         layout, files = await start_layout(guild, member.id,
-                                           service.open_draft(store, guild.id, member.id, wizard.now()))
+                                           service.open_draft(store, guild.id, member.id, wizard.now()),
+                                           links=service.get_start_links(store, guild.id))
         if in_dm:
             await interaction.followup.send(view=layout, files=files)
             return
