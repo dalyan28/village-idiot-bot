@@ -216,7 +216,9 @@ class CoStDefaultModal(_DefaultsModal):
         self.note = discord.ui.TextInput(required=False, max_length=user_settings.NOTE_MAX_LENGTH,
                                          default=defaults.co_st_note or None, placeholder="z. B. „gern Neulinge“")
         self.add_item(discord.ui.Label(text="Co-Storytellen möglich?", component=self.status))
-        self.add_item(discord.ui.Label(text="Hinweis", description="Optional", component=self.note))
+        self.add_item(discord.ui.Label(text="Co-Storyteller:in oder Hinweis",
+                                       description="Bei „Ja, vergeben“ der Name, sonst ein Hinweis (optional)",
+                                       component=self.note))
 
     def apply(self, d):
         status = self.status.value or "no"
