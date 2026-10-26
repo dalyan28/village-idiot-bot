@@ -138,9 +138,8 @@ class EventData:
     camera: str = DEFAULT_CAMERA
     camera_note: str = ""          # eigener Hinweis zur Kamera (Dalyan, 26.10.2026)
     storyteller: Person | None = None
-    co_storyteller: Person | None = None  # nur bei CO_ST_TAKEN: wer co-storytellt (Titel, Reminder)
     co_st_status: str = "no"              # CO_ST_NO / CO_ST_OPEN / CO_ST_TAKEN
-    co_st_note: str = ""                  # Freitext bei „Nein“ oder „Ja, frei“
+    co_st_note: str = ""                  # optionaler Hinweis, angezeigt als „Status · Hinweis“
     script: ScriptRef | None = None
     rating: str | None = None
     rating_source: str | None = None
@@ -173,14 +172,15 @@ class EventData:
         start = d.pop("start", None)
         st = d.pop("storyteller", None)
         co = d.pop("co_storyteller", None)
-        if co and "co_st_status" not in d:  # Daten aus der Zeit vor dem Status: Name gesetzt = vergeben
-            d["co_st_status"] = CO_ST_TAKEN
+        if co:  # ältere Daten mit Co-ST-Name: als „Ja, vergeben“ mit dem Namen als Hinweis übernehmen
+            d.setdefault("co_st_status", CO_ST_TAKEN)
+            if not d.get("co_st_note"):
+                d["co_st_note"] = co.get("name", "")
         script = d.pop("script", None)
         known = {k: v for k, v in d.items() if k in cls.__dataclass_fields__}
         return cls(
             start=datetime.fromisoformat(start) if start else None,
             storyteller=Person(**st) if st else None,
-            co_storyteller=Person(**co) if co else None,
             script=ScriptRef(**script) if script else None,
             **known,
         )

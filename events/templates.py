@@ -96,8 +96,6 @@ def base_title(data: EventData) -> str:
     if data.storyteller is None:
         return script
     title = f"{script} mit {data.storyteller.name}"
-    if data.co_storyteller is not None:
-        title += f" und {data.co_storyteller.name}"
     return title
 
 
@@ -171,20 +169,14 @@ RULES_URL = "https://discord.com/channels/1197876498980421652/119794554389318871
 SIGNUP_RULES_URL = "https://discord.com/channels/1197876498980421652/1197945543893188719/1547344778742595694"
 
 
-def co_st_text(data, name: str | None = None) -> str:
-    """Co-Storytelling als Text: „Nein“, „Ja, frei“ oder „Ja, vergeben (Name)“, Freitext angehängt.
-    `name`: aktueller Anzeigename der Co-Storyteller:in, sonst der gespeicherte."""
-    from events.schema import CO_ST_LABELS, CO_ST_NO, CO_ST_TAKEN
+def co_st_text(data) -> str:
+    """Co-Storytelling als Text: Status, mit Hinweis „Ja, frei · gern Neulinge“ (Dalyan, 26.10.2026)."""
+    from events.schema import CO_ST_LABELS, CO_ST_NO
 
-    status = data.co_st_status if data.co_st_status in CO_ST_LABELS else CO_ST_NO
-    text = CO_ST_LABELS[status]
-    if status == CO_ST_TAKEN:
-        who = name or (data.co_storyteller.name if data.co_storyteller else "")
-        return f"{text} ({who})" if who else text
-    note = data.co_st_note.strip()
-    if status == CO_ST_NO and note:
-        return note  # reiner Freitext
-    return f"{text} · {note}" if note else text
+    label = CO_ST_LABELS.get(data.co_st_status, CO_ST_LABELS[CO_ST_NO])
+    note = (data.co_st_note or "").strip()
+    return f"{label} · {note}" if note else label
+
 
 
 def camera_text(data) -> str:

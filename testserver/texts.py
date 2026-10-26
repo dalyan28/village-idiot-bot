@@ -10,7 +10,8 @@ RATER_URL = "https://widow-botc.com/script-check"  # Link zum ScriptRater, erste
 
 WELCOME = FROM_DALYAN + """
 **Hey, das ist der neue Event-Bot für unseren Discord.**
-Mit `/botc` legt ihr ein neues Event an. Mit den Knöpfen unten könnt ihr außerdem Dinge ausprobieren, die sonst erst später oder nur bei anderen passieren, zum Beispiel Erinnerungen oder DMs.
+Mit `/botc` legt ihr ein neues Event an. Dabei geht der Bot von ein paar Standardwerten aus, zum Beispiel 12 Spielern und 150 Minuten Dauer. Mit `/einstellungen` legt ihr eure eigenen fest.
+Mit den Knöpfen unten könnt ihr außerdem Dinge ausprobieren, die sonst erst später oder nur bei anderen passieren, zum Beispiel Erinnerungen oder DMs.
 
 Feedback gern über den Button **Feedback**, den ihr an jeder Karte findet, oder direkt in {feedback}. Vielen Dank fürs Mitmachen."""
 

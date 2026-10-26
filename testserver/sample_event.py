@@ -60,7 +60,7 @@ def sample_data(now: datetime) -> EventData:
     script = boozling()
     reasons = special_reasons(script)
     return EventData(start=start, storyteller=Person(STORYTELLER), co_st_status=CO_ST_TAKEN,
-                     co_storyteller=Person(CO_STORYTELLER), script=script, rating=RATING_YELLOW,
+                     co_st_note=CO_STORYTELLER, script=script, rating=RATING_YELLOW,
                      rating_source=RATING_SOURCE_MANUAL, is_special=bool(reasons), special_reasons=reasons,
                      description=DESCRIPTION)
 

@@ -49,12 +49,12 @@ class TestDefaults:
         assert d.level == DEFAULT_LEVEL == "Alle"
         assert d.camera == "optional"
         assert not (d.is_casual or d.is_academy or d.is_recorded)
-        assert d.co_storyteller is None
+        assert d.co_st_status == "no" and d.co_st_note == ""
 
 
 class TestSerialization:
     def test_roundtrip(self):
-        d = make(co_storyteller=Person("Rosanna"), rating="red", is_special=True, special_reasons=["Loric: Bootlegger"],
+        d = make(co_st_status="open", co_st_note="gern Neulinge", rating="red", is_special=True, special_reasons=["Loric: Bootlegger"],
                  reminder_overrides={"r1": {"mode": "names"}})
         again = EventData.from_dict(d.to_dict())
         assert again == d
@@ -105,9 +105,10 @@ class TestValidate:
 
 
 class TestTemplates:
-    def test_title_with_co_st(self):
-        d = make(co_storyteller=Person("Rosanna"))
-        assert base_title(d) == "Boozling mit Dalyan und Rosanna"
+    def test_title_without_co_st(self):
+        """Co-Storytelling steht nicht im Titel (Dalyan, 26.10.2026)."""
+        d = make(co_st_status="taken", co_st_note="Rosanna")
+        assert base_title(d) == "Boozling mit Dalyan"
 
     def test_title_base_script_full_name(self):
         d = make(script=ScriptRef(kind=SCRIPT_BASE, name="tb", base_key="trouble_brewing"))

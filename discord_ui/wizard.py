@@ -34,7 +34,6 @@ from events.schema import (
     BERLIN_TZ,
     CO_ST_LABELS,
     CO_ST_NO,
-    CO_ST_TAKEN,
     CAMERA_LABELS,
     DEFAULT_MAX_PLAYERS,
     DESCRIPTION_MAX_LENGTH,
@@ -437,7 +436,7 @@ async def _other_event(interaction, ctx: WizardContext, arg):
     d.is_special, d.special_reasons = False, []
     d.is_academy = d.is_casual = d.is_recorded = False
     d.camera = EventData().camera
-    d.co_storyteller, d.co_st_status, d.co_st_note = None, CO_ST_NO, ""
+    d.co_st_status, d.co_st_note = CO_ST_NO, ""
     ui = ctx.ui
     for key in ("search_results", "query", "page", "rating_detail", "rating_error", "versions"):
         ui.pop(key, None)
@@ -865,13 +864,11 @@ class PeopleModal(_WizardModal):
         self.co_status = discord.ui.RadioGroup()
         for value, label in CO_ST_LABELS.items():
             self.co_status.add_option(label=label, value=value, default=value == data.co_st_status)
-        co_default = (data.co_storyteller.name if data.co_storyteller else "") if data.co_st_status == CO_ST_TAKEN \
-            else data.co_st_note
-        self.co = discord.ui.TextInput(default=co_default or None, required=False, max_length=100,
-                                       placeholder="z. B. Rosanna oder „gern Neulinge“")
+        self.co = discord.ui.TextInput(default=data.co_st_note or None, required=False, max_length=100,
+                                       placeholder="z. B. „gern Neulinge“")
         self.add_item(discord.ui.Label(text="Storyteller:in", component=self.st))
         self.add_item(discord.ui.Label(text="Co-Storytellen möglich?", component=self.co_status))
-        self.add_item(discord.ui.Label(text="Co-Storyteller:in oder Hinweis", description="Optional",
+        self.add_item(discord.ui.Label(text="Hinweis zum Co-Storytelling", description="Optional",
                                        component=self.co))
 
     async def handle(self, interaction, ctx: WizardContext):
@@ -885,8 +882,7 @@ class PeopleModal(_WizardModal):
 
 
 def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str | None, co_status: str | None):
-    """Storyteller/Co-ST aus Freitext; ein unveränderter Name behält seine User-ID.
-    Bei „Ja, vergeben“ ist der Text der Name der Co-Storyteller:in, sonst ein Hinweis."""
+    """Storyteller aus Freitext (ein unveränderter Name behält seine User-ID), Co-ST als Status + Hinweis."""
     st_name = st_text.strip()
     old_st = d.storyteller
     if old_st is not None and old_st.name == st_name:
@@ -897,16 +893,8 @@ def _apply_people(ctx: WizardContext, d: EventData, st_text: str, co_text: str |
         d.storyteller = Person(name=st_name)
     if co_status is None:  # Co-ST nicht abgefragt (Event ohne Clocktower)
         return
-    co = (co_text or "").strip()
     d.co_st_status = co_status
-    if co_status != CO_ST_TAKEN:
-        d.co_storyteller, d.co_st_note = None, co
-    else:
-        d.co_st_note = ""
-        if not co:
-            d.co_storyteller = None
-        elif d.co_storyteller is None or d.co_storyteller.name != co:
-            d.co_storyteller = Person(name=co[:50])
+    d.co_st_note = (co_text or "").strip()
 
 
 def _label_checkboxes(data: EventData, allow_academy: bool) -> discord.ui.CheckboxGroup:
