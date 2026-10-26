@@ -567,6 +567,11 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
 - **Kurzfristige Abmeldung** (Dalyan, 26.10.2026, zurückgestellt): Abmeldung < 60 Minuten vor Beginn bei einer
   Warteliste unter 2 Personen → automatischer Hinweis an den ST im Event-Thread; DM an Nachrückende von der
   Warteliste.
+- **No-Shows** (Dalyan, 26.10.2026, zurückgestellt): Nach dem Event markiert der ST, wer nicht erschienen ist
+  (Grundlage: Anwesenheitsliste). Die Person bekommt eine freundliche DM mit „Kurze Nachricht an den ST“
+  (gilt dann als entschuldigt). Unentschuldigte Vorfälle werden gezählt (z. B. 90 Tage), ab einer Schwelle
+  bekommt das Serverteam einen Hinweis; Bericht nur für das Team. Datensparsam, automatische Löschung.
+  Offen: wer markiert, Schwelle und Zeitraum, Team-Kanal.
 - **Storyteller-Briefing**: Im ersten Modal, bei den Optionen (Casual, Academy usw.), erscheint für Leute mit einer
   bestimmten Rolle zusätzlich „Storyteller-Briefing“. Wer das wählt, überspringt praktisch alle Schritte: Der Bot
   erstellt direkt ein Briefing-Event mit einem vorher ausgesuchten Template-Text, dem im Modal festgelegten Datum
