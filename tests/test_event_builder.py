@@ -155,3 +155,22 @@ def test_demons_before_highlights_and_spacer_before_lists():
     assert names.index("Demons") < names.index("Spielprägend")
     before_rsvp = embed.fields[next(i for i, n in enumerate(names) if "Akzeptiert" in n) - 1]
     assert before_rsvp.name == "Spielprägend" and before_rsvp.value.endswith(SPACER)
+
+
+def test_waitlist_uses_small_app_emoji_when_uploaded():
+    """Kleinere Uhr als App-Emoji vor Wartelisten-Namen (Dalyan, 27.10.2026), sonst die bisherige."""
+    from types import SimpleNamespace
+    from logic import character_emojis
+    many = [Person(f"P{i}", i) for i in range(14)]
+    before = fields(build_event_embed(data(), "Dalyan", lists(players=many[:12], waitlist=many[12:])))
+    assert "<:warteliste:" in next(v for k, v in before.items() if "Akzeptiert" in k)
+
+    class E(SimpleNamespace):
+        def __str__(self):
+            return f"<:{self.name}:7>"
+    character_emojis.set_emojis([E(name="vi_waitlist")])
+    try:
+        after = fields(build_event_embed(data(), "Dalyan", lists(players=many[:12], waitlist=many[12:])))
+        assert "<:vi_waitlist:7> P12" in next(v for k, v in after.items() if "Akzeptiert" in k)
+    finally:
+        character_emojis.set_emojis([])
