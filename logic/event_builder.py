@@ -225,12 +225,13 @@ def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for, acade
         npcs = npc_characters(char_ids)
         if npcs:
             embed.add_field(name="NPCs", value=npcs, inline=False)
-        highlights = highlight_characters(char_ids)
-        if highlights:
-            embed.add_field(name="Highlights", value=highlights, inline=False)
+        # Demons vor den Highlights (Dalyan, 27.10.2026); der Abstand vor den Listen hängt am letzten Feld
         demons = demon_characters(char_ids, data.script.content)
         if demons:
             embed.add_field(name="Demons", value=demons[:1024], inline=False)
+        highlights = highlight_characters(char_ids)
+        if highlights:
+            embed.add_field(name="Highlights", value=highlights, inline=False)
 
 
 
