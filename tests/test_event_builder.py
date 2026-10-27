@@ -69,13 +69,13 @@ def test_title_has_prefix_and_link():
 def test_npcs_and_highlights():
     f = fields(build_event_embed(data(), "Dalyan", lists()))
     assert "Djinn" in f["NPCs"] and "Bootlegger" in f["NPCs"]
-    assert "Highlights" in f and "Relevante Charaktere" not in f
-    assert "(" not in f["Highlights"]  # keine Score-Zahlen
+    assert "Spielprägend" in f and "Highlights" not in f
+    assert "(" not in f["Spielprägend"]  # keine Score-Zahlen
 
 
 def test_free_choice_has_no_character_fields():
     f = fields(build_event_embed(data(script=ScriptRef(kind=SCRIPT_FREE), rating=None), "Dalyan", lists()))
-    assert "NPCs" not in f and "Highlights" not in f
+    assert "NPCs" not in f and "Spielprägend" not in f
     assert f["Skript"] == "Freie Skriptwahl"
 
 
@@ -124,7 +124,7 @@ def test_character_emojis_prefix_names(monkeypatch):
         assert character_emojis.emoji_for("unbekannt") == ""  # nur bekannte Charaktere
         f = fields(build_event_embed(data(), "Dalyan", lists()))
         assert f["Demons"] == "<:imp:1> Imp, <:fanggu:1> Fang Gu"
-        assert "<:imp:1> **Imp**" in f["Highlights"] or "<:imp:1> Imp" in f["Highlights"]
+        assert "<:imp:1> **Imp**" in f["Spielprägend"] or "<:imp:1> Imp" in f["Spielprägend"]
     finally:
         character_emojis.set_emojis([])
 
@@ -152,6 +152,6 @@ def test_co_storytelling_states():
 def test_demons_before_highlights_and_spacer_before_lists():
     embed = build_event_embed(data(), "Dalyan", lists())
     names = [f.name for f in embed.fields]
-    assert names.index("Demons") < names.index("Highlights")
+    assert names.index("Demons") < names.index("Spielprägend")
     before_rsvp = embed.fields[next(i for i, n in enumerate(names) if "Akzeptiert" in n) - 1]
-    assert before_rsvp.name == "Highlights" and before_rsvp.value.endswith(SPACER)
+    assert before_rsvp.name == "Spielprägend" and before_rsvp.value.endswith(SPACER)

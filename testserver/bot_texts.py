@@ -40,7 +40,7 @@ COPIED = [
      "Der ScriptRater ist gerade nicht erreichbar. Bitte stell die Schwierigkeit selbst ein.",
      "discord_ui/wizard.py"),
     ("Im Wizard", "Zusammenfassung, wenn noch was fehlt",
-     "🔴 **Bevor du veröffentlichen kannst, fehlt noch:** Beschreibung", "discord_ui/layout_v2.py"),
+     "**Bevor du veröffentlichen kannst, fehlt noch:** Beschreibung", "discord_ui/layout_v2.py"),
     ("Im Wizard", "Zusammenfassung, wenn alles da ist",
      "Alle Pflichtangaben sind vollständig. Wenn alles passt: **Veröffentlichen**.", "discord_ui/layout_v2.py"),
     ("Im Wizard", "Veröffentlicht", "Dein Event ist veröffentlicht.", "discord_ui/wizard.py"),
