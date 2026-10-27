@@ -1,6 +1,6 @@
 """Inhalt von #texte: die längeren Texte, die der Bot an die Leute schickt, zum Gegenlesen.
 
-Keine Buttons, nur Fließtext. Was der Bot aus Funktionen baut (Academy-Text, Erinnerungen,
+Keine Buttons, nur Fließtext. Was der Bot aus Funktionen baut (Erinnerungen,
 Rechte-Hinweis), wird hier direkt erzeugt. Der Rest ist eine Kopie vom Stand des Codes;
 tests/test_testserver.py prüft, dass jede Kopie dort noch so steht (Datei + die ersten 25 Zeichen).
 
@@ -45,9 +45,17 @@ ORDER: list[tuple[str, list[str]]] = [
     (DOUBLE, ["3 Stunden vor der früheren Runde", "Nach der Wahl einer Runde", "Nach „Ignorieren“",
               "Klick, nachdem die Runde begonnen hat", "Klick, wenn man schon abgemeldet ist"]),
     (REMINDER, ["Erinnerung im Thread", "Anwesenheitsliste"]),
-    (ACADEMY, ["Academy-Text unter der Beschreibung"]),
+    (ACADEMY, []),
 ]
 GROUPS = [group for group, _ in ORDER]
+
+# Gruppen ohne eigene Bot-Texte, nur mit einem Hinweis (Dalyan, 27.10.2026: der Academy-Text ist per Command
+# änderbar, hier stand vorher eine Kopie)
+NOTES = {
+    ACADEMY: "Unter der Beschreibung von Academy-Runden steht ein fester Text. Den passt ihr direkt im Bot mit "
+             "`/academy_text` an, dort seht ihr auch den aktuellen Text. Das dürfen Admins, das Event-Team und alle "
+             "mit Academy-Freigabe.",
+}
 
 # Kleine Zeile unter dem Namen, wo der Name allein nicht sagt, wann der Text kommt
 HINTS = {
@@ -57,7 +65,6 @@ HINTS = {
     "Zusage zu zwei Runden zur gleichen Zeit": "nur für die Person sichtbar, direkt nach der Zusage",
     "Erinnerung im Thread": "hier ohne Ping, im Thread unter dem Event",
     "Anwesenheitsliste": "hängt als anwesenheit.txt an der Erinnerung, neben dem Skript-JSON",
-    "Academy-Text unter der Beschreibung": "hier für 💚",
 }
 
 # (Gruppe, Name, Text, Datei im Code)
@@ -83,7 +90,7 @@ COPIED = [
     (SUMMARY, "Wenn noch etwas fehlt",
      "**Bevor du veröffentlichen kannst, fehlt noch:** Beschreibung", "discord_ui/layout_v2.py"),
     (SUMMARY, "Wenn alles da ist",
-     "Alle Pflichtangaben sind vollständig. Wenn alles passt: **Veröffentlichen**.", "discord_ui/layout_v2.py"),
+     "Alle Pflichtangaben sind vollständig. Wenn alles passt, klick auf **Veröffentlichen**.", "discord_ui/layout_v2.py"),
     (SUMMARY, "Veröffentlicht", "Dein Event ist veröffentlicht.", "discord_ui/wizard.py"),
     (CANCEL, "Abgebrochen, der Entwurf bleibt",
      "**Abgebrochen**\nDein Entwurf bleibt 24 Stunden gespeichert. Mit `/botc` kannst du jederzeit dort "
@@ -126,7 +133,6 @@ def generated() -> list[tuple[str, str, str]]:
     from discord_ui.botc_start import build_start_layout, start_problem
     from events import reminders, service
     from events.store import Store
-    from events.templates import academy_description
 
     guild = SimpleNamespace(id=1, name="Widow", get_role=lambda rid: SimpleNamespace(name="Storyteller"),
                             get_channel=lambda cid: None)
@@ -182,7 +188,6 @@ def generated() -> list[tuple[str, str, str]]:
         (DOUBLE, "Klick, wenn man schon abgemeldet ist", RESOLVED_NOTICE),
         (REMINDER, "Erinnerung im Thread", reminders.message_text(names, when, people)),
         (REMINDER, "Anwesenheitsliste", f"```\n{reminders.attendance_txt(event, people)}```"),
-        (ACADEMY, "Academy-Text unter der Beschreibung", academy_description("green")),
     ]
 
 
@@ -192,6 +197,6 @@ def posts() -> list[str]:
     texts.update({label: text for _, label, text in generated()})
     result = [INTRO]
     for group, labels in ORDER:
-        body = "\n\n".join(_entry(label, texts[label]) for label in labels)
+        body = NOTES.get(group) or "\n\n".join(_entry(label, texts[label]) for label in labels)
         result.append(f"### {group}\n{body}")
     return result

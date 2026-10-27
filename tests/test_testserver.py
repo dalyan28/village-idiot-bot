@@ -543,7 +543,7 @@ def test_texts_channel_copies_match_code():
     assert len(posts) == 1 + len(bot_texts.GROUPS)
     # Lange Gruppen werden beim Posten an Absätzen geteilt
     assert all(len(part) <= server.MESSAGE_LIMIT for p in posts for part in server.split_message(p))
-    assert "Clocktower Academy" in posts[-1]
+    assert "/academy_text" in posts[-1] and "Clocktower Academy" not in posts[-1]
 
 
 def test_start_message_has_feedback(ts, monkeypatch):
@@ -627,4 +627,4 @@ def test_test_card_previews_use_fake_data():
     assert "Trouble Brewing" not in shown.split("abgemeldet", 1)[1]  # aus der Liste raus
 
     run(test_card.TestCardButton("choose", 0).callback(inter))
-    assert "Erledigt: Du spielst **Boozling mit Mara**" in texts_of(screens[-1]["view"])
+    assert "Du spielst **Boozling mit Mara** und bist von" in texts_of(screens[-1]["view"])
