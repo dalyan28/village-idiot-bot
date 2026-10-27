@@ -21,7 +21,14 @@ from events import guild_lock, service
 from events.schema import BERLIN_TZ, Person
 from events.store import RSVP_ACCEPTED, RSVP_DECLINED, RSVP_TENTATIVE, EventRecord, Store
 from logic.event_builder import EMOJI_FILLER, build_event_embed
-from logic.event_images import IMAGE_FILENAME, THUMB_FILENAME, image_signature, render_image, thumbnail_path
+from logic.event_images import (
+    THUMB_FILENAME,
+    image_filename,
+    image_name_of,
+    image_signature,
+    render_image,
+    thumbnail_path,
+)
 from testserver import hooks as testserver_hooks  # TESTSERVER
 
 logger = logging.getLogger(__name__)
@@ -57,14 +64,15 @@ def _name_resolver(guild: discord.Guild | None):
 
 
 async def render_post(bot: discord.Client, store: Store, event: EventRecord,
-                      has_image: bool, has_thumbnail: bool) -> dict:
+                      image_name: str | None, has_thumbnail: bool) -> dict:
     """Inhalt des Event-Posts als kwargs für send/edit: Embed + Buttons."""
-    embed = await build_embed(bot, store, event, has_image, has_thumbnail)
+    embed = await build_embed(bot, store, event, image_name, has_thumbnail)
     return {"embed": embed, "view": event_view(event)}
 
 
 async def build_embed(bot: discord.Client, store: Store, event: EventRecord,
-                      has_image: bool, has_thumbnail: bool) -> discord.Embed:
+                      image_name: str | None, has_thumbnail: bool) -> discord.Embed:
+    """`image_name`: Anhangsname des großen Bildes (JPEG-Skript-Blatt oder PNG), None ohne Bild."""
     guild = bot.get_guild(event.guild_id)
     # Ohne Members-Intent ist der Cache oft leer: Mitglied dann bei Discord abfragen,
     # sonst fehlt das Profilbild in der Fußzeile.
@@ -79,8 +87,8 @@ async def build_embed(bot: discord.Client, store: Store, event: EventRecord,
         created_at=datetime.fromtimestamp(event.created_at, tz=timezone.utc),
         academy_template=service.get_academy_template(store, event.guild_id),
     )
-    if has_image:
-        embed.set_image(url=f"attachment://{IMAGE_FILENAME}")
+    if image_name:
+        embed.set_image(url=f"attachment://{image_name}")
     return embed
 
 
@@ -88,7 +96,7 @@ async def build_files(event_data) -> list[discord.File]:
     files = []
     image = await render_image(event_data)
     if image:
-        files.append(discord.File(io.BytesIO(image), filename=IMAGE_FILENAME))
+        files.append(discord.File(io.BytesIO(image), filename=image_filename(image)))
     thumb = thumbnail_path(event_data)
     if thumb:
         files.append(discord.File(thumb, filename=THUMB_FILENAME))
@@ -99,17 +107,22 @@ def _has(files_or_attachments, filename: str) -> bool:
     return any(f.filename == filename for f in files_or_attachments)
 
 
-def _shown_images(msg: discord.Message) -> tuple[bool, bool]:
-    """Welche Bilder der Post gerade zeigt (Bild, Thumbnail).
+def _shown_images(msg: discord.Message) -> tuple[str | None, bool]:
+    """Welche Bilder der Post gerade zeigt (Anhangsname des Bildes, Thumbnail ja/nein).
 
     Discord führt Anhänge, auf die ein Embed per attachment:// zeigt, nicht in msg.attachments.
     Deshalb am Embed ablesen; wer dort fehlt, ließe Discord beim Bearbeiten verwaist fallen
     (gleiches Problem und gleiche Lösung wie auf event-creation).
+    Der Name kommt aus der Bild-URL: Ältere Posts haben noch event_image.png, neue event_image.jpg.
     """
     if msg.embeds:
         embed = msg.embeds[0]
-        return bool(embed.image and embed.image.url), bool(embed.thumbnail and embed.thumbnail.url)
-    return _has(msg.attachments, IMAGE_FILENAME), _has(msg.attachments, THUMB_FILENAME)
+        image_name = None
+        if embed.image and embed.image.url:
+            # CDN-Link (https://…/event_image.jpg?ex=…) oder attachment://event_image.jpg
+            image_name = embed.image.url.split("?", 1)[0].rsplit("/", 1)[-1] or None
+        return image_name, bool(embed.thumbnail and embed.thumbnail.url)
+    return image_name_of(msg.attachments), _has(msg.attachments, THUMB_FILENAME)
 
 
 def event_view(event: EventRecord) -> discord.ui.View:
@@ -138,7 +151,7 @@ async def post_event(bot: discord.Client, store: Store, event: EventRecord) -> d
     if channel is None:
         raise service.ServiceError("Es ist kein Event-Channel eingerichtet (`/set_event_channel`).")
     files = await build_files(event.data)
-    content = await render_post(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+    content = await render_post(bot, store, event, image_name_of(files), _has(files, THUMB_FILENAME))
     msg = await channel.send(files=files, **content)
     store.set_event_message(event.id, msg.channel.id, msg.id)
     logger.info("Event %s gepostet (msg %s)", event.id, msg.id)
@@ -168,7 +181,7 @@ async def update_event_message(bot: discord.Client, store: Store, event: EventRe
         return await post_event(bot, store, event)
     if images_changed:
         files = await build_files(event.data)
-        content = await render_post(bot, store, event, _has(files, IMAGE_FILENAME), _has(files, THUMB_FILENAME))
+        content = await render_post(bot, store, event, image_name_of(files), _has(files, THUMB_FILENAME))
         await msg.edit(attachments=files, **content)
     else:
         content = await render_post(bot, store, event, *_shown_images(msg))

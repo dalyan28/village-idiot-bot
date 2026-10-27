@@ -175,6 +175,7 @@ async def main():
         await bot.load_extension("commands.reminder")
         await bot.load_extension("commands.my_events")
         await bot.load_extension("commands.user_settings")
+        await bot.load_extension("commands.script_sheet_pack")  # lädt nur mit SCRIPT_SHEET_UPLOAD=1
         if os.getenv("TEST_SERVER") == "1":  # TESTSERVER
             await bot.load_extension("commands.test_server")  # TESTSERVER
             print("Testserver-Commands geladen")  # TESTSERVER
