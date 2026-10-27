@@ -50,6 +50,8 @@ SETUP_RUNNING = "Ich richte den Server ein …"
 UPDATE_RUNNING = "Ich aktualisiere die Texte in diesem Channel …"
 UPDATE_NO_TEXTS = "In diesem Channel gibt es keine festen Texte. Ruf den Command in dem Channel auf, den du auffrischen willst."
 SAMPLE_RUNNING = "Ich poste ein Beispiel-Event …"
+SHEETS_RUNNING = "Ich rendere die Skript-Bilder neu, das dauert etwa eine halbe Minute …"
+SHEETS_NO_CHANNEL = "Es gibt noch keinen Channel für die Skript-Bilder. Lass einmal `/testserver setup` laufen."
 RESET_RUNNING = "Ich räume den Event-Channel auf …"
 DELETE_CONFIRM = ("Damit fliegen alle Channels, Rollen, Runden, Entwürfe und die Bot-Einstellungen für diesen "
                   "Server raus. Nur der Feedback-Channel bleibt. Sicher?")

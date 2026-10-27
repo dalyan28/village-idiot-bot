@@ -36,6 +36,7 @@ CATEGORY_PLAN = [
     ("rounds", "Runden", [
         ("events", "📅︱events", EVENTS),
         ("overview", "📋︱übersicht", READONLY),
+        ("sheets", "🖼️︱skript-bilder", READONLY),  # Skript-Blätter zum Vergleichen (Dalyan, 27.10.2026)
     ]),
 ]
 CHANNEL_PLAN = [ch for _, _, channels in CATEGORY_PLAN for ch in channels]

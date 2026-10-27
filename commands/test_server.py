@@ -116,6 +116,28 @@ class TestServerCog(commands.Cog):
         link = f"https://discord.com/channels/{event.guild_id}/{event.channel_id}/{event.message_id}"
         await _followup(interaction, f"Beispiel-Event ist da: {link}")
 
+    @testserver.command(name="skript-bilder", description="Zehn Skript-Bilder in #skript-bilder neu posten")
+    async def sheets_cmd(self, interaction: discord.Interaction):
+        from testserver import registry, script_gallery
+
+        if not await _guard(interaction):
+            return
+        store = self.bot.store
+        reg = registry.get(store, interaction.guild_id)
+        channel = interaction.guild.get_channel(reg["channels"].get(script_gallery.CHANNEL_KEY) or 0)
+        if channel is None:
+            await interaction.response.send_message(texts.SHEETS_NO_CHANNEL, ephemeral=True)
+            return
+        await interaction.response.send_message(texts.SHEETS_RUNNING, ephemeral=True)
+        try:
+            ids = await script_gallery.post_gallery(channel, reg["messages"].get(script_gallery.MESSAGES_KEY) or [])
+        except discord.HTTPException as e:
+            await _followup(interaction, f"Posten hat nicht geklappt: {e}")
+            return
+        reg["messages"][script_gallery.MESSAGES_KEY] = ids
+        registry.save(store, interaction.guild_id, reg)
+        await _followup(interaction, f"Fertig, die Bilder stehen in {channel.mention}.")
+
     @testserver.command(name="reset", description="Event-Channel leeren, alle Runden und Entwürfe löschen")
     async def reset_cmd(self, interaction: discord.Interaction):
         if not await _guard(interaction):

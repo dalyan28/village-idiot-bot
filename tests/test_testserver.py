@@ -373,7 +373,7 @@ def test_setup_is_repeatable_and_registers_channels(ts):
     reg = registry.get(bot.store, GUILD)
     assert [c.name for c in guild.categories] == ["Start", "Runden"]
     assert [[ch.name for ch in c.channels] for c in guild.categories] == [
-        ["👋︱willkommen", "🗒️︱texte", "💬︱chat", "📝︱feedback"], ["📅︱events", "📋︱übersicht"]]
+        ["👋︱willkommen", "🗒️︱texte", "💬︱chat", "📝︱feedback"], ["📅︱events", "📋︱übersicht", "🖼️︱skript-bilder"]]
     assert len(guild.roles) == 2
     cfg = bot_config.get_guild_config(GUILD)
     assert cfg["event_channel_id"] == reg["channels"]["events"]
@@ -664,3 +664,38 @@ def test_test_card_previews_use_fake_data():
 
     run(test_card.TestCardButton("choose", 0).callback(inter))
     assert "Du spielst **Boozling mit Mara** und bist von" in texts_of(screens[-1]["view"])
+
+
+def test_script_gallery_posts_ten_sheets(monkeypatch):
+    """#skript-bilder: alte Bilder weg, Überschrift plus zehn Skript-Blätter (Dalyan, 27.10.2026)."""
+    import io as _io
+    from testserver import script_gallery
+
+    async def fake_sheet(name, author, chars, meta=None, content=None, theme="green"):
+        return None if name == "Onion Pies" else _io.BytesIO(b"\xff\xd8jpeg")
+    monkeypatch.setattr(script_gallery, "generate_script_sheet", fake_sheet)
+
+    class Channel:
+        def __init__(self):
+            self.sent, self.deleted, self.next = [], [], 100
+
+        async def fetch_message(self, mid):
+            channel = self
+
+            class Msg:
+                async def delete(self):
+                    channel.deleted.append(mid)
+            return Msg()
+
+        async def send(self, content=None, files=(), **kw):
+            self.next += 1
+            self.sent.append((content, [f.filename for f in files]))
+            return SimpleNamespace(id=self.next)
+
+    channel = Channel()
+    ids = run(script_gallery.post_gallery(channel, [1, 2]))
+    assert channel.deleted == [1, 2] and len(ids) == 11
+    assert "Skript-Bilder zum Vergleichen" in channel.sent[0][0]
+    images = [s for s in channel.sent[1:] if s[1] == ["skript.jpg"]]
+    assert len(images) == 9 and "zu groß, kein Bild" in channel.sent[8][0]
+    assert "Skript nicht gefunden" not in " ".join(c for c, _ in channel.sent)
