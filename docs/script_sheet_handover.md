@@ -1,10 +1,22 @@
 # Übergabe: Skript-Blatt (neues Skript-Bild)
 
-Stand 27.10.2026 · Branch `script-image-redesign` · **nichts committet**
+Stand 27.10.2026 · Branch `script-image-redesign` (Worktree `BOT_VillageIdiot_sheet`, von `event-wizard` abgezweigt)
 
-Das neue Skript-Bild ist fertig entwickelt und liegt als eigenständiges Modul in `logic/script_sheet/`.
-Der Bot benutzt es noch nicht: `logic/script_image.py` (alter Generator) und alle Aufrufer sind unverändert.
-Deine Aufgaben stehen in Abschnitt 6.
+Das neue Skript-Bild liegt als eigenständiges Modul in `logic/script_sheet/`.
+
+**Nachtrag 27.10.2026: eingebaut** (Abschnitt 6.1 und 6.2 erledigt, 6.2.4 und 6.3 offen):
+- Asset-Paket per ZIP-Upload über `/skriptblatt_paket` (nur DMs, nur Bot-Besitzer, nur mit
+  `SCRIPT_SHEET_UPLOAD=1`; Code `commands/script_sheet_pack.py`, `logic/script_sheet/pack_install.py`). Entpackt
+  erst nach `script_sheet_assets.neu`, prüft Pfade, Dateitypen und Größe, tauscht dann; kaputte ZIP → altes Paket
+  bleibt. Verworfen: Railway CLI (kein Datei-Upload), privates Repo/Release mit Token, Speicher-Link,
+  verschlüsselt im Repo.
+- `event_images.py` nutzt `generate_script_sheet`, Theme aus der Schwierigkeit (im Cache-Schlüssel und in
+  `image_signature`). `None` → kein Bild, die Zusammenfassung sagt „keins (Skript zu groß für ein Bild)“.
+- Anhang heißt `event_image.jpg` (Skript-Blatt) bzw. `event_image.png` (eigene Bilder und alte Posts);
+  `image_filename(bytes)` wählt nach Format, `_shown_images` liest den Namen aus der Bild-URL.
+- `nightsheet.json` kommt beim TPI-Update aufs Volume. Icon-Laden steckt jetzt in `logic/script_cache.py`
+  (`load_icon`, `fetch_icon`, `prefetch_icons`, Homebrew-Icons parallel vorgeladen);
+  `logic/script_image.py` und `test_generate_image.py` sind gelöscht.
 
 ---
 

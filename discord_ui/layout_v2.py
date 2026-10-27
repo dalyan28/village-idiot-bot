@@ -153,7 +153,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     from events.templates import full_title
     from logic.character_emojis import missing_bar
     from logic.event_builder import embed_color
-    from logic.event_images import IMAGE_FILENAME, has_auto_image
+    from logic.event_images import has_auto_image, image_name_of
 
     d = draft.data
     esc = discord.utils.escape_markdown
@@ -211,15 +211,18 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
 
     # Bild: kleine Vorschau rechts; geändert wird es über „Bild ändern“ unten
     files = await build_files(d)
-    has_image = any(f.filename == IMAGE_FILENAME for f in files)
-    image_text = {IMAGE_AUTO: "aus der Skript-JSON" if has_auto_image(d) else
-                  ("kein Bild" if other else "keins (freie Skriptwahl)"),
-                  IMAGE_CUSTOM: "eigenes Bild"}.get(d.image_mode, "kein Bild")
+    image_name = image_name_of(files)
+    if d.image_mode == IMAGE_AUTO and has_auto_image(d):
+        # Ab doppelter A4-Länge gibt es kein Skript-Blatt (z. B. alle Charaktere)
+        auto_text = "aus der Skript-JSON" if image_name else "keins (Skript zu groß für ein Bild)"
+    else:
+        auto_text = "kein Bild" if other else "keins (freie Skriptwahl)"
+    image_text = {IMAGE_AUTO: auto_text, IMAGE_CUSTOM: "eigenes Bild"}.get(d.image_mode, "kein Bild")
     container.add_item(discord.ui.Separator())
     image_block = discord.ui.TextDisplay(_block("Bild", f"Quelle: {_value(image_text)}"))
-    if has_image:
+    if image_name:
         container.add_item(discord.ui.Section(
-            image_block, accessory=discord.ui.Thumbnail(f"attachment://{IMAGE_FILENAME}")))
+            image_block, accessory=discord.ui.Thumbnail(f"attachment://{image_name}")))
     else:
         container.add_item(image_block)
 
@@ -241,7 +244,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     layout.add_item(row)
     _shorten(layout)
     # Das Thumbnail (Basis-Skript/Academy) braucht V2 nicht; nur das Skript-Bild mitschicken
-    return layout, [f for f in files if f.filename == IMAGE_FILENAME]
+    return layout, [f for f in files if f.filename == image_name]
 
 
 RESULTS_PER_PAGE = 5  # Treffer als Abschnitte mit „Wählen“ (je 3 Komponenten, Grenze 40)

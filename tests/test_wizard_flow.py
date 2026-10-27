@@ -293,7 +293,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     event = bot.store.list_events(GUILD)[0]
     msg = bot.channel.messages[event.message_id]
     assert msg.embed.title == "🟡 Trouble Brewing mit Dalyan"  # Co-ST nicht im Titel
-    assert set(msg.files) == {"event_image.png", "thumbnail.png"}
+    assert set(msg.files) == {"event_image.jpg", "thumbnail.png"}
     assert msg.attachments == []  # wie bei Discord: vom Embed referenzierte Anhänge fehlen hier
     # Ersteller:in nur unten: Profilbild, Name, Erstellungsdatum
     assert msg.embed.author.name is None
@@ -307,7 +307,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     accepted = next(f.value for f in embed.fields if "Akzeptiert" in f.name)
     assert "Anna" in accepted and "<@" not in accepted
     # Regression: Bild und Thumbnail verschwanden nach Zu-/Absage
-    assert embed.image.url == "attachment://event_image.png"
+    assert embed.image.url == "attachment://event_image.jpg"
     assert embed.thumbnail.url == "attachment://thumbnail.png"
 
     # Bearbeiten durch Fremde verboten, durch Ersteller per DM-Wizard (Start in der Vorschau)

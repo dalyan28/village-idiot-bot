@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
-from logic.script_image import _load_icon  # lokale TPI-Icons und Homebrew-URLs (mit Zwischenspeicher)
+from logic.script_cache import load_icon  # lokale TPI-Icons und Homebrew-URLs (mit Zwischenspeicher)
 
 from . import assets, ornaments, title
 from .model import DJINN_ID, GRID_TEAMS, NIGHT_SPECIALS, defining
@@ -51,7 +51,7 @@ def _placeholder(px):
 @functools.lru_cache(maxsize=512)
 def _icon(cid, evil, px, urls=()):
     """Icon auf den sichtbaren Inhalt beschnitten und in ein px-Quadrat eingepasst (einheitliche optische Größe)."""
-    src = _load_icon(cid, evil=evil, size=max(px * 2, 64), icon_urls=list(urls) or None)
+    src = load_icon(cid, evil=evil, size=max(px * 2, 64), icon_urls=list(urls) or None)
     if src is None:
         return _placeholder(px)
     bbox = src.getchannel("A").getbbox()

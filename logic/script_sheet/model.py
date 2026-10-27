@@ -74,7 +74,7 @@ def _norm(cid):
 
 
 def build_script(name, author, char_ids, meta=None, content=None):
-    """Script aus denselben Angaben, die der Bot heute an generate_script_image übergibt."""
+    """Script aus den Angaben, die event_images.render_image übergibt."""
     db = load_characters()
     meta = meta or {}
     homebrew = {item["id"]: item for item in (content or [])

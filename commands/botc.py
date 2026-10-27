@@ -12,7 +12,7 @@ from events import guild_lock, service
 
 # Diese Commands gibt es auf den Servern UND in den DMs mit dem Bot. bot.py registriert sie deshalb
 # global statt nur je Server (siehe sync_commands).
-DM_COMMANDS = ("botc",)
+DM_COMMANDS = ("botc", "skriptblatt_paket")  # skriptblatt_paket nur mit SCRIPT_SHEET_UPLOAD=1 geladen
 
 
 async def member_guilds(bot, user: discord.abc.User) -> list[tuple[discord.Guild, discord.Member]]:

@@ -1,8 +1,9 @@
 """Bilder eines Events: Skript-Bild (automatisch oder eigenes) und Thumbnail.
 
 Eigene Bilder werden als PNG im Upload-Ordner auf dem Volume gespeichert, weil Discord-CDN-
-Links ablaufen. Im Event-Post heißen die Anhänge immer gleich (IMAGE_FILENAME, THUMB_FILENAME),
-damit das Embed beim Neuaufbau (z. B. nach einer Anmeldung) per attachment:// darauf zeigen kann.
+Links ablaufen. Im Event-Post heißen die Anhänge immer gleich, damit das Embed beim Neuaufbau
+(z. B. nach einer Anmeldung) per attachment:// darauf zeigen kann. Das Skript-Blatt ist ein JPEG,
+eigene Bilder sind PNG; Discord leitet den Typ aus der Endung ab, deshalb `image_filename(bytes)`.
 """
 
 from __future__ import annotations
@@ -16,12 +17,14 @@ from PIL import Image, UnidentifiedImageError
 
 from events.schema import IMAGE_AUTO, IMAGE_CUSTOM, SCRIPT_BASE, SCRIPT_FREE, EventData
 from logic.script_cache import STATIC_DIR, VOLUME_DIR
-from logic.script_image import generate_script_image
+from logic.script_sheet import generate_script_sheet, theme_for_rating
 
 logger = logging.getLogger(__name__)
 
 UPLOAD_DIR = os.path.join(VOLUME_DIR, "uploads")
-IMAGE_FILENAME = "event_image.png"
+IMAGE_FILENAME = "event_image.jpg"        # Skript-Blatt (JPEG)
+IMAGE_FILENAME_PNG = "event_image.png"    # eigene Bilder; so hießen bis 27.10.2026 auch alle Skript-Bilder
+IMAGE_FILENAMES = (IMAGE_FILENAME, IMAGE_FILENAME_PNG)
 THUMB_FILENAME = "thumbnail.png"
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 # Größe in Pixeln vor dem Dekodieren prüfen: Eine kleine Datei kann zu einem riesigen Bild
@@ -41,6 +44,16 @@ BASE3_THUMBNAILS = {
 # Erzeugte Skript-Bilder (dauert Sekunden): Wizard und Vorschau zeigen dasselbe Bild mehrfach
 AUTO_CACHE_SIZE = 16
 _auto_cache: dict[tuple, bytes] = {}
+
+
+def image_filename(image: bytes) -> str:
+    """Anhangsname passend zum Format (JPEG beginnt mit FF D8)."""
+    return IMAGE_FILENAME if image[:2] == b"\xff\xd8" else IMAGE_FILENAME_PNG
+
+
+def image_name_of(files) -> str | None:
+    """Name des Event-Bildes unter Dateien bzw. Anhängen, oder None."""
+    return next((f.filename for f in files if f.filename in IMAGE_FILENAMES), None)
 
 
 class ImageError(ValueError):
@@ -86,7 +99,10 @@ def has_auto_image(data: EventData) -> bool:
 
 
 async def render_image(data: EventData) -> bytes | None:
-    """PNG-Bytes des Event-Bildes je nach Modus, oder None (kein Bild)."""
+    """Bild-Bytes je nach Modus (eigenes Bild PNG, Skript-Blatt JPEG), oder None (kein Bild).
+
+    Auch beim automatischen Bild kann None herauskommen: Ab doppelter A4-Länge (z. B. ein Skript mit allen
+    Charakteren) gibt es kein Skript-Blatt."""
     if data.image_mode == IMAGE_CUSTOM:
         path = custom_image_path(data.custom_image)
         if path is None:
@@ -96,17 +112,18 @@ async def render_image(data: EventData) -> bytes | None:
             return f.read()
     if data.image_mode == IMAGE_AUTO and has_auto_image(data):
         s = data.script
-        key = (s.display_name, s.author, s.version, tuple(s.characters), repr(s.content))
+        theme = theme_for_rating(data.rating)  # Farbe nach Schwierigkeit
+        key = (s.display_name, s.author, s.version, tuple(s.characters), repr(s.content), theme)
         if key in _auto_cache:
             return _auto_cache[key]
         meta = next((x for x in (s.content or []) if isinstance(x, dict) and x.get("id") == "_meta"), None)
         try:
-            buf = await generate_script_image(s.display_name, s.author if s.kind != SCRIPT_BASE else "",
-                                              s.characters, s.version, meta=meta, content=s.content)
+            buf = await generate_script_sheet(s.display_name, s.author if s.kind != SCRIPT_BASE else "",
+                                              s.characters, meta=meta, content=s.content, theme=theme)
         except Exception:
-            logger.exception("Skript-Bild konnte nicht erzeugt werden: %s", s.display_name)
+            logger.exception("Skript-Blatt konnte nicht erzeugt werden: %s", s.display_name)
             return None
-        image = buf.getvalue()
+        image = buf.getvalue() if buf is not None else None  # None: Skript zu groß, auch das merken
         if len(_auto_cache) >= AUTO_CACHE_SIZE:
             _auto_cache.pop(next(iter(_auto_cache)))  # ältesten Eintrag verwerfen
         _auto_cache[key] = image
@@ -131,4 +148,6 @@ def image_signature(data: EventData) -> tuple:
     """Alles, was die Bilder bestimmt. Gleich → beim Bearbeiten die alten Anhänge behalten."""
     s = data.script
     script_key = (s.kind, s.base_key, s.botcscripts_id, s.version, tuple(s.characters)) if s else None
-    return (data.image_mode, data.custom_image, script_key, data.is_academy)
+    # Das Theme des Skript-Blatts hängt an der Schwierigkeit: ändert sie sich, muss das Bild neu
+    theme = theme_for_rating(data.rating) if data.image_mode == IMAGE_AUTO else None
+    return (data.image_mode, data.custom_image, script_key, data.is_academy, theme)

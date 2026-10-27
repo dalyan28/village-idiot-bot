@@ -37,6 +37,8 @@ def render_script_sheet(script_name, author, char_ids, meta=None, content=None, 
 
 
 def _generate_sync(script_name, author, char_ids, meta, content, theme):
+    from logic.script_cache import prefetch_icons
+    prefetch_icons(content)  # Homebrew-Icons parallel statt einzeln beim Zeichnen
     img = render_script_sheet(script_name, author, char_ids, meta=meta, content=content, theme=theme)
     if img is None:
         logger.info("Skript-Blatt: '%s' ist zu groß für ein Bild (%d Charaktere)", script_name, len(char_ids))
