@@ -31,15 +31,16 @@ def theme_for_rating(rating):
     return _THEME_BY_RATING.get(rating, "green")
 
 
-def render_script_sheet(script_name, author, char_ids, meta=None, content=None, theme="green"):
+def render_script_sheet(script_name, author, char_ids, meta=None, content=None, theme="green", seed=0):
     sc = build_script(script_name, author, char_ids, meta=meta, content=content)
+    sc.seed = seed or 0
     return render_sheet(sc, theme=theme, dpi=DPI)
 
 
-def _generate_sync(script_name, author, char_ids, meta, content, theme):
+def _generate_sync(script_name, author, char_ids, meta, content, theme, seed=0):
     from logic.script_cache import prefetch_icons
     prefetch_icons(content)  # Homebrew-Icons parallel statt einzeln beim Zeichnen
-    img = render_script_sheet(script_name, author, char_ids, meta=meta, content=content, theme=theme)
+    img = render_script_sheet(script_name, author, char_ids, meta=meta, content=content, theme=theme, seed=seed)
     if img is None:
         logger.info("Skript-Blatt: '%s' ist zu groß für ein Bild (%d Charaktere)", script_name, len(char_ids))
         return None
@@ -50,6 +51,7 @@ def _generate_sync(script_name, author, char_ids, meta, content, theme):
     return buf
 
 
-async def generate_script_sheet(script_name, author, char_ids, meta=None, content=None, theme="green"):
-    """Skript-Blatt als JPEG (BytesIO) oder None, wenn das Skript zu groß ist."""
-    return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, meta, content, theme)
+async def generate_script_sheet(script_name, author, char_ids, meta=None, content=None, theme="green", seed=0):
+    """Skript-Blatt als JPEG (BytesIO) oder None, wenn das Skript zu groß ist.
+    `seed`: Zufallszahl des Events (Optik je Event), 0 = Optik aus dem Skriptnamen."""
+    return await asyncio.to_thread(_generate_sync, script_name, author, char_ids, meta, content, theme, seed)

@@ -22,7 +22,7 @@ def rng(name, salt=""):
 
 
 def recipe(name):
-    """Stabile, je Skript andere Kombination aus Titel-Variante, -Layout, -Behandlung, Eckstück und Trenner."""
+    """Stabile, je Skript (bzw. je Event, siehe Script.seed) andere Kombination aus Titel-Variante, -Layout, -Behandlung, Eckstück und Trenner."""
     rnd = rng(name)
     r = {"title": rnd.choice(TITLE_TREATMENTS), "corner": rnd.choice(assets.CORNER_RULES)}
     r["title_rule"] = rnd.choice([k for k in assets.TITLE_RULES if k != r["corner"]])
@@ -148,7 +148,7 @@ def draw_wash(pg, name, color, score, x, y, icon_px):
     shapes = own + pack
     if not shapes:
         return
-    rnd = rng(name, "wash")
+    rnd = rng(name, f"wash{pg.seed}" if getattr(pg, "seed", 0) else "wash")
     anchor = rnd.choice([a for a in WASH_ANCHORS if a != getattr(pg, "wash_prev", None)])
     pg.wash_prev = anchor
     text_x = x + icon_px * 1.2

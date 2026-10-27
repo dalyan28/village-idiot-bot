@@ -26,10 +26,16 @@ class PackError(ValueError):
     """ZIP ist kein brauchbares Asset-Paket (deutsche Meldung)."""
 
 
+def _name(info: zipfile.ZipInfo) -> str:
+    """Pfad in der ZIP mit „/“. Windows-PowerShell (Compress-Archive) schreibt Backslashes; Python übersetzt das nur
+    unter Windows selbst, auf Railway (Linux) nicht (Dalyan, 27.10.2026)."""
+    return info.filename.replace("\\", "/")
+
+
 def _members(zf: zipfile.ZipFile) -> tuple[list[zipfile.ZipInfo], str]:
     """Dateien der ZIP und ein gemeinsamer Oberordner, falls die ZIP den Ordner selbst enthält."""
-    files = [i for i in zf.infolist() if not i.is_dir()]
-    names = [i.filename for i in files]
+    files = [i for i in zf.infolist() if not i.is_dir() and not _name(i).endswith("/")]
+    names = [_name(i) for i in files]
     if "manifest.json" in names:
         return files, ""
     prefixes = {n.split("/", 1)[0] for n in names}
@@ -55,16 +61,16 @@ def install_pack(raw: bytes, target: str | None = None) -> dict:
             raise PackError("Entpackt wäre die ZIP größer als 100 MB.")
         plan = []
         for info in files:
-            rel = info.filename[len(prefix):]
+            rel = _name(info)[len(prefix):]
             parts = rel.split("/")
-            if rel.startswith("/") or "\\" in rel or any(p in ("", ".", "..") for p in parts):
+            if rel.startswith("/") or ":" in rel or any(p in ("", ".", "..") for p in parts):
                 raise PackError(f"Unerlaubter Pfad in der ZIP: {info.filename}")
             if not rel.lower().endswith(ALLOWED_SUFFIXES):
                 raise PackError(f"Unerwartete Datei in der ZIP: {info.filename} (erlaubt sind PNG und JSON)")
             plan.append((info, rel))
         try:
-            manifest = json.loads(zf.read(prefix + "manifest.json"))
-        except (ValueError, KeyError):
+            manifest = json.loads(zf.read(next(i for i, rel in plan if rel == "manifest.json")))
+        except (ValueError, KeyError, StopIteration):
             raise PackError("manifest.json ist kein gültiges JSON.") from None
         if not isinstance(manifest, dict):
             raise PackError("manifest.json hat ein unerwartetes Format.")

@@ -183,3 +183,18 @@ def test_upload_command_needs_env_and_owner(monkeypatch, pack_dir):
     asyncio.run(cog.skriptblatt_paket.callback(cog, owner, upload))
     assert "Asset-Paket installiert: 2 Dateien" in followups[0]
     assert os.path.exists(os.path.join(pack_dir, "pattern_tile.png"))
+
+
+def test_install_pack_accepts_backslash_paths(pack_dir, monkeypatch):
+    """ZIP aus Windows-PowerShell: Pfade mit „\“, die Python unter Linux nicht übersetzt (Dalyan, 27.10.2026)."""
+    raw = _zip({"manifest.json": "{}", "night/dawn.png": _png()})
+    original = zipfile.ZipFile.infolist
+
+    def linux_view(self):
+        infos = original(self)
+        for info in infos:
+            info.filename = info.filename.replace("/", "\\")  # so sieht Linux die PowerShell-ZIP
+        return infos
+    monkeypatch.setattr(zipfile.ZipFile, "infolist", linux_view)
+    assert pack_install.install_pack(raw, target=pack_dir)["installed_files"] == 2
+    assert os.path.exists(os.path.join(pack_dir, "night", "dawn.png"))

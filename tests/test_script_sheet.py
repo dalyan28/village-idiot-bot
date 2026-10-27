@@ -61,3 +61,36 @@ def test_too_many_characters_give_no_image(no_pack):
 def test_generate_returns_jpeg(no_pack):
     buf = asyncio.run(generate_script_sheet("Trouble Brewing", "TPI", TROUBLE_BREWING, theme="green"))
     assert buf.getvalue()[:3] == b"\xff\xd8\xff"
+
+
+def test_seed_varies_look_per_event_but_stays_fixed(no_pack):
+    """Optik je Event zufällig, innerhalb eines Events fest (Dalyan, 27.10.2026)."""
+    from logic.script_sheet import render_script_sheet
+
+    def render(seed):
+        return render_script_sheet("Trouble Brewing", "TPI", TROUBLE_BREWING, seed=seed).tobytes()
+    first = render(11)
+    assert render(11) == first      # gleiches Event → gleiches Bild
+    assert render(12) != first      # anderes Event → andere Verzierung bzw. Kleckse
+
+
+def test_new_drafts_get_an_image_seed():
+    from datetime import datetime, timedelta
+
+    from events import service
+    from events.permissions import Actor
+    from events.schema import BERLIN_TZ, EventData
+    from events.store import Store
+    from logic.event_images import image_signature
+
+    store = Store(":memory:")
+    now = datetime(2026, 10, 27, 12, 0, tzinfo=BERLIN_TZ)
+    seeds = {service.start_draft(store, 1, Actor(7, is_admin=True), "Dalyan",
+                                 EventData(start=now + timedelta(days=2)), now).data.image_seed for _ in range(3)}
+    assert 0 not in seeds and len(seeds) == 3
+    data = EventData(image_seed=5)
+    other = EventData(image_seed=6)
+    assert image_signature(data) != image_signature(other)  # andere Zahl → neues Bild
+    assert EventData.from_dict(data.to_dict()).image_seed == 5
+    assert EventData.from_dict({k: v for k, v in data.to_dict().items() if k != "image_seed"}).image_seed == 0
+    store.close()

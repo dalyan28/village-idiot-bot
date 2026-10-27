@@ -113,13 +113,14 @@ async def render_image(data: EventData) -> bytes | None:
     if data.image_mode == IMAGE_AUTO and has_auto_image(data):
         s = data.script
         theme = theme_for_rating(data.rating)  # Farbe nach Schwierigkeit
-        key = (s.display_name, s.author, s.version, tuple(s.characters), repr(s.content), theme)
+        key = (s.display_name, s.author, s.version, tuple(s.characters), repr(s.content), theme, data.image_seed)
         if key in _auto_cache:
             return _auto_cache[key]
         meta = next((x for x in (s.content or []) if isinstance(x, dict) and x.get("id") == "_meta"), None)
         try:
             buf = await generate_script_sheet(s.display_name, s.author if s.kind != SCRIPT_BASE else "",
-                                              s.characters, meta=meta, content=s.content, theme=theme)
+                                              s.characters, meta=meta, content=s.content, theme=theme,
+                                              seed=data.image_seed)
         except Exception:
             logger.exception("Skript-Blatt konnte nicht erzeugt werden: %s", s.display_name)
             return None
@@ -150,4 +151,4 @@ def image_signature(data: EventData) -> tuple:
     script_key = (s.kind, s.base_key, s.botcscripts_id, s.version, tuple(s.characters)) if s else None
     # Das Theme des Skript-Blatts hängt an der Schwierigkeit: ändert sie sich, muss das Bild neu
     theme = theme_for_rating(data.rating) if data.image_mode == IMAGE_AUTO else None
-    return (data.image_mode, data.custom_image, script_key, data.is_academy, theme)
+    return (data.image_mode, data.custom_image, script_key, data.is_academy, theme, data.image_seed)
