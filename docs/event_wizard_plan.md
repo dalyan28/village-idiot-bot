@@ -572,10 +572,16 @@ Dritte Runde Feedback (20.10.2026):
   Karte zeigt „Abgebrochen. Dein Entwurf bleibt 24 Stunden gespeichert …“ mit „Weitermachen“ und „Entwurf löschen“.
   Beim Bearbeiten eines Events bleibt „Bearbeitung verwerfen“ wie gehabt.
 - **Academy-Text anpassbar** (Dalyan, 26.10.2026): `/academy_text` für Admins, Event-Team und alle mit
-  Academy-Berechtigung. Dialog mit dem aktuellen Text, Häkchen zum Zurücksetzen, danach eine Vorschau. Gespeichert
+  Academy-Berechtigung. Bearbeitet wird per DM (siehe „Texte per DM bearbeiten“), danach eine Vorschau. Gespeichert
   pro Server (`guild_settings["academy_template"]`). Zeilen mit 💚/🟡/🟥 am Anfang werden passend zur Schwierigkeit
   fett, `{hier}` wird zu „(hier N)“ mit der Rundenzahl aus diesen Zeilen. Gilt auch für bestehende Academy-Events,
   sobald ihr Post neu aufgebaut wird.
+- **Texte per DM bearbeiten** (Dalyan, 27.10.2026): Dialoge können keine Formatierung und keine Emojis. Academy-Text
+  und eigene Standard-Beschreibung bearbeitet man deshalb in den DMs: Der Bot schickt eine Karte mit dem aktuellen
+  Text, die nächste DM (oder eine angehängte .txt-Datei bei mehr als 2000 Zeichen) wird übernommen. Buttons: „Als
+  Rohtext zum Kopieren“, „Auf Standard zurücksetzen“ bzw. „Standard-Beschreibung entfernen“, „Abbrechen“, danach
+  „Nochmal ändern“. Offene Bearbeitung in `text_edits` (eine je Person, 30 Minuten); „Im Chat schreiben“ im Wizard
+  beendet sie. Code: `discord_ui/text_edit.py`.
 - **Markierung fehlender Angaben** (Dalyan, 27.10.2026): statt 🔴 ein kurzer, gedämpft roter Balken als App-Emoji
   (`vi_missing_bar`, wird beim Start wie die Charakter-Emojis hochgeladen; bis dahin „▍“). Gilt für die Statuszeile
   und die „fehlt“-Markierungen in der Zusammenfassung.

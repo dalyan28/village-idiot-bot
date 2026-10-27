@@ -48,6 +48,10 @@ class Botc(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
+        from discord_ui import text_edit
+
+        if await text_edit.take_text(self.bot, message):
+            return
         await take_chat_text(self.bot, message)
 
     @app_commands.command(name="botc", description="Neue Runde anlegen")
