@@ -1,7 +1,8 @@
 """Button „Feedback“ an Wizard-Karten und Event-Posts, Dialog und Post in den Feedback-Channel.
 
 custom_id: `fb:w:<draft_id>:<karte>` (Wizard), `fb:e:<event_id>` (Event-Post) bzw.
-`fb:s:<guild_id>:start` (Startnachricht von /botc, noch ohne Entwurf). Als
+`fb:s:<guild_id>:start` (Startnachricht von /botc, noch ohne Entwurf) bzw. `fb:s:<guild_id>:testcard`
+(Ausprobieren-Karte). Als
 DynamicItem funktioniert der Button auch nach einem Neustart.
 """
 
@@ -119,6 +120,8 @@ def _where(bot, kind: str, target_id: int, card: str) -> tuple[str, list]:
             lines.append(f"Skript: {discord.utils.escape_markdown(draft.data.script.display_name)}")
         return "\n".join(lines), list((draft.ui or {}).get(history.UI_KEY) or [])
     if kind == KIND_START:
+        if card == "testcard":
+            return f"{card_label} im Willkommens-Channel", None
         return f"{card_label} von /botc, noch kein Entwurf", None
     event = store.get_event(target_id, include_deleted=True)
     lines = [f"{card_label} · Event {target_id}"]

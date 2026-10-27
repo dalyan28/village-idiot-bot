@@ -33,13 +33,15 @@ def now() -> datetime:
 # ── Karte ────────────────────────────────────────────────────────────────────
 
 
-def card_layout(events_link: str) -> discord.ui.LayoutView:
+def card_layout(events_link: str, guild_id: int) -> discord.ui.LayoutView:
     text = texts.TEST_CARD.format(events=events_link)
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=CARD_COLOR))
     first = discord.ui.ActionRow()
     first.add_item(TestCardButton("create", label="Event erstellen", style=discord.ButtonStyle.primary))
     first.add_item(TestCardButton("sample", label="[Dev] Beispiel-Event posten"))
+    from testserver.feedback import FeedbackButton
+    first.add_item(FeedbackButton("s", guild_id, "testcard"))  # Dalyan, 27.10.2026
     layout.add_item(first)
     second = discord.ui.ActionRow()
     second.add_item(TestCardButton("myevents", label="[Dev] Meine Events ansehen"))

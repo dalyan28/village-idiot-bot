@@ -22,6 +22,7 @@ CARD_LABELS = {
     "image": "Bild-Seite",
     "event": "Event-Post",
     "start": "Startnachricht",
+    "testcard": "Ausprobieren-Karte",
 }
 
 FIELD_LABELS = {

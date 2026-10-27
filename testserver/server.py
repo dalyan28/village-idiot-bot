@@ -287,7 +287,8 @@ async def _post_card(channel, reg: dict, repost: bool) -> list[int]:
     Karte wieder ans Ende."""
     from testserver.test_card import card_layout
 
-    layout = card_layout(f"<#{reg['channels']['events']}>" if reg["channels"].get("events") else "#events")
+    layout = card_layout(f"<#{reg['channels']['events']}>" if reg["channels"].get("events") else "#events",
+                         channel.guild.id)
     old = None
     for mid in reg["messages"].get(CARD_KEY) or []:
         try:

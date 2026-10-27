@@ -390,7 +390,8 @@ def test_setup_is_repeatable_and_registers_channels(ts):
     assert f"<#{reg['channels']['events']}>" in card
     ids = [getattr(i, "item", i).custom_id for i in msgs[1].view.walk_children()
            if isinstance(getattr(i, "item", i), discord.ui.Button)]
-    assert ids == ["tsc:create", "tsc:sample", "tsc:myevents", "tsc:double", "tsc:reminder"]
+    assert ids == ["tsc:create", "tsc:sample", f"fb:s:{GUILD}:testcard", "tsc:myevents", "tsc:double",
+                   "tsc:reminder"]
 
     # Erneut: Beiträge werden bearbeitet, überzählige gelöscht, die Karte bleibt am Ende
     extra = run(welcome.send("alter Feature-Text"))
@@ -568,6 +569,21 @@ def test_start_message_has_feedback(ts, monkeypatch):
     fields = {f.name: f.value for f in channel.embeds[0].fields}
     assert channel.embeds[0].title == "Startnachricht" and "noch kein Entwurf" in fields["Wo"]
     assert "Termin festlegen" in fields["Davor"]
+
+
+def test_test_card_has_feedback(ts):
+    """Feedback-Button auch an der Ausprobieren-Karte (Dalyan, 27.10.2026)."""
+    from testserver.test_card import card_layout
+    bot = ts
+    channel = _with_feedback_channel(bot)
+    assert f"fb:s:{GUILD}:testcard" in ids(card_layout("#events", GUILD))
+    inter = FakeInteraction(bot, bot.guild.get_member(USER))
+    run(FeedbackButton("s", GUILD, "testcard").callback(inter))
+    modal = inter.response.modal
+    modal.text._value = "Karte ist klar."
+    run(modal.on_submit(FakeInteraction(bot, bot.guild.get_member(USER))))
+    fields = {f.name: f.value for f in channel.embeds[0].fields}
+    assert channel.embeds[0].title == "Ausprobieren-Karte" and "Willkommens-Channel" in fields["Wo"]
 
 
 def test_sample_event_is_full_and_created_once(ts):
