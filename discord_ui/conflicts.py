@@ -49,22 +49,34 @@ def signup_hint(event: EventRecord, group: list[EventRecord]) -> str:
             f"Entscheide dich spätestens {conflicts.DECIDE_HOURS_BEFORE} Stunden vor Beginn der früheren Runde.")
 
 
-def decision_layout(group: list[EventRecord], notice: str | None = None, make_button=None) -> discord.ui.LayoutView:
-    """`make_button(event, label)` liefert den Button je Runde (Standard: ChooseButton)."""
+def _event_link(event: EventRecord) -> str:
+    name = discord.utils.escape_markdown(_name(event))
+    if event.channel_id and event.message_id:
+        return f"[{name}](https://discord.com/channels/{event.guild_id}/{event.channel_id}/{event.message_id})"
+    return name
+
+
+def decision_layout(group: list[EventRecord], notice: str | None = None, make_button=None,
+                    make_ignore=None) -> discord.ui.LayoutView:
+    """Entscheidungs-DM (Dalyan, 27.10.2026: nüchtern, die Regel kurz erklärt, Links zu den Events).
+    `make_button(event, label)` und `make_ignore()` liefern die Buttons (Standard: ChooseButton)."""
     make_button = make_button or (lambda e, label: ChooseButton(e.id, label))
-    lines = ["**Du bist für mehrere Runden zur gleichen Zeit angemeldet**",
-             "Für welche entscheidest du dich? Die anderen Anmeldungen nehme ich dann raus."]
+    make_ignore = make_ignore or (lambda: ChooseButton(None, "Ignorieren"))
+    lines = ["**Doppelanmeldung**",
+             "Du bist für Runden angemeldet, die sich zeitlich überschneiden. Laut den "
+             f"{_rules_link()} entscheidest du dich spätestens {conflicts.DECIDE_HOURS_BEFORE} Stunden vor Beginn der "
+             "früheren Runde und meldest dich von den anderen ab."]
     for e in group:
-        lines.append(f"- {discord.utils.escape_markdown(_name(e))}, <t:{int(e.data.start.timestamp())}:F>")
-    lines.append(f"-# Mehr dazu in den {_rules_link()}.")
+        lines.append(f"- {_event_link(e)} · <t:{int(e.data.start.timestamp())}:F>")
     if notice:
-        lines.append(notice)
+        lines.append(f"\n{notice}")
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(discord.ui.Container(discord.ui.TextDisplay("\n".join(lines)), accent_colour=DM_COLOR))
-    if notice is None:
+    if notice is None and group:
         row = discord.ui.ActionRow()
-        for e in group[:5]:
+        for e in group[:4]:
             row.add_item(make_button(e, f"Ich spiele {_name(e)}"[:70] + f" ({_when(e)})"))
+        row.add_item(make_ignore())
         layout.add_item(row)
     return layout
 
@@ -109,26 +121,43 @@ def choice_notice(chosen: EventRecord, others: list[EventRecord]) -> str:
             + (f" Von {names} bist du abgemeldet." if others else ""))
 
 
-class ChooseButton(discord.ui.DynamicItem[discord.ui.Button], template=r"dbl:(?P<event_id>\d+)"):
-    def __init__(self, event_id: int, label: str = "Diese Runde"):
-        super().__init__(discord.ui.Button(label=label, style=discord.ButtonStyle.primary,
-                                           custom_id=f"dbl:{event_id}"))
+IGNORED_NOTICE = "Ignoriert. Deine Anmeldungen bleiben, wie sie sind."
+EXPIRED_NOTICE = "Diese Auswahl ist nicht mehr aktuell. An deinen Anmeldungen hat sich nichts geändert."
+RESOLVED_NOTICE = "Hat sich erledigt: Du bist nicht mehr zeitgleich für mehrere Runden angemeldet."
+
+
+class ChooseButton(discord.ui.DynamicItem[discord.ui.Button], template=r"dbl:(?P<event_id>\d+|ignore)"):
+    """`dbl:<event_id>` = „Ich spiele diese Runde“, `dbl:ignore` = nichts ändern."""
+
+    def __init__(self, event_id: int | None, label: str = "Diese Runde"):
+        style = discord.ButtonStyle.secondary if event_id is None else discord.ButtonStyle.primary
+        super().__init__(discord.ui.Button(label=label, style=style,
+                                           custom_id=f"dbl:{'ignore' if event_id is None else event_id}"))
         self.event_id = event_id
 
     @classmethod
     async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match: re.Match[str], /):
-        return cls(int(match["event_id"]), item.label or "Diese Runde")
+        event_id = None if match["event_id"] == "ignore" else int(match["event_id"])
+        return cls(event_id, item.label or "Diese Runde")
 
     async def callback(self, interaction: discord.Interaction):
         from discord_ui.event_post import update_event_message  # zirkulären Import vermeiden
 
+        if self.event_id is None:
+            await interaction.response.edit_message(view=decision_layout([], IGNORED_NOTICE))
+            return
         bot, store = interaction.client, interaction.client.store
         chosen = store.get_event(self.event_id)
-        if chosen is None or not guild_lock.is_allowed(chosen.guild_id):
-            await interaction.response.edit_message(view=decision_layout([], "Diese Runde gibt es nicht mehr."))
+        t = now()
+        # Nicht mehr aktuell: Runde gibt es nicht mehr oder sie hat schon begonnen (DM von gestern o. Ä.)
+        if chosen is None or not guild_lock.is_allowed(chosen.guild_id) or chosen.data.start <= t:
+            await interaction.response.edit_message(view=decision_layout([], EXPIRED_NOTICE))
             return
-        group = conflicts.conflict_group(store, chosen, interaction.user.id, now())
+        group = conflicts.conflict_group(store, chosen, interaction.user.id, t)
         others = [e for e in group if e.id != chosen.id]
+        if not others:
+            await interaction.response.edit_message(view=decision_layout([], RESOLVED_NOTICE))
+            return
         for e in others:
             store.remove_rsvp(e.id, interaction.user.id)
         await interaction.response.edit_message(view=decision_layout(group, choice_notice(chosen, others)))
