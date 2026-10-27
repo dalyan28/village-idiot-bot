@@ -535,8 +535,7 @@ def test_texts_follow_style():
 
 
 # Diese Texte setzt der Bot erst zur Laufzeit zusammen; geprüft wird nur ihr Anfang
-COMPOSED_AT_RUNTIME = {"ScriptRater antwortet nicht", "Zusammenfassung, wenn noch was fehlt",
-                       "Zusammenfassung, wenn alles da ist"}
+COMPOSED_AT_RUNTIME = {"ScriptRater antwortet nicht", "Wenn noch etwas fehlt", "Wenn alles da ist"}
 
 
 def test_texts_channel_copies_match_code():
@@ -553,7 +552,13 @@ def test_texts_channel_copies_match_code():
         flat = re.sub(r'"\s*\n\s*f?"', "", source).replace("\\n", "\n")
         found = text[:25] in source if label in COMPOSED_AT_RUNTIME else text in flat
         assert found, f"{label}: Text in {path} geändert, bitte bot_texts.COPIED nachziehen"
+    # Jeder Text hat genau einen Platz in der Reihenfolge, keiner fehlt (Dalyan, 27.10.2026)
+    labels = [label for _, labels in bot_texts.ORDER for label in labels]
+    known = [label for _, label, _, _ in bot_texts.COPIED] + [label for _, label, _ in bot_texts.generated()]
+    assert sorted(labels) == sorted(known)
     posts = bot_texts.posts()
+    assert all(p.startswith("### ") for p in posts[1:])
+    assert "-# Widow" not in "".join(posts)  # Serverzeile der Karten fällt weg
     assert posts[0].startswith(texts.FROM_DALYAN) and "relevanten Texte" in posts[0]
     assert len(posts) == 1 + len(bot_texts.GROUPS)
     # Lange Gruppen werden beim Posten an Absätzen geteilt
