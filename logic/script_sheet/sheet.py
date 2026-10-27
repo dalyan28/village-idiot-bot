@@ -163,7 +163,8 @@ class Page:
         self.sub = 1.0     # zusätzlicher Faktor für den Anhang
         self.spread = 0.0  # freier Platz, gleichmäßig auf die Abschnittsabstände verteilt
         self.slack = 0.0
-        self.rec = ornaments.recipe(sc.name)
+        self.seed = sc.seed
+        self.rec = ornaments.recipe(f"{sc.name}#{sc.seed}" if sc.seed else sc.name)
         self.defining = defining(sc)
         self.img = _paper(self.W, self.H).copy() if draw else None
         self.dr = ImageDraw.Draw(self.img) if draw else None
