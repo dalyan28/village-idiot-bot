@@ -52,9 +52,9 @@ GROUPS = [group for group, _ in ORDER]
 # Gruppen ohne eigene Bot-Texte, nur mit einem Hinweis (Dalyan, 27.10.2026: der Academy-Text ist per Command
 # änderbar, hier stand vorher eine Kopie)
 NOTES = {
-    ACADEMY: "Unter der Beschreibung von Academy-Runden steht ein fester Text. Den passt ihr direkt im Bot mit "
-             "`/academy_text` an, dort seht ihr auch den aktuellen Text. Das dürfen Admins, das Event-Team und alle "
-             "mit Academy-Freigabe.",
+    ACADEMY: "Unter der Beschreibung von Academy-Runden steht ein fester Text. Den passt ihr mit `/academy_text` an. "
+             "Der Bot schickt euch den aktuellen Text in die DMs, und eure nächste Nachricht dort wird der neue Text, "
+             "mit Formatierung und Emojis. Das dürfen Admins, das Event-Team und alle mit Academy-Freigabe.",
 }
 
 # Kleine Zeile unter dem Namen, wo der Name allein nicht sagt, wann der Text kommt

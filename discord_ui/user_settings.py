@@ -73,7 +73,7 @@ def defaults_layout(guild: discord.Guild, d: UserDefaults, notice: str | None = 
     container.add_item(discord.ui.TextDisplay(head))
 
     # Jedes Feld einzeln mit eigenem „Ändern“ (Dalyan, 26.10.2026)
-    description = esc(d.description.strip()) if d.description.strip() else "`keine`"
+    description = d.description.strip() or "`keine`"  # eigener Text mit Formatierung, nicht escapen
     camera = CAMERA_LABELS[d.camera or DEFAULT_CAMERA] + (f" · {d.camera_note}" if d.camera_note else "")
     co = CO_ST_LABELS[d.co_st_status or "no"] + (f" · {d.co_st_note}" if d.co_st_note else "")
     fields = [
@@ -119,19 +119,6 @@ class _DefaultsModal(discord.ui.Modal):
             user_settings.save(store, self.guild.id, interaction.user.id, d, int(now().timestamp()))
             d = user_settings.get(store, self.guild.id, interaction.user.id)
         await interaction.response.edit_message(view=defaults_layout(self.guild, d, error or "Gespeichert."))
-
-
-class DescriptionDefaultModal(_DefaultsModal):
-    def __init__(self, guild, defaults: UserDefaults):
-        super().__init__(guild, defaults, "Standard-Beschreibung")
-        self.text = discord.ui.TextInput(style=discord.TextStyle.paragraph, required=False,
-                                         max_length=DESCRIPTION_MAX_LENGTH, default=defaults.description or None,
-                                         placeholder="z. B. deine Vorlage mit Ablauf und Hinweisen")
-        self.add_item(discord.ui.Label(text="Beschreibung", description="Leer lassen, um keine vorzugeben",
-                                       component=self.text))
-
-    def apply(self, d):
-        d.description = (self.text.value or "").strip()
 
 
 def _number(raw: str | None, low: int, high: int, label: str) -> tuple[int | None, str | None]:
@@ -225,7 +212,7 @@ class CoStDefaultModal(_DefaultsModal):
         d.co_st_note = (self.note.value or "").strip()
 
 
-MODALS = {"description": DescriptionDefaultModal, "players": PlayersDefaultModal, "duration": DurationDefaultModal,
+MODALS = {"players": PlayersDefaultModal, "duration": DurationDefaultModal,
           "level": LevelDefaultModal, "camera": CameraDefaultModal, "cost": CoStDefaultModal}
 
 class SettingsButton(discord.ui.DynamicItem[discord.ui.Button],
@@ -245,7 +232,14 @@ class SettingsButton(discord.ui.DynamicItem[discord.ui.Button],
             await interaction.response.send_message("Diesen Server kenne ich gerade nicht.", ephemeral=True)
             return
         d = user_settings.get(store, guild.id, interaction.user.id)
-        if self.action in MODALS:
+        if self.action == "description":
+            # Per DM, damit Formatierung und Emojis gehen (Dalyan, 27.10.2026)
+            from discord_ui import text_edit
+
+            sent = await text_edit.start(interaction.client, guild, interaction.user, "description")
+            await interaction.response.edit_message(
+                view=defaults_layout(guild, d, text_edit.IN_DMS if sent else text_edit.DM_CLOSED))
+        elif self.action in MODALS:
             await interaction.response.send_modal(MODALS[self.action](guild, d))
         elif self.action == "defaults":
             await interaction.response.edit_message(view=defaults_layout(guild, d))

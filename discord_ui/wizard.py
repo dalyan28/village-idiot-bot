@@ -780,6 +780,7 @@ async def _start_chat_input(interaction, ctx: WizardContext, field: str):
     ui[AWAIT_KEY] = {"field": field, "channel_id": interaction.channel_id,
                      "message_id": interaction.message.id if interaction.message else None}
     ctx.set_ui(ui)
+    ctx.store.clear_text_edit(interaction.user.id)
     await show(interaction, ctx)
 
 
