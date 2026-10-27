@@ -373,7 +373,7 @@ async def _set_script(interaction, ctx: WizardContext, script: ScriptRef, notice
     base_players = ctx.ui.get(BASE_PLAYERS_KEY, DEFAULT_MAX_PLAYERS)
     if script.teensy and not was_teensy and d.max_players != TEENSY_MAX_PLAYERS:
         d.max_players = TEENSY_MAX_PLAYERS
-        notice = notice or f"Teensyville erkannt: max. Spieler auf {TEENSY_MAX_PLAYERS} gesetzt."
+        notice = notice or f"Das Skript ist ein Teensyville, deshalb sind maximal {TEENSY_MAX_PLAYERS} Spieler eingestellt."
     elif was_teensy and not script.teensy and d.max_players == TEENSY_MAX_PLAYERS:
         d.max_players = base_players
     ui = ctx.ui

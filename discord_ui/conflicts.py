@@ -120,8 +120,10 @@ async def check_decisions(bot: discord.Client, store: Store, guild_id: int, t: d
 
 def choice_notice(chosen: EventRecord, others: list[EventRecord]) -> str:
     names = ", ".join(discord.utils.escape_markdown(_name(e)) for e in others)
-    return (f"Erledigt: Du spielst **{discord.utils.escape_markdown(_name(chosen))}**."
-            + (f" Von {names} bist du abgemeldet." if others else ""))
+    chosen_name = f"**{discord.utils.escape_markdown(_name(chosen))}**"
+    if not others:
+        return f"Du spielst {chosen_name}."
+    return f"Du spielst {chosen_name} und bist von {names} abgemeldet."
 
 
 IGNORED_NOTICE = "Ignoriert. Deine Anmeldungen bleiben, wie sie sind."
