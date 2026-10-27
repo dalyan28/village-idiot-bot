@@ -1,11 +1,17 @@
 """Rollen-Konfiguration der Event-Erstellung: wer Runden und Academy-Angebote anlegen darf."""
 
+import logging
+from datetime import datetime, timedelta
+
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from discord_ui.members import actor_from_member
 from events import permissions, service
+from events.schema import BERLIN_TZ
+
+logger = logging.getLogger(__name__)
 
 
 def _role_text(guild: discord.Guild, role_id: int | None) -> str:
@@ -167,6 +173,43 @@ class EventSettings(commands.Cog):
         if access.storyteller_role_id is None:
             lines.append("-# Ohne Storyteller-Rolle dürfen nur Event-Team und Admins Runden anlegen.")
         return "\n".join(lines)
+
+    @app_commands.command(name="events_auffrischen",
+                          description="Alle kommenden Event-Posts neu aufbauen (Texte, Reihenfolge, Skript-Bild)")
+    @app_commands.guild_only()
+    async def events_auffrischen(self, interaction: discord.Interaction):
+        """Nach einem Update (Dalyan, 27.10.2026): Posts zeigen sonst bis zur nächsten Änderung den alten Stand.
+        Event-Team und Admins."""
+        if not await self._check(interaction):
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        done, failed = await refresh_event_posts(self.bot, self.bot.store, interaction.guild_id, now())
+        text = f"{done} Event-Posts neu aufgebaut."
+        if failed:
+            text += f" Bei {failed} hat es nicht geklappt, Details stehen im Log."
+        await interaction.followup.send(text, ephemeral=True)
+
+
+def now() -> datetime:
+    return datetime.now(BERLIN_TZ)
+
+
+async def refresh_event_posts(bot, store, guild_id: int, t: datetime) -> tuple[int, int]:
+    """Baut die Posts aller noch nicht beendeten Events samt Bildern neu. Gibt (geschafft, fehlgeschlagen) zurück."""
+    from discord_ui.event_post import update_event_message
+
+    done = failed = 0
+    since = int((t - timedelta(days=2)).timestamp())  # laufende Events mitnehmen
+    for event in store.list_events(guild_id, start_from=since):
+        if not event.message_id or (event.data.end is not None and event.data.end <= t):
+            continue
+        try:
+            await update_event_message(bot, store, event, images_changed=True)
+            done += 1
+        except Exception:
+            logger.exception("Event %s ließ sich nicht neu aufbauen", event.id)
+            failed += 1
+    return done, failed
 
 
 async def setup(bot):
