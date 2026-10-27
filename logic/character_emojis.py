@@ -25,6 +25,37 @@ EVIL_TYPES = ("minion", "demon")
 
 _emojis: dict[str, str] = {}  # Charakter-ID → "<:name:id>"
 
+# Eigene UI-Emojis des Bots (Präfix vi_, damit sie nie mit Charakter-IDs kollidieren)
+MISSING_BAR = "vi_missing_bar"   # kurzer Balken vor fehlenden Pflichtangaben (Dalyan, 27.10.2026)
+MISSING_BAR_FALLBACK = "▍"       # solange das Emoji (noch) nicht hochgeladen ist
+MISSING_BAR_COLOR = (214, 84, 72, 255)  # gedämpftes Rot
+_ui_emojis: dict[str, str] = {}
+
+
+def ui_emoji(name: str, fallback: str = "") -> str:
+    return _ui_emojis.get(name, fallback)
+
+
+def missing_bar() -> str:
+    return ui_emoji(MISSING_BAR, MISSING_BAR_FALLBACK)
+
+
+def _missing_bar_png() -> bytes:
+    """Schmaler, abgerundeter senkrechter Balken, mittig; wirkt neben Text wie eine Randmarkierung."""
+    from PIL import Image, ImageDraw
+
+    canvas = Image.new("RGBA", (EMOJI_SIZE, EMOJI_SIZE), (0, 0, 0, 0))
+    width, height = 20, 92
+    left, top = (EMOJI_SIZE - width) // 2, (EMOJI_SIZE - height) // 2
+    ImageDraw.Draw(canvas).rounded_rectangle((left, top, left + width, top + height), radius=width // 2,
+                                             fill=MISSING_BAR_COLOR)
+    out = io.BytesIO()
+    canvas.save(out, format="PNG")
+    return out.getvalue()
+
+
+UI_EMOJIS = {MISSING_BAR: _missing_bar_png}
+
 
 def emoji_name(char_id: str) -> str | None:
     """Gültiger Emoji-Name (2–32 Zeichen, Buchstaben/Ziffern/Unterstrich) oder None."""
@@ -43,12 +74,15 @@ def with_emoji(char_id: str, text: str) -> str:
 
 
 def set_emojis(emojis) -> int:
-    """Übernimmt die App-Emojis, deren Name eine bekannte Charakter-ID ist."""
+    """Übernimmt die App-Emojis, deren Name eine bekannte Charakter-ID ist, und die eigenen UI-Emojis."""
     known = load_characters()
     _emojis.clear()
+    _ui_emojis.clear()
     for emoji in emojis:
         if emoji.name in known:
             _emojis[emoji.name] = str(emoji)
+        elif emoji.name in UI_EMOJIS:
+            _ui_emojis[emoji.name] = str(emoji)
     return len(_emojis)
 
 
@@ -87,6 +121,14 @@ async def sync(client: discord.Client) -> dict:
             created.append(char_id)
         except (discord.HTTPException, OSError) as e:
             errors.append(f"{char_id}: {e}")
+    for name, draw in UI_EMOJIS.items():
+        if name in have:
+            continue
+        try:
+            existing.append(await client.create_application_emoji(name=name, image=draw()))
+            created.append(name)
+        except discord.HTTPException as e:
+            errors.append(f"{name}: {e}")
     count = set_emojis(existing)
     if errors:
         logger.warning("Charakter-Emojis: %d Fehler, z. B. %s", len(errors), errors[:3])
