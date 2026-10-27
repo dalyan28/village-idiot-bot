@@ -21,7 +21,7 @@ K_MIN, K_MAX = 0.86, 1.1
 LONG_K = 1.0
 MAX_LENGTH = 2.0
 SEARCH_STEPS = 6
-JINX_LIMIT = 8  # mehr Jinxes → die ersten JINX_LIMIT − 1 plus ein Feld „+ N weitere Jinxes“
+JINX_LIMIT = 8  # mehr Jinxes → die ersten JINX_LIMIT − 1 plus ein Feld „+ N more jinxes“
 
 # Seitenmaße in pt (skalieren nicht mit dem Inhalt)
 FRAME = 10       # Musterrand
