@@ -1,7 +1,7 @@
 """Event-Embed für BotC-Events.
 
 Aufbau: Author → Titel → Storytelling/Kamera/Level (inline) → Co-ST → Beschreibung
-→ Skript → Termin → NPCs → Highlights → RSVP-Listen (inline) → Image → Footer
+→ Skript → Termin → NPCs → Demons → Spielprägend → RSVP-Listen (inline) → Image → Footer
 
 Nutzer stehen immer als Text im Embed, nie als Mention: Discord löst Mentions in Embeds
 oft nicht auf und zeigt dann die rohe User-ID.
@@ -225,13 +225,13 @@ def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for, acade
         npcs = npc_characters(char_ids)
         if npcs:
             embed.add_field(name="NPCs", value=npcs, inline=False)
-        # Demons vor den Highlights (Dalyan, 27.10.2026); der Abstand vor den Listen hängt am letzten Feld
+        # Demons vor „Spielprägend“ (Dalyan, 27.10.2026; Feld hieß vorher „Highlights“); der Abstand vor den Listen hängt am letzten Feld
         demons = demon_characters(char_ids, data.script.content)
         if demons:
             embed.add_field(name="Demons", value=demons[:1024], inline=False)
         highlights = highlight_characters(char_ids)
         if highlights:
-            embed.add_field(name="Highlights", value=highlights, inline=False)
+            embed.add_field(name="Spielprägend", value=highlights, inline=False)
 
 
 
