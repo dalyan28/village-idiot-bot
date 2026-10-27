@@ -126,3 +126,44 @@ def test_signup_hint_links_rules(store):
     text = signup_hint(b, [a, b])
     assert "**Boozling** (Sa 18:00)" in text and "Regeln zum Anmelden für BotC-Runden" in text
     assert "1547344778742595694" in text
+
+
+def _click(store, button):
+    screen = {}
+
+    async def edit_message(**kw):
+        screen.update(kw)
+    inter = SimpleNamespace(client=SimpleNamespace(store=store), user=SimpleNamespace(id=USER),
+                            response=SimpleNamespace(edit_message=edit_message))
+    asyncio.run(button.callback(inter))
+    return " ".join(i.content for i in screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
+
+
+def test_dm_text_links_ignore_and_expiry(store, monkeypatch):
+    """Nüchterner Text mit Regel und Links; „Ignorieren“ ändert nichts; nach Beginn ist die Auswahl abgelaufen."""
+    from discord_ui import conflicts as ui
+    a, b = add_event(store, 18, title="Boozling"), add_event(store, 20, title="TB")
+    store.set_event_message(a.id, 55, 66)
+    a = store.get_event(a.id)
+    accept(store, a)
+    accept(store, b)
+    monkeypatch.setenv("ALLOWED_GUILD_IDS", "1")
+
+    layout = ui.decision_layout([a, b])
+    text = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
+    assert "**Doppelanmeldung**" in text and "Für welche entscheidest du dich" not in text
+    assert "[Boozling](https://discord.com/channels/1/55/66)" in text  # Link zum Event-Post
+    ids = [getattr(i, "item", i).custom_id for i in layout.walk_children()
+           if isinstance(getattr(i, "item", i), discord.ui.Button)]
+    assert ids == [f"dbl:{a.id}", f"dbl:{b.id}", "dbl:ignore"]
+
+    assert "Ignoriert" in _click(store, ui.ChooseButton(None, "Ignorieren"))
+    assert store.get_rsvp(a.id, USER) and store.get_rsvp(b.id, USER)
+
+    monkeypatch.setattr(ui, "now", lambda: NOW.replace(hour=18, minute=30))  # erste Runde läuft schon
+    assert "nicht mehr aktuell" in _click(store, ui.ChooseButton(a.id))
+    assert store.get_rsvp(b.id, USER) is not None  # nichts geändert
+
+    monkeypatch.setattr(ui, "now", lambda: NOW.replace(hour=15))
+    store.remove_rsvp(a.id, USER)  # selbst schon abgemeldet
+    assert "Hat sich erledigt" in _click(store, ui.ChooseButton(b.id))
