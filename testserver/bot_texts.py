@@ -115,7 +115,7 @@ def generated() -> list[tuple[str, str, str]]:
     warnings = "\n".join(wizard.plausibility_warnings(far, soon))
 
     # Doppelanmeldung: Hinweis beim Zusagen und Entscheidungs-DM (erfundene Runden)
-    from discord_ui.conflicts import signup_hint
+    from discord_ui.conflicts import EXPIRED_NOTICE, IGNORED_NOTICE, RESOLVED_NOTICE, signup_hint
     from testserver.test_card import _double_view, fake_double_group
     group = fake_double_group()
     double_hint = signup_hint(group[1], group)
@@ -126,6 +126,9 @@ def generated() -> list[tuple[str, str, str]]:
         ("Im Wizard", "Ungewöhnlicher Termin oder ungewöhnliche Dauer", f"**Kurz prüfen**\n{warnings}"),
         ("Anmeldungen", "Zusage zu zwei Runden zur gleichen Zeit (nur für dich sichtbar)", double_hint),
         ("Anmeldungen", "DM 3 Stunden vor der früheren Runde", double_dm),
+        ("Anmeldungen", "DM: nach „Ignorieren“", IGNORED_NOTICE),
+        ("Anmeldungen", "DM: Klick, nachdem die Runde schon begonnen hat", EXPIRED_NOTICE),
+        ("Anmeldungen", "DM: Klick, wenn man schon selbst abgemeldet ist", RESOLVED_NOTICE),
         ("Runde anlegen", "Startnachricht in den DMs", start),
         ("Runde anlegen", "Ohne Storyteller-Rolle", with_role),
         ("Runde anlegen", "Noch keine Storyteller-Rolle eingestellt", no_role),
