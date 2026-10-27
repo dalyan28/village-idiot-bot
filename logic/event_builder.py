@@ -29,7 +29,7 @@ from events.schema import (
 )
 from events.service import RsvpLists
 from events.templates import BASE3_SCRIPT_URLS, camera_text, co_st_text, full_description, full_title
-from logic.character_emojis import with_emoji
+from logic.character_emojis import WAITLIST, ui_emoji, with_emoji
 from logic.script_cache import STATIC_DIR, load_characters
 
 logger = logging.getLogger(__name__)
@@ -275,7 +275,9 @@ def build_event_embed(
         header = "\n\n**Warteliste**\n"
         room = FIELD_CHAR_LIMIT - len(accepted_text) - len(header)
         if room > 40:
-            accepted_text += header + _format_list(rsvps.waitlist, name_for, f"{EMOJI_WAITLIST} ", room)
+            # Kleinere Uhr als App-Emoji, solange es noch nicht hochgeladen ist die bisherige
+            waitlist_emoji = ui_emoji(WAITLIST, EMOJI_WAITLIST)
+            accepted_text += header + _format_list(rsvps.waitlist, name_for, f"{waitlist_emoji} ", room)
     embed.add_field(
         name=f"{EMOJI_ACCEPTED} Akzeptiert ({rsvps.accepted_count}/{data.max_players})",
         value=accepted_text,
