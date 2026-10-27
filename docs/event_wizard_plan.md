@@ -626,7 +626,7 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
   aufzusetzen (z. B. „Ohne Event-Channel kann niemand veröffentlichen“, „Ohne Storyteller-Rolle dürfen nur
   Event-Team und Admins Runden anlegen“). Abdecken: `/set_event_channel`, `/set_overview_channel`,
   `/set_event_roles`, `/set_academy_access`, `/set_reminders`, `/set_start_links`, `/academy_text`
-  (eigener Text oder eingebauter). Eventuell auch Bot-Rechte im Event-Channel prüfen (Threads erstellen und
+  (eigener Text oder eingebauter). Dazu die Bot-Rechte im Event-Channel prüfen (Dalyan: ja; Threads erstellen und
   verwalten, Nachrichten senden, Dateien anhängen). Zu klären: Name des Commands, ob man direkt aus dem Panel
   heraus ändern kann (Buttons) oder es nur anzeigt und auf die Commands verweist.
 
