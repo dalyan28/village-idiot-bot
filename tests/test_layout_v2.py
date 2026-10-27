@@ -44,7 +44,8 @@ def test_summary_has_five_grouped_sections(store):
 def test_missing_items_replace_publish_with_red_buttons(store):
     layout, _ = summary_for(store, make_draft(store, "preview", description="", rating=None, rating_source=None))
     texts = " ".join(i.content for i in layout.walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "🔴 **Bevor du veröffentlichen kannst, fehlt noch:** Schwierigkeit, Beschreibung" in texts
+    assert "**Bevor du veröffentlichen kannst, fehlt noch:** Schwierigkeit, Beschreibung" in texts
+    assert "🔴" not in texts  # dezenter Balken statt rotem Kreis (Dalyan, 27.10.2026)
     row = [c for c in layout.children if isinstance(c, discord.ui.ActionRow)][0]
     buttons = [(b.item.label, b.item.style) for b in row.children]
     assert [b.custom_id.split(":")[2] for b in row.children][:2] == ["fix_field", "fix_field"]
