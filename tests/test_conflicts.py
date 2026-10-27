@@ -117,7 +117,7 @@ def test_decision_dm_once_and_choose_removes_other(store, monkeypatch):
     assert store.get_rsvp(a.id, USER) is None and store.get_rsvp(b.id, USER) is not None
     assert updated == [a.id]
     done = " ".join(i.content for i in screen["view"].walk_children() if isinstance(i, discord.ui.TextDisplay))
-    assert "Erledigt: Du spielst **Trouble Brewing**" in done
+    assert "Du spielst **Trouble Brewing** und bist von" in done
 
 
 def test_signup_hint_links_rules(store):
