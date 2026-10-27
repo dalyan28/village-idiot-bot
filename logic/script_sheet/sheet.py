@@ -296,8 +296,9 @@ def _extras(pg, sc, y):
         jinxes = sc.jinxes if len(sc.jinxes) <= JINX_LIMIT else sc.jinxes[:JINX_LIMIT - 1]
         entries += [Entry(f"{a.name} & {b.name}", reason, INK, (a, b)) for a, b, reason in jinxes]
         if len(jinxes) < len(sc.jinxes):
-            entries.append(Entry(f"+ {len(sc.jinxes) - len(jinxes)} weitere Jinxes",
-                                 "Die vollständige Liste steht im Skript-Tool.", GREY, (djinn,)))
+            # Englisch wie das restliche Blatt, ohne Erklärtext darunter (Dalyan, 27.10.2026)
+            more = len(sc.jinxes) - len(jinxes)
+            entries.append(Entry(f"+ {more} more jinx{'es' if more != 1 else ''}", "", GREY, (djinn,)))
         y = _entries(pg, entries, y)
     if sc.rules:
         y = _section_head(pg, "House Rules", y, line=False)
