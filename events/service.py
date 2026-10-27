@@ -7,6 +7,7 @@ der Service liefert nur die Daten und hält die Regeln ein.
 from __future__ import annotations
 
 import copy
+import random
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -126,6 +127,8 @@ def start_draft(store: Store, guild_id: int, actor: Actor, user_name: str, data:
     user_settings.get(store, guild_id, actor.user_id).apply(data)
     if data.storyteller is None:
         data.storyteller = Person(name=user_name, user_id=actor.user_id)
+    if not data.image_seed:
+        data.image_seed = random.randint(1, 2**31 - 1)  # Optik des Skript-Blatts, einmal je Event
     errors = validate(data, now)
     if errors:
         raise ServiceError(" ".join(errors))

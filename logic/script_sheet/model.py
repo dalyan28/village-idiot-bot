@@ -41,6 +41,7 @@ class Script:
     first_night: list = field(default_factory=list)  # [id]
     other_night: list = field(default_factory=list)
     by_id: dict = field(default_factory=dict)
+    seed: int = 0  # 0: Optik aus dem Skriptnamen, sonst aus der Zufallszahl des Events
 
     @property
     def fabled_loric(self):

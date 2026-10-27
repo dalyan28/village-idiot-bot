@@ -149,6 +149,9 @@ class EventData:
     description: str = ""          # schreibt der Ersteller selbst
     image_mode: str = IMAGE_AUTO
     custom_image: str = ""         # Dateiname des hochgeladenen Bildes im Upload-Ordner
+    # Zufallszahl fürs Skript-Blatt: Verzierung und Kleckse je Event verschieden, innerhalb des Events fest
+    # (Dalyan, 27.10.2026). 0 = ältere Events, dort bestimmt der Skriptname die Optik.
+    image_seed: int = 0
     reminder_overrides: dict = field(default_factory=dict)
 
     @property
