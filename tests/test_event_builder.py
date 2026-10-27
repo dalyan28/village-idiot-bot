@@ -147,3 +147,11 @@ def test_co_storytelling_states():
     # alte Daten mit Co-ST-Name: „Ja, vergeben“, der Name wird zum Hinweis
     old = ED.from_dict({"co_storyteller": {"name": "Rosa", "user_id": None}})
     assert (old.co_st_status, old.co_st_note) == ("taken", "Rosa")
+
+
+def test_demons_before_highlights_and_spacer_before_lists():
+    embed = build_event_embed(data(), "Dalyan", lists())
+    names = [f.name for f in embed.fields]
+    assert names.index("Demons") < names.index("Highlights")
+    before_rsvp = embed.fields[next(i for i, n in enumerate(names) if "Akzeptiert" in n) - 1]
+    assert before_rsvp.name == "Highlights" and before_rsvp.value.endswith(SPACER)
