@@ -21,3 +21,8 @@ data/characters.json
 data/jinxes.json
 data/homebrew_icons/
 data/uploads/
+
+# Skript-Blatt: lizenzierte Grafiken (Etsy-Käufe, scribe-Vorlagen von Derek Y., TPI-Nachtmarken) – NIE committen
+private_assets/
+data/script_sheet_assets/
+docs/examples_pretty scripts/
