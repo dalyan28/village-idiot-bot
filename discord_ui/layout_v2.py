@@ -28,7 +28,10 @@ def _shorten(layout: discord.ui.LayoutView):
         longest.content = longest.content[: max(20, len(longest.content) - over - 2)] + " …"
 
 
-MISSING_MARK = "🔴 fehlt"
+def missing_mark() -> str:
+    """„fehlt“ mit dezentem Balken davor (App-Emoji, Dalyan 27.10.2026; vorher 🔴)."""
+    from logic.character_emojis import missing_bar
+    return f"{missing_bar()} fehlt"
 
 # Fehlende Pflichtangabe → (Ziel von „Feld ändern“, Button-Beschriftung)
 MISSING_TARGETS = {
@@ -64,7 +67,7 @@ def _block(label: str, *lines: str) -> str:
 def _value(text: str) -> str:
     """Wert als Inline-Code, damit er sich klar von der Bezeichnung abhebt (wie früher die Code-Zeilen).
     Fehlende Pflichtangaben bleiben als rote Markierung stehen."""
-    if text == MISSING_MARK:
+    if text == missing_mark():
         return text
     return f"`{text.replace('`', 'ˋ')}`"
 
@@ -84,7 +87,7 @@ def _botc_sections(container, section, d, draft):
     # Skript
     s = d.script
     if s is None:
-        lines = [f"Skript: {MISSING_MARK}"]
+        lines = [f"Skript: {missing_mark()}"]
     else:
         lines = [f"Skript: {_value(s.display_name)}"]
         if s.author and s.kind != SCRIPT_BASE:
@@ -104,7 +107,7 @@ def _botc_sections(container, section, d, draft):
             if explanation:
                 rating_lines.append(_small(explanation))
     else:
-        rating_lines = [f"Einstufung: {MISSING_MARK if s is not None else _value('ergibt sich aus dem Skript')}"]
+        rating_lines = [f"Einstufung: {missing_mark() if s is not None else _value('ergibt sich aus dem Skript')}"]
         if (draft.ui or {}).get("rating_error"):
             rating_lines.append(_small(esc(draft.ui["rating_error"])))
     if d.is_special:
@@ -113,7 +116,7 @@ def _botc_sections(container, section, d, draft):
     container.add_item(section(_block("Schwierigkeit", *rating_lines), "rating"))
 
     # Leitung
-    st = _value(d.storyteller.name) if d.storyteller else MISSING_MARK
+    st = _value(d.storyteller.name) if d.storyteller else missing_mark()
     co = _value(co_st_text(d))
     container.add_item(discord.ui.Separator())
     container.add_item(section(_block("Leitung", f"Storyteller: {st}", f"Co-Storyteller: {co}"), "people"))
@@ -132,7 +135,7 @@ async def _other_event_sections(container, section, d, draft):
     """Event ohne Clocktower: Art (zurück zur Runde möglich) und Organisation."""
     container.add_item(discord.ui.Separator())
     container.add_item(section(_block("Art", f"Art: {_value('Event ohne Clocktower')}"), "kind"))
-    org = _value(d.storyteller.name) if d.storyteller else MISSING_MARK
+    org = _value(d.storyteller.name) if d.storyteller else missing_mark()
     container.add_item(discord.ui.Separator())
     container.add_item(section(_block("Organisation", f"Organisation: {org}"), "people"))
 
@@ -150,6 +153,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     from events.parse import format_start
     from events.schema import IMAGE_AUTO, IMAGE_CUSTOM, missing_for_publish
     from events.templates import full_title
+    from logic.character_emojis import missing_bar
     from logic.event_builder import embed_color
     from logic.event_images import IMAGE_FILENAME, has_auto_image
 
@@ -174,13 +178,13 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     container.add_item(discord.ui.TextDisplay(head))
     if other and not d.title.strip():
         # Event ohne Clocktower: kein automatischer Titel, also Pflicht
-        container.add_item(section(f"**Titel**\n{MISSING_MARK}", "title", "Schreiben"))
+        container.add_item(section(f"**Titel**\n{missing_mark()}", "title", "Schreiben"))
     else:
         # Titel fett statt als Überschrift (wirkte zu groß, Dalyan, 20.10.2026), direkt änderbar
         title_note = "" if d.title.strip() else "\n-# Titel wird automatisch erstellt"
         container.add_item(section(f"**{esc(full_title(d))}**{title_note}", "title"))
     missing = missing_for_publish(d)
-    status = (f"🔴 **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
+    status = (f"{missing_bar()} **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
               else "Alle Pflichtangaben sind vollständig. Wenn alles passt: **"
               + ("Veröffentlichen" if draft.event_id is None else "Änderungen speichern") + "**.")
     if notice:
@@ -188,7 +192,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     container.add_item(discord.ui.TextDisplay(status))
 
     # Beschreibung (eigener Dialog, nur das Textfeld); Fließtext ohne Code-Markierung
-    description = esc(d.description.strip()) if d.description.strip() else MISSING_MARK
+    description = esc(d.description.strip()) if d.description.strip() else missing_mark()
     if d.is_academy and not other:
         description += "\n-# Darunter folgt der feste Academy-Text."
     container.add_item(discord.ui.Separator())
@@ -201,7 +205,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
         _botc_sections(container, section, d, draft)
 
     # Termin & Rahmen
-    termin = _value(format_start(d.start, d.duration_minutes)) if d.start else MISSING_MARK
+    termin = _value(format_start(d.start, d.duration_minutes)) if d.start else missing_mark()
     who = "Teilnehmer" if other else "Spieler"
     container.add_item(discord.ui.Separator())
     container.add_item(section(_block("Termin", f"Wann: {termin}", f"{who}: {_value(f'max. {d.max_players}')}"),

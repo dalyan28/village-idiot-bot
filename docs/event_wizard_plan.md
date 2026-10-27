@@ -576,6 +576,9 @@ Dritte Runde Feedback (20.10.2026):
   pro Server (`guild_settings["academy_template"]`). Zeilen mit 💚/🟡/🟥 am Anfang werden passend zur Schwierigkeit
   fett, `{hier}` wird zu „(hier N)“ mit der Rundenzahl aus diesen Zeilen. Gilt auch für bestehende Academy-Events,
   sobald ihr Post neu aufgebaut wird.
+- **Markierung fehlender Angaben** (Dalyan, 27.10.2026): statt 🔴 ein kurzer, gedämpft roter Balken als App-Emoji
+  (`vi_missing_bar`, wird beim Start wie die Charakter-Emojis hochgeladen; bis dahin „▍“). Gilt für die Statuszeile
+  und die „fehlt“-Markierungen in der Zusammenfassung.
 - **Event-Post bleibt ein Embed** (Dalyan, 20.10.2026: V2-Karte verworfen, wirkt unruhiger). Alte V2-Testposts
   (`v2_post`) bleiben V2, weil Discord eine V2-Nachricht nicht zurück in ein Embed verwandeln kann.
 - **Bilder nach RSVP**: Welche Bilder der Post zeigt, wird am Embed abgelesen. Discord führt per `attachment://`
