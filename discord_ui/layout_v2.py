@@ -185,7 +185,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
         container.add_item(section(f"**{esc(full_title(d))}**{title_note}", "title"))
     missing = missing_for_publish(d)
     status = (f"{missing_bar()} **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
-              else "Alle Pflichtangaben sind vollständig. Wenn alles passt: **"
+              else "Alle Pflichtangaben sind vollständig. Wenn alles passt, klick auf **"
               + ("Veröffentlichen" if draft.event_id is None else "Änderungen speichern") + "**.")
     if notice:
         status += f"\n{notice}"
