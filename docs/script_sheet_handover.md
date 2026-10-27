@@ -100,7 +100,7 @@ python -m logic.script_sheet.build_pack                                      # P
 - Spielprägend = Top 5 nach Score aus `static/character_rating.json` (gleiche Logik wie
   `event_builder.highlight_characters`), dargestellt als Tinten-Klecks, abgestuft nach Score.
 - Travellers werden nirgends gezeigt (auch nicht in Jinxes oder in der Nachtreihenfolge).
-- Mehr als 8 Jinxes → 7 plus Feld „+ N weitere Jinxes“. Bei Jinxes wird der Djinn ergänzt (als Icon an der Überschrift).
+- Mehr als 8 Jinxes → 7 plus Feld „+ N more jinxes“ (ohne Text darunter). Bei Jinxes wird der Djinn ergänzt (als Icon an der Überschrift).
 - Homebrew: Icons aus den Skript-URLs, Nachtposition aus den Zahlen im Skript-JSON.
 - Verworfen (nicht wieder einbauen): Stempel, Hände in den Ecken, Verzierungen auf den Linien, Pergament-/Wolkenpapier,
   Fraktur/Gold-Titel. Details: `docs/script_image_redesign_plan.md`.
