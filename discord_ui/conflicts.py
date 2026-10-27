@@ -126,7 +126,7 @@ def choice_notice(chosen: EventRecord, others: list[EventRecord]) -> str:
 
 IGNORED_NOTICE = "Ignoriert. Deine Anmeldungen bleiben, wie sie sind."
 EXPIRED_NOTICE = "Diese Auswahl ist nicht mehr aktuell. An deinen Anmeldungen hat sich nichts geändert."
-RESOLVED_NOTICE = "Hat sich erledigt: Du bist nicht mehr zeitgleich für mehrere Runden angemeldet."
+RESOLVED_NOTICE = "Hat sich erledigt. Du bist nicht mehr zeitgleich für mehrere Runden angemeldet."
 
 
 class ChooseButton(discord.ui.DynamicItem[discord.ui.Button], template=r"dbl:(?P<event_id>\d+|ignore)"):
