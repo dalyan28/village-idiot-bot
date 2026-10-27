@@ -37,7 +37,7 @@ def test_summary_has_five_grouped_sections(store):
     assert isinstance(sections[-1].accessory, discord.ui.Thumbnail)  # Bild als kleine Vorschau
     ids = [getattr(i, "custom_id", "") for i in layout.walk_children()]
     assert any(c.endswith(":publish") for c in ids)  # alles da → Veröffentlichen
-    assert [f.filename for f in files] == ["event_image.png"]
+    assert [f.filename for f in files] == ["event_image.jpg"]
     assert layout.content_length() <= 4000 and sum(1 for _ in layout.walk_children()) <= 40
 
 

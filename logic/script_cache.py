@@ -8,6 +8,7 @@ Lookup-Reihenfolge:
 """
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -53,6 +54,9 @@ CACHE_TTL_DAYS = 30
 # TPI GitHub URLs
 TPI_ROLES_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/data/roles.json"
 TPI_JINXES_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/data/jinxes.json"
+# Nachtreihenfolge fürs Skript-Blatt (logic/script_sheet/model.py liest Volume zuerst, sonst static/)
+TPI_NIGHTSHEET_URL = ("https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/data/"
+                      "nightsheet.json")
 TPI_ICON_URL = "https://raw.githubusercontent.com/ThePandemoniumInstitute/botc-release/main/resources/characters/{edition}/{filename}"
 
 # Lazy-loaded data
@@ -224,6 +228,89 @@ def get_character_icon_path(char_id: str, evil: bool = False) -> str | None:
 HTTP_HEADERS = {"User-Agent": "VillageIdiotBot/1.0 (+https://github.com/dalyan28/village-idiot-bot)"}
 
 
+# ── Homebrew-Icons ───────────────────────────────────────────────────────────
+
+# imgur antwortet auf die Standardkennung von python-requests mit 429, deshalb eigene Kennung
+# (HTTP_HEADERS). Fehler stehen als Warnung im Log statt still im Debug-Log (Dalyan, 26.10.2026).
+# Aus dem alten Skript-Bild (logic/script_image.py) hierher verschoben, als das Skript-Blatt kam (27.10.2026).
+HOMEBREW_ICON_DIR = os.path.join(VOLUME_DIR, "homebrew_icons")
+MAX_ICON_BYTES = 5 * 1024 * 1024
+
+
+def _icon_cache_path(url: str) -> str:
+    import hashlib
+    return os.path.join(HOMEBREW_ICON_DIR, hashlib.sha1(url.encode("utf-8")).hexdigest() + ".img")
+
+
+def fetch_icon(url: str) -> bytes | None:
+    path = _icon_cache_path(url)
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    try:
+        r = requests.get(url, headers=HTTP_HEADERS, timeout=10)
+    except requests.RequestException as e:
+        logger.warning("Homebrew-Icon nicht geladen: %s (%s)", url, e)
+        return None
+    if r.status_code != 200 or not r.content or len(r.content) > MAX_ICON_BYTES:
+        logger.warning("Homebrew-Icon nicht geladen: %s → HTTP %s", url, r.status_code)
+        return None
+    try:
+        os.makedirs(HOMEBREW_ICON_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(r.content)
+    except OSError:
+        logger.debug("Homebrew-Icon nicht zwischengespeichert: %s", url, exc_info=True)
+    return r.content
+
+
+def first_icon_url(image) -> str | None:
+    """Laut Skript-Format ist das erste Bild das Standardbild des Charakters (bei Minions und Demons
+    also schon das böse); weitere Bilder sind Varianten für die andere Gesinnung."""
+    if isinstance(image, str):
+        return image or None
+    if isinstance(image, (list, tuple)) and image and isinstance(image[0], str):
+        return image[0]
+    return None
+
+
+def prefetch_icons(content) -> None:
+    """Homebrew-Icons eines Skript-JSONs parallel vorladen (sonst bei 30 eigenen Charakteren über 10 Sekunden)."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    urls = {first_icon_url(e.get("image")) for e in (content or []) if isinstance(e, dict)}
+    urls = [u for u in urls if u and u.startswith("http") and not os.path.exists(_icon_cache_path(u))]
+    if urls:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(fetch_icon, urls))
+
+
+def load_icon(char_id, evil=False, size=240, icon_urls=None):
+    """Icon als RGBA-Bild: lokal zuerst (TPI), dann das erste Homebrew-Bild aus dem Skript."""
+    from PIL import Image
+
+    icon_path = get_character_icon_path(char_id, evil=evil)
+    if icon_path:
+        try:
+            img = Image.open(icon_path).convert("RGBA")
+            return img.resize((size, size), Image.Resampling.LANCZOS)
+        except Exception:
+            pass
+    url = first_icon_url(icon_urls)
+    if url:
+        data = fetch_icon(url)
+        if data:
+            try:
+                img = Image.open(io.BytesIO(data)).convert("RGBA")
+                return img.resize((size, size), Image.Resampling.LANCZOS)
+            except Exception as e:
+                logger.warning("Homebrew-Icon für %s ist kein lesbares Bild: %s", char_id, e)
+    return None
+
+
+# ── Downloads ────────────────────────────────────────────────────────────────
+
+
 def _download_file(url: str, timeout: int = 15, silent: bool = False) -> bytes | None:
     """Lädt eine Datei von einer URL. Returns bytes oder None."""
     try:
@@ -292,7 +379,21 @@ def _update_characters_sync(force_icons: bool = False) -> dict:
     else:
         result["errors"].append("jinxes.json konnte nicht geladen werden")
 
-    # 3. Icons downloaden → Volume
+    # 3. nightsheet.json (Nachtreihenfolge fürs Skript-Blatt) → Volume; ohne bleibt der Stand aus static/
+    night_data = _download_file(TPI_NIGHTSHEET_URL)
+    try:
+        night = json.loads(night_data) if night_data else None
+    except json.JSONDecodeError:
+        night = None
+    if isinstance(night, dict) and night.get("firstNight") and night.get("otherNight"):
+        with open(os.path.join(VOLUME_DIR, "nightsheet.json"), "w", encoding="utf-8") as f:
+            json.dump(night, f, indent=2, ensure_ascii=False)
+        result["nightsheet"] = True
+        logger.info("nightsheet.json auf Volume gespeichert")
+    else:
+        result["errors"].append("nightsheet.json konnte nicht geladen werden")
+
+    # 4. Icons downloaden → Volume
     icons_dir = os.path.join(VOLUME_DIR, "icons")
     os.makedirs(icons_dir, exist_ok=True)
 
@@ -342,6 +443,9 @@ async def update_characters_from_tpi(force_icons: bool = False) -> dict:
     result = await asyncio.to_thread(_update_characters_sync, force_icons)
     if result["characters_count"] > 0:
         invalidate_characters_cache()
+    if result.get("nightsheet"):
+        from logic.script_sheet import model
+        model._nightsheet.cache_clear()
     return result
 
 
