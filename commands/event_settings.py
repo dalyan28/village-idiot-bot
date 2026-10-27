@@ -25,37 +25,6 @@ async def _user_text(guild: discord.Guild, user_id: int) -> str:
     return discord.utils.escape_markdown(member.display_name)
 
 
-class AcademyTextModal(discord.ui.Modal):
-    """Academy-Text bearbeiten. Zeilen mit 💚/🟡/🟥 am Anfang werden passend zur Schwierigkeit fett,
-    {hier} wird zur Rundenzahl der Stufe."""
-
-    def __init__(self, current: str):
-        super().__init__(title="Academy-Text", timeout=15 * 60)
-        self.text = discord.ui.TextInput(style=discord.TextStyle.paragraph, max_length=4000, default=current)
-        self.reset = discord.ui.CheckboxGroup(required=False, min_values=0, max_values=1)
-        self.reset.add_option(label="Auf den eingebauten Text zurücksetzen", value="reset")
-        self.add_item(discord.ui.Label(
-            text="Text", description="Zeilen mit 💚, 🟡 oder 🟥 am Anfang werden passend zur Runde fett",
-            component=self.text))
-        self.add_item(discord.ui.Label(text="Zurücksetzen", description="Optional", component=self.reset))
-
-    async def on_submit(self, interaction: discord.Interaction):
-        from events.templates import academy_description
-
-        store = interaction.client.store
-        reset = "reset" in self.reset.values
-        service.set_academy_template(store, interaction.guild_id, None if reset else self.text.value)
-        template = service.get_academy_template(store, interaction.guild_id)
-        head = (("Der eingebaute Academy-Text gilt wieder." if reset else "Gespeichert.")
-                + " Bestehende Academy-Events zeigen ihn, sobald ihr Post neu aufgebaut wird."
-                + "\n-# Vorschau für eine 🟡-Runde:")
-        preview = academy_description("yellow", template)
-        layout = discord.ui.LayoutView(timeout=None)
-        layout.add_item(discord.ui.Container(discord.ui.TextDisplay(head),
-                                             discord.ui.TextDisplay(preview[:3800]), accent_colour=0x5865F2))
-        await interaction.response.send_message(view=layout, ephemeral=True)
-
-
 class EventSettings(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -79,8 +48,11 @@ class EventSettings(commands.Cog):
                 "Den Academy-Text dürfen Admins, das Event-Team und alle mit Academy-Berechtigung anpassen.",
                 ephemeral=True)
             return
-        await interaction.response.send_modal(AcademyTextModal(service.get_academy_template(self.bot.store,
-                                                                                             interaction.guild_id)))
+        # Bearbeiten per DM, weil Dialoge keine Formatierung und keine Emojis können (Dalyan, 27.10.2026)
+        from discord_ui import text_edit
+
+        sent = await text_edit.start(self.bot, self.bot.get_guild(interaction.guild_id), interaction.user, "academy")
+        await interaction.response.send_message(text_edit.IN_DMS if sent else text_edit.DM_CLOSED, ephemeral=True)
 
     @app_commands.command(name="set_start_links",
                           description="Links in der /botc-Startnachricht setzen (Hinweise, Regeln)")

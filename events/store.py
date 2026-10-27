@@ -80,6 +80,14 @@ CREATE TABLE IF NOT EXISTS event_log (
     changes     TEXT NOT NULL,
     created_at  INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS text_edits (
+    user_id     INTEGER PRIMARY KEY,
+    guild_id    INTEGER NOT NULL,
+    kind        TEXT NOT NULL,
+    channel_id  INTEGER,
+    message_id  INTEGER,
+    expires_at  INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS event_reminders (
     event_id      INTEGER NOT NULL REFERENCES events (id) ON DELETE CASCADE,
     reminder_key  TEXT NOT NULL,
@@ -178,6 +186,25 @@ class Store:
                 "ON CONFLICT (guild_id, user_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at",
                 (guild_id, user_id, json.dumps(data), now),
             )
+
+    # ── Text per DM bearbeiten (discord_ui/text_edit.py) ───────────────
+
+    def set_text_edit(self, user_id: int, guild_id: int, kind: str, channel_id: int | None,
+                      message_id: int | None, expires_at: int):
+        """Höchstens eine offene Bearbeitung je Person; eine neue ersetzt die alte."""
+        with self.conn:
+            self.conn.execute(
+                "INSERT OR REPLACE INTO text_edits (user_id, guild_id, kind, channel_id, message_id, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)", (user_id, guild_id, kind, channel_id, message_id, expires_at))
+
+    def get_text_edit(self, user_id: int, now: int) -> dict | None:
+        row = self.conn.execute("SELECT * FROM text_edits WHERE user_id = ? AND expires_at > ?",
+                                (user_id, now)).fetchone()
+        return dict(row) if row else None
+
+    def clear_text_edit(self, user_id: int):
+        with self.conn:
+            self.conn.execute("DELETE FROM text_edits WHERE user_id = ?", (user_id,))
 
     # ── Events ───────────────────────────────────────────────────────────
 
