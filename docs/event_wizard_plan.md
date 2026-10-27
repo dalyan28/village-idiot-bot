@@ -621,6 +621,14 @@ Dalyan, 20.10.2026 — aufgenommen, Umsetzung später:
   Zu definieren: welche Rolle das ist und wie sie heißt (eigene Rolle, Event-Team oder Storyteller-Rolle;
   einstellbar wie `/set_event_roles`), der Template-Text (einer oder mehrere zur Auswahl, wer pflegt sie), Icon und
   Titel, ob es RSVP-Buttons und eine Spielerzahl braucht, und ob Briefings in der Übersicht auftauchen.
+- **Admin-Control-Panel** (Dalyan, 27.10.2026): ein Command für Admins, der alle Einstellungen des Bots für den
+  Server auf einen Blick zeigt: was schon gesetzt ist, was noch fehlt, und was es praktisch bedeutet, das
+  aufzusetzen (z. B. „Ohne Event-Channel kann niemand veröffentlichen“, „Ohne Storyteller-Rolle dürfen nur
+  Event-Team und Admins Runden anlegen“). Abdecken: `/set_event_channel`, `/set_overview_channel`,
+  `/set_event_roles`, `/set_academy_access`, `/set_reminders`, `/set_start_links`, `/academy_text`
+  (eigener Text oder eingebauter). Eventuell auch Bot-Rechte im Event-Channel prüfen (Threads erstellen und
+  verwalten, Nachrichten senden, Dateien anhängen). Zu klären: Name des Commands, ob man direkt aus dem Panel
+  heraus ändern kann (Buttons) oder es nur anzeigt und auf die Commands verweist.
 
 ## Vor dem Merge nach main
 
