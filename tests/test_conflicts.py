@@ -124,7 +124,7 @@ def test_signup_hint_links_rules(store):
     from discord_ui.conflicts import signup_hint
     a, b = add_event(store, 18, title="Boozling"), add_event(store, 20, title="TB")
     text = signup_hint(b, [a, b])
-    assert "**Boozling** (Sa 18:00)" in text and "Regeln zum Anmelden für BotC-Runden" in text
+    assert "**Boozling** (Sa 18:00)" in text and "[Anmelderegeln](" in text and "Bitte entscheide dich" in text
     assert "1547344778742595694" in text
 
 

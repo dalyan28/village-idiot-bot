@@ -38,15 +38,20 @@ def _name(event: EventRecord) -> str:
 
 
 def _rules_link() -> str:
-    return f"[Regeln zum Anmelden für BotC-Runden]({SIGNUP_RULES_URL})"
+    return f"[Anmelderegeln]({SIGNUP_RULES_URL})"
+
+
+def _decide_text() -> str:
+    """Die Regel als Bitte (Dalyan, 27.10.2026), gleich im Hinweis und in der DM."""
+    return (f"Bitte entscheide dich bis spätestens {conflicts.DECIDE_HOURS_BEFORE} Stunden vor Beginn der früheren "
+            f"Runde für eine und melde dich von den anderen ab ({_rules_link()}).")
 
 
 def signup_hint(event: EventRecord, group: list[EventRecord]) -> str:
     """Hinweis direkt nach dem Zusagen (nur für die Person sichtbar)."""
     others = [e for e in group if e.id != event.id]
     names = ", ".join(f"**{discord.utils.escape_markdown(_name(e))}** ({_when(e)})" for e in others)
-    return (f"Du bist zur gleichen Zeit auch für {names} angemeldet. Bitte beachte dafür unsere {_rules_link()}: "
-            f"Entscheide dich spätestens {conflicts.DECIDE_HOURS_BEFORE} Stunden vor Beginn der früheren Runde.")
+    return f"Du bist zur gleichen Zeit auch für {names} angemeldet. {_decide_text()}"
 
 
 def _event_link(event: EventRecord) -> str:
@@ -63,9 +68,7 @@ def decision_layout(group: list[EventRecord], notice: str | None = None, make_bu
     make_button = make_button or (lambda e, label: ChooseButton(e.id, label))
     make_ignore = make_ignore or (lambda: ChooseButton(None, "Ignorieren"))
     lines = ["**Doppelanmeldung**",
-             "Du bist für Runden angemeldet, die sich zeitlich überschneiden. Laut den "
-             f"{_rules_link()} entscheidest du dich spätestens {conflicts.DECIDE_HOURS_BEFORE} Stunden vor Beginn der "
-             "früheren Runde und meldest dich von den anderen ab."]
+             f"Du bist für Runden angemeldet, die sich zeitlich überschneiden. {_decide_text()}"]
     for e in group:
         lines.append(f"- {_event_link(e)} · <t:{int(e.data.start.timestamp())}:F>")
     if notice:
