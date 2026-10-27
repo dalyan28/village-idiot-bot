@@ -42,3 +42,15 @@ def test_removes_post_and_thread_of_ended_events_only(env, monkeypatch):
     monkeypatch.setattr(event_post, "now", lambda: after_end)
     assert run(event_post.update_event_message(bot, bot.store, stored, images_changed=False)) is None
     assert len(bot.channel.messages) == 0
+
+
+def test_refresh_rebuilds_upcoming_posts_with_images(env):
+    """/events_auffrischen: kommende Posts samt Bild neu, beendete bleiben unberührt (Dalyan, 27.10.2026)."""
+    from commands.event_settings import refresh_event_posts
+    bot = env
+    event = _publish(bot)
+    msg = bot.channel.messages[event.message_id]
+    msg.files, msg.embed = [], None  # Stand eines alten Posts: ohne Bild, altes Embed
+    assert run(refresh_event_posts(bot, bot.store, GUILD, NOW)) == (1, 0)
+    assert msg.embed is not None and any(f.startswith("event_image.") for f in msg.files)
+    assert run(refresh_event_posts(bot, bot.store, GUILD, event.data.end + timedelta(hours=1))) == (0, 0)
