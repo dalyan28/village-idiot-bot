@@ -11,6 +11,7 @@ vorhandenen App-Emojis und lädt fehlende Icons nach (`sync`).
 from __future__ import annotations
 
 import io
+import os
 import logging
 import re
 
@@ -54,7 +55,19 @@ def _missing_bar_png() -> bytes:
     return out.getvalue()
 
 
-UI_EMOJIS = {MISSING_BAR: _missing_bar_png}
+# Warteliste: die bisherige Uhr, auf 75 % verkleinert mit durchsichtigem Rand, damit sie sich neben Text
+# kleiner einfügt (Dalyan, 27.10.2026). Discord zeigt Emojis neben Text immer gleich groß an.
+WAITLIST = "vi_waitlist"
+
+
+def _waitlist_png() -> bytes:
+    from logic.script_cache import STATIC_DIR
+
+    with open(os.path.join(STATIC_DIR, "emojis", "warteliste_klein.png"), "rb") as f:
+        return f.read()
+
+
+UI_EMOJIS = {MISSING_BAR: _missing_bar_png, WAITLIST: _waitlist_png}
 
 
 def emoji_name(char_id: str) -> str | None:
