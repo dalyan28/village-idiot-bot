@@ -68,14 +68,15 @@ def paste_clipped(img, im, x, y, box, multiply=False):
 # ── Rahmen ───────────────────────────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=8)
-def _border(theme, W, H, S):
-    """Damast-Rand in zwei harten Tönen der Theme-Farbe; ohne Musterkachel einfarbig."""
+def _border(theme, W, H, S, vivid=False):
+    """Damast-Rand in zwei harten Tönen der Theme-Farbe; ohne Musterkachel einfarbig.
+    vivid: kräftige Theme-Farben (Optik „plain“) statt dunkel mit Gold."""
     t = THEMES[theme]
-    bg = mix(t["dark"], t["light"], 0.12)
+    bg = t["vivid"][0] if vivid else mix(t["dark"], t["light"], 0.12)
     tile = assets.pattern_tile()
     if tile is None:
         return Image.new("RGB", (W, H), bg)
-    fg = mix(mix(t["light"], GOLD, 0.45), bg, 0.25)
+    fg = t["vivid"][1] if vivid else mix(mix(t["light"], GOLD, 0.45), bg, 0.25)
     tile = ImageOps.autocontrast(tile, cutoff=2)
     sc = S * 72 / assets.PATTERN_DPI * 0.75
     tile = tile.resize((round(tile.width * sc), round(tile.height * sc)), Image.Resampling.LANCZOS)
@@ -84,16 +85,18 @@ def _border(theme, W, H, S):
     for y in range(0, H, tile.height):
         for x in range(0, W, tile.width):
             out.paste(tile, (x, y))
-    return ImageOps.colorize(out, bg, mix(fg, bg, 0.35))
+    return ImageOps.colorize(out, bg, fg if vivid else mix(fg, bg, 0.35))
 
 
 def frame(pg):
-    """Musterrand, darin eine goldene Doppellinie. Mit Eckstück-Asset enden die Linien vor jeder Ecke in einer
+    """Musterrand, darin (Optik „fancy“) eine goldene Doppellinie. Mit Eckstück-Asset enden die Linien vor jeder Ecke in einer
     Raute; dort übernehmen zwei Himmels-Linien mit einem Stern im Eckpunkt."""
     f = round(pg.m(FRAME))
     mask = Image.new("L", (pg.W, pg.H), 255)
     ImageDraw.Draw(mask).rectangle((f, f, pg.W - f - 1, pg.H - f - 1), fill=0)
-    pg.img.paste(_border(pg.theme_key, pg.W, pg.H, pg.S), (0, 0), mask)
+    pg.img.paste(_border(pg.theme_key, pg.W, pg.H, pg.S, pg.look.vivid), (0, 0), mask)
+    if not pg.look.gold:
+        return
 
     c = f + pg.m(4.1)   # Mittellinie zwischen den beiden Goldlinien
     gap = pg.m(5)       # Abstand zwischen Eckpunkt und Arm
