@@ -684,6 +684,38 @@ def test_dev_reminder_button(env, monkeypatch):
     assert sent == [(event.id, "first", True)] and "Thread" in inter.sent[0]
 
 
+def test_dev_compare_looks_button(env, monkeypatch):
+    """„[Dev] Show Fancy PNG to Compare“ schickt beide Optiken des Skript-Blatts nur an die klickende Person."""
+    from logic import event_images
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "pick", "trouble_brewing")
+    d = bot.store.get_draft(draft.id)
+    d.data.description = "x"
+    bot.store.update_draft(d.id, d.data, "preview", int(NOW.timestamp()))
+    click(bot, draft.id, "publish")
+    event = bot.store.list_events(GUILD)[0]
+
+    monkeypatch.delenv("ENV", raising=False)
+    monkeypatch.delenv("TEST_SERVER", raising=False)
+    assert not any(b.custom_id.endswith(":comparelooks") for b in event_post.event_view(event).children)
+    monkeypatch.setenv("TEST_SERVER", "1")
+    button = next(b for b in event_post.event_view(event).children if b.custom_id.endswith(":comparelooks"))
+    assert button.item.label == "[Dev] Show Fancy PNG to Compare" and button.item.row == 1
+
+    looks = []
+
+    async def fake_render(data, look="plain"):
+        looks.append(look)
+        return b"\xff\xd8" + look.encode()
+    monkeypatch.setattr(event_post, "render_script_sheet_for", fake_render)
+    inter = FakeInteraction(bot, bot.guild.get_member(3), guild_id=GUILD)
+    run(EventButton(event.id, "comparelooks").callback(inter))
+    assert looks == ["plain", "fancy"] and event_images.DEFAULT_LOOK == "plain"
+    files, kw = inter.sent_kw[-1]["files"], inter.sent_kw[-1]
+    assert [f.filename for f in files] == ["plain.jpg", "fancy.jpg"] and kw["ephemeral"]
+
+
 def test_skip_script_asks_kind_then_summary(env):
     """„Später wählen“: erst die Frage nach Clocktower; „Ja, Skript wähle ich später“ führt zur
     Zusammenfassung, dort fehlt das Skript (Dalyan, 20.10.2026)."""

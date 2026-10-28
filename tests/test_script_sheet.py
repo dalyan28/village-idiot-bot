@@ -68,7 +68,7 @@ def test_seed_varies_look_per_event_but_stays_fixed(no_pack):
     from logic.script_sheet import render_script_sheet
 
     def render(seed):
-        return render_script_sheet("Trouble Brewing", "TPI", TROUBLE_BREWING, seed=seed).tobytes()
+        return render_script_sheet("Trouble Brewing", "TPI", TROUBLE_BREWING, seed=seed, look="fancy").tobytes()
     first = render(11)
     assert render(11) == first      # gleiches Event → gleiches Bild
     assert render(12) != first      # anderes Event → andere Verzierung bzw. Kleckse
@@ -94,3 +94,33 @@ def test_new_drafts_get_an_image_seed():
     assert EventData.from_dict(data.to_dict()).image_seed == 5
     assert EventData.from_dict({k: v for k, v in data.to_dict().items() if k != "image_seed"}).image_seed == 0
     store.close()
+
+
+def test_plain_look_shows_all_jinxes_without_night_and_washes(no_pack, monkeypatch):
+    """Optik „plain“ (Standard seit 28.10.2026): keine Kleckse, keine Nachtreihenfolge, dafür alle Jinxes,
+    solange sie auf A4 passen; „fancy“ fasst ab 8 Jinxes zusammen."""
+    import json
+
+    from logic.script_sheet import ornaments, sheet
+    from logic.script_sheet.model import from_script_json
+    from logic.script_sheet.style import DEFAULT_LOOK, JINX_LIMIT
+
+    with open("test_scripts/Kill_Suffer_Return.json", encoding="utf-8") as f:
+        data = json.load(f)  # Antwort der botcscripts-API
+    sc = from_script_json(data["content"], data.get("name"), data.get("author"))
+    assert len(sc.jinxes) > JINX_LIMIT and DEFAULT_LOOK == "plain"
+    drawn, calls = [], []
+    original = sheet._compose
+
+    def spy(*a, **kw):
+        pg = original(*a, **kw)
+        if pg.img is not None:
+            drawn.append(pg.jinx_limit)
+        return pg
+    monkeypatch.setattr(sheet, "_compose", spy)
+    monkeypatch.setattr(sheet, "_night_block", lambda *a: calls.append("night"))
+    monkeypatch.setattr(ornaments, "draw_wash", lambda *a: calls.append("wash"))
+    assert render_sheet(sc, theme="red").size == (1654, 2339)
+    assert drawn == [None] and calls == []  # alle Jinxes, nichts von „fancy“
+    render_sheet(sc, theme="red", look="fancy")
+    assert drawn[-1] == JINX_LIMIT and "night" in calls

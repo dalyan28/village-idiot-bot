@@ -151,3 +151,15 @@ Kriterien: wenig neuer Code, keine Kosten, nichts Lizenziertes öffentlich, ohne
   durch eine eigene oder lizenzierte Kachel ersetzen (gleicher Dateiname, dann `build_pack` neu ausführen) – oder
   ohne Kachel ausliefern (Rand einfarbig).
 - Renderzeit: ca. 1–2 s beim ersten Bild eines Skripts (Icons laden), danach ca. 0,2 s; dazu `asyncio.to_thread`.
+
+## Nachtrag 28.10.2026: Optik „plain“ als Standard
+
+Neue Standard-Optik `plain` (`style.LOOKS`): keine Tinten-Kleckse, keine Nachtreihenfolge, kein Goldrand.
+Der Musterrand nutzt kräftige Theme-Farben (`THEMES[...]["vivid"]`, angelehnt an 💚 🟡 🟥, etwas dunkler).
+Dafür passen mehr Jinxes aufs Blatt: Es werden alle Jinxes probiert, dann 20, 14 und 8, bis A4 reicht.
+Die Schrift skaliert bis `k_max` 1.3.
+
+Die bisherige Optik heißt `fancy` und bleibt unverändert erhalten.
+Auf dem Testserver hat jeder Event-Post den Button „[Dev] Show Fancy PNG to Compare“ (nur mit `TEST_SERVER=1` oder `ENV=dev`).
+Er schickt der klickenden Person beide Optiken als ephemere Nachricht.
+Vorschau: `python -m logic.script_sheet.preview DATEI --look fancy`.
