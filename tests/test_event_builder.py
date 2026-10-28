@@ -4,7 +4,7 @@ from datetime import datetime
 
 from events.schema import BERLIN_TZ, SCRIPT_BOTCSCRIPTS, SCRIPT_FREE, EventData, Person, ScriptRef
 from events.service import RsvpLists
-from logic.event_builder import build_event_embed, highlight_characters, npc_characters
+from logic.event_builder import build_event_embed, npc_characters
 
 START = datetime(2026, 10, 24, 20, 0, tzinfo=BERLIN_TZ)
 
@@ -66,11 +66,11 @@ def test_title_has_prefix_and_link():
     assert "https://www.botcscripts.com/script/173/9.0.0" in fields(embed)["Skript"]
 
 
-def test_npcs_and_highlights():
+def test_npcs_without_demons_and_highlights():
+    """Demons und Spielprägend stehen nicht mehr im Post (Dalyan, 28.10.2026)."""
     f = fields(build_event_embed(data(), "Dalyan", lists()))
     assert "Djinn" in f["NPCs"] and "Bootlegger" in f["NPCs"]
-    assert "Spielprägend" in f and "Highlights" not in f
-    assert "(" not in f["Spielprägend"]  # keine Score-Zahlen
+    assert "Demons" not in f and "Spielprägend" not in f
 
 
 def test_free_choice_has_no_character_fields():
@@ -98,17 +98,6 @@ def test_long_lists_fit_into_field():
 
 def test_helpers_ignore_unknown_characters():
     assert npc_characters(["unknown"]) is None
-    assert highlight_characters(["unknown"]) is None
-
-
-def test_demons_field_lists_demons_including_homebrew():
-    """Eigenes Feld „Dämonen“ (Dalyan, 20.10.2026); Homebrew-Dämonen kommen aus dem Skript-JSON."""
-    content = [{"id": "_meta", "name": "Boozling"}, "imp", {"id": "boo", "name": "Boo", "team": "demon"},
-               {"id": "x", "name": "Kein Dämon", "team": "townsfolk"}]
-    d = data()
-    d.script.content = content
-    f = fields(build_event_embed(d, "Dalyan", lists()))
-    assert f["Demons"] == "Imp, Fang Gu, Boo"
 
 
 def test_character_emojis_prefix_names(monkeypatch):
@@ -119,12 +108,11 @@ def test_character_emojis_prefix_names(monkeypatch):
     class E(SimpleNamespace):
         def __str__(self):
             return f"<:{self.name}:1>"
-    character_emojis.set_emojis([E(name="imp"), E(name="fanggu"), E(name="unbekannt")])
+    character_emojis.set_emojis([E(name="djinn"), E(name="unbekannt")])
     try:
         assert character_emojis.emoji_for("unbekannt") == ""  # nur bekannte Charaktere
         f = fields(build_event_embed(data(), "Dalyan", lists()))
-        assert f["Demons"] == "<:imp:1> Imp, <:fanggu:1> Fang Gu"
-        assert "<:imp:1> **Imp**" in f["Spielprägend"] or "<:imp:1> Imp" in f["Spielprägend"]
+        assert "<:djinn:1> Djinn" in f["NPCs"] and "Bootlegger" in f["NPCs"]
     finally:
         character_emojis.set_emojis([])
 
@@ -149,12 +137,11 @@ def test_co_storytelling_states():
     assert (old.co_st_status, old.co_st_note) == ("taken", "Rosa")
 
 
-def test_demons_before_highlights_and_spacer_before_lists():
+def test_spacer_before_lists():
     embed = build_event_embed(data(), "Dalyan", lists())
     names = [f.name for f in embed.fields]
-    assert names.index("Demons") < names.index("Spielprägend")
     before_rsvp = embed.fields[next(i for i, n in enumerate(names) if "Akzeptiert" in n) - 1]
-    assert before_rsvp.name == "Spielprägend" and before_rsvp.value.endswith(SPACER)
+    assert before_rsvp.name == "NPCs" and before_rsvp.value.endswith(SPACER)
 
 
 def test_waitlist_uses_small_app_emoji_when_uploaded():
