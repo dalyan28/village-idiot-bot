@@ -124,3 +124,30 @@ def test_plain_look_shows_all_jinxes_without_night_and_washes(no_pack, monkeypat
     assert drawn == [None] and calls == []  # alle Jinxes, nichts von „fancy“
     render_sheet(sc, theme="red", look="fancy")
     assert drawn[-1] == JINX_LIMIT and "night" in calls
+
+
+@pytest.mark.parametrize("rules", [["Eine Hausregel."], []])
+def test_bootlegger_moves_to_house_rules_heading(no_pack, monkeypatch, rules):
+    """Mit Hausregeln steht der Bootlegger nur als Icon an „House Rules“; ohne bleibt er ein Loric-Eintrag
+    (Dalyan, 28.10.2026)."""
+    from logic.script_sheet import sheet
+
+    meta = {"id": "_meta", "name": "Test", "bootlegger": rules}
+    sc = build_script("Test", "", TROUBLE_BREWING + ["bootlegger"], meta=meta)
+    heads, names = {}, []
+    head, entries = sheet._section_head, sheet._entries
+
+    def spy_head(pg, label, y, icon=None, line=True):
+        heads[label] = icon.id if icon else None
+        return head(pg, label, y, icon, line)
+
+    def spy_entries(pg, es, y):
+        names.extend(e.name for e in es)
+        return entries(pg, es, y)
+    monkeypatch.setattr(sheet, "_section_head", spy_head)
+    monkeypatch.setattr(sheet, "_entries", spy_entries)
+    assert render_sheet(sc) is not None
+    if rules:
+        assert heads["House Rules"] == "bootlegger" and "Bootlegger" not in names and "Loric" not in heads
+    else:
+        assert "House Rules" not in heads and "Bootlegger" in names and "Loric" in heads
