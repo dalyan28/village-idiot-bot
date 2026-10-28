@@ -15,6 +15,7 @@ TEAM_MAP = {"townsfolk": "Townsfolk", "outsider": "Outsider", "minion": "Minion"
             "traveller": "Traveller", "traveler": "Traveller", "fabled": "Fabled", "loric": "Loric"}
 NIGHT_SPECIALS = ("dusk", "minioninfo", "demoninfo", "dawn")
 DJINN_ID = "djinn"
+BOOTLEGGER_ID = "bootlegger"
 DEFINING_LIMIT = 5  # wie logic/event_builder.HIGHLIGHTS_LIMIT („Spielprägend“ im Event-Post)
 
 

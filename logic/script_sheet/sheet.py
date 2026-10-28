@@ -19,7 +19,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 from logic.script_cache import load_icon  # lokale TPI-Icons und Homebrew-URLs (mit Zwischenspeicher)
 
 from . import assets, ornaments, title
-from .model import DJINN_ID, GRID_TEAMS, NIGHT_SPECIALS, defining
+from .model import BOOTLEGGER_ID, DJINN_ID, GRID_TEAMS, NIGHT_SPECIALS, defining
 from .style import (A4_H, A4_W, COMPACT, DEFAULT_LOOK, EXTRAS_SCALE, FRAME, GREY, GUTTER, HAIR, HEAD, INK, K_MIN,
                     LONG_K, LOOKS, MARGIN_X, MAX_LENGTH, NAME_COLORS, ORNAMENT_INK, PAPER, SEARCH_STEPS, SZ, THEMES,
                     TITLE_X)
@@ -288,10 +288,13 @@ def _has_extras(sc):
 
 def _extras(pg, sc, y):
     """Anhang: Fabled/Loric und Jinxes in einem gemeinsamen Raster, kleiner gesetzt. Der Djinn steht nur als
-    Icon an der Überschrift, solange Jinxes da sind. Mehr als pg.jinx_limit Jinxes werden zusammengefasst."""
+    Icon an der Überschrift, solange Jinxes da sind; ebenso der Bootlegger bei den Hausregeln, solange es welche
+    gibt (Dalyan, 28.10.2026). Mehr als pg.jinx_limit Jinxes werden zusammengefasst."""
     pg.sub = EXTRAS_SCALE
     djinn = sc.by_id.get(DJINN_ID)
-    npcs = [c for c in sc.fabled_loric if not (sc.jinxes and c.id == DJINN_ID)]
+    bootlegger = sc.by_id.get(BOOTLEGGER_ID) if sc.rules else None
+    npcs = [c for c in sc.fabled_loric
+            if not (sc.jinxes and c.id == DJINN_ID) and not (bootlegger and c.id == BOOTLEGGER_ID)]
     label = [t for t, ok in (("Fabled", any(c.team == "Fabled" for c in npcs)),
                              ("Loric", any(c.team == "Loric" for c in npcs)), ("Jinxes", bool(sc.jinxes))) if ok]
     if label:
@@ -306,7 +309,7 @@ def _extras(pg, sc, y):
             entries.append(Entry(f"+ {more} more jinx{'es' if more != 1 else ''}", "", GREY, (djinn,)))
         y = _entries(pg, entries, y)
     if sc.rules:
-        y = _section_head(pg, "House Rules", y, line=False)
+        y = _section_head(pg, "House Rules", y, icon=bootlegger, line=False)
         fr, fb = assets.font("text", pg.p("ability")), assets.font("text_bold", pg.p("ability"))
         lh = pg.p("ability") * SZ["lh"]
         for rule in sc.rules:
