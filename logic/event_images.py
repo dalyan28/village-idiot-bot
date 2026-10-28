@@ -17,7 +17,7 @@ from PIL import Image, UnidentifiedImageError
 
 from events.schema import IMAGE_AUTO, IMAGE_CUSTOM, SCRIPT_BASE, SCRIPT_FREE, EventData
 from logic.script_cache import STATIC_DIR, VOLUME_DIR
-from logic.script_sheet import generate_script_sheet, theme_for_rating
+from logic.script_sheet import DEFAULT_LOOK, generate_script_sheet, theme_for_rating
 
 logger = logging.getLogger(__name__)
 
@@ -111,25 +111,32 @@ async def render_image(data: EventData) -> bytes | None:
         with open(path, "rb") as f:
             return f.read()
     if data.image_mode == IMAGE_AUTO and has_auto_image(data):
-        s = data.script
-        theme = theme_for_rating(data.rating)  # Farbe nach Schwierigkeit
-        key = (s.display_name, s.author, s.version, tuple(s.characters), repr(s.content), theme, data.image_seed)
-        if key in _auto_cache:
-            return _auto_cache[key]
-        meta = next((x for x in (s.content or []) if isinstance(x, dict) and x.get("id") == "_meta"), None)
-        try:
-            buf = await generate_script_sheet(s.display_name, s.author if s.kind != SCRIPT_BASE else "",
-                                              s.characters, meta=meta, content=s.content, theme=theme,
-                                              seed=data.image_seed)
-        except Exception:
-            logger.exception("Skript-Blatt konnte nicht erzeugt werden: %s", s.display_name)
-            return None
-        image = buf.getvalue() if buf is not None else None  # None: Skript zu groß, auch das merken
-        if len(_auto_cache) >= AUTO_CACHE_SIZE:
-            _auto_cache.pop(next(iter(_auto_cache)))  # ältesten Eintrag verwerfen
-        _auto_cache[key] = image
-        return image
+        return await render_script_sheet_for(data)
     return None
+
+
+async def render_script_sheet_for(data: EventData, look: str = DEFAULT_LOOK) -> bytes | None:
+    """Skript-Blatt des Events als JPEG in der Optik `look` (zwischengespeichert), oder None."""
+    if not has_auto_image(data):
+        return None
+    s = data.script
+    theme = theme_for_rating(data.rating)  # Farbe nach Schwierigkeit
+    key = (s.display_name, s.author, s.version, tuple(s.characters), repr(s.content), theme, data.image_seed, look)
+    if key in _auto_cache:
+        return _auto_cache[key]
+    meta = next((x for x in (s.content or []) if isinstance(x, dict) and x.get("id") == "_meta"), None)
+    try:
+        buf = await generate_script_sheet(s.display_name, s.author if s.kind != SCRIPT_BASE else "",
+                                          s.characters, meta=meta, content=s.content, theme=theme,
+                                          seed=data.image_seed, look=look)
+    except Exception:
+        logger.exception("Skript-Blatt konnte nicht erzeugt werden: %s", s.display_name)
+        return None
+    image = buf.getvalue() if buf is not None else None  # None: Skript zu groß, auch das merken
+    if len(_auto_cache) >= AUTO_CACHE_SIZE:
+        _auto_cache.pop(next(iter(_auto_cache)))  # ältesten Eintrag verwerfen
+    _auto_cache[key] = image
+    return image
 
 
 def thumbnail_path(data: EventData) -> str | None:

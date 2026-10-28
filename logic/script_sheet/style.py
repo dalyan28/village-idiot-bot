@@ -1,4 +1,6 @@
-"""Maße, Farben und Themes des Skript-Blatts (Maße in pt bezogen auf A4; px = pt · dpi / 72)."""
+"""Maße, Farben, Themes und Optiken des Skript-Blatts (Maße in pt bezogen auf A4; px = pt · dpi / 72)."""
+
+from dataclasses import dataclass
 
 A4_W, A4_H = 595.28, 841.89
 DPI = 200  # 1654 × 2339 px: am Handy nach dem Antippen scharf zoombar
@@ -21,7 +23,7 @@ K_MIN, K_MAX = 0.86, 1.1
 LONG_K = 1.0
 MAX_LENGTH = 2.0
 SEARCH_STEPS = 6
-JINX_LIMIT = 8  # mehr Jinxes → die ersten JINX_LIMIT − 1 plus ein Feld „+ N more jinxes“
+JINX_LIMIT = 8  # (fancy) mehr Jinxes → die ersten JINX_LIMIT − 1 plus ein Feld „+ N more jinxes“
 
 # Seitenmaße in pt (skalieren nicht mit dem Inhalt)
 FRAME = 10       # Musterrand
@@ -41,12 +43,36 @@ GOLD = (178, 142, 70)
 NAME_COLORS = {"Townsfolk": (34, 62, 112), "Outsider": (34, 62, 112), "Minion": (118, 30, 30),
                "Demon": (118, 30, 30), "Fabled": (146, 108, 30), "Loric": (64, 98, 44)}
 
-# Themes nach Schwierigkeit: Rand (dark/light) und zarte Tönung hinter der Nachtreihenfolge
+# Themes nach Schwierigkeit: Rand (dark/light) und zarte Tönung hinter der Nachtreihenfolge (Optik „fancy“);
+# vivid: Grund und Muster des Rands in der Optik „plain“, kräftig wie die Emojis 💚 🟡 🟥, nur etwas dunkler
 THEMES = {
-    "green": {"dark": (26, 44, 18), "light": (78, 106, 44), "tint": (236, 240, 228)},
-    "yellow": {"dark": (70, 46, 6), "light": (150, 110, 28), "tint": (245, 239, 222)},
-    "red": {"dark": (48, 8, 12), "light": (118, 28, 34), "tint": (245, 231, 229)},
+    "green": {"dark": (26, 44, 18), "light": (78, 106, 44), "tint": (236, 240, 228),
+              "vivid": ((100, 152, 72), (78, 124, 54))},
+    "yellow": {"dark": (70, 46, 6), "light": (150, 110, 28), "tint": (245, 239, 222),
+               "vivid": ((222, 172, 52), (192, 142, 30))},
+    "red": {"dark": (48, 8, 12), "light": (118, 28, 34), "tint": (245, 231, 229),
+            "vivid": ((190, 36, 54), (152, 22, 38))},
 }
+
+
+@dataclass(frozen=True)
+class Look:
+    """Optik des Blatts. „plain“ ist seit 28.10.2026 der Standard (Dalyan): ohne Kleckse, ohne
+    Nachtreihenfolge, ohne Goldrand, kräftiger Musterrand und dafür mehr Jinxes und größere Schrift."""
+    washes: bool          # Tinten-Kleckse hinter spielprägenden Charakteren
+    night: bool           # Nachtreihenfolge unten
+    gold: bool            # goldene Doppellinie mit Eckstücken im Rand
+    vivid: bool           # Musterrand in den kräftigen Theme-Farben statt dunkel mit Gold
+    jinx_limits: tuple    # Obergrenzen der Jinxes, der Reihe nach probiert (None = alle), bis es auf A4 passt
+    k_max: float          # größte Inhaltsskalierung
+
+
+LOOKS = {
+    "plain": Look(washes=False, night=False, gold=False, vivid=True, jinx_limits=(None, 20, 14, JINX_LIMIT),
+                  k_max=1.3),
+    "fancy": Look(washes=True, night=True, gold=True, vivid=False, jinx_limits=(JINX_LIMIT,), k_max=K_MAX),
+}
+DEFAULT_LOOK = "plain"
 
 
 def mix(a, b, t):

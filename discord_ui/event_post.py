@@ -27,6 +27,7 @@ from logic.event_images import (
     image_name_of,
     image_signature,
     render_image,
+    render_script_sheet_for,
     thumbnail_path,
 )
 from testserver import hooks as testserver_hooks  # TESTSERVER
@@ -136,6 +137,8 @@ def event_view(event: EventRecord) -> discord.ui.View:
     if dev_tools_enabled():
         # Eigene Zeile unter den fünf Buttons (Dalyan, 20.10.2026)
         view.add_item(EventButton(event.id, "testreminder", label="[Dev] Reminder testen", row=1))
+        # Neue Optik „plain“ neben der alten „fancy“ ansehen (Dalyan, 28.10.2026)
+        view.add_item(EventButton(event.id, "comparelooks", label="[Dev] Show Fancy PNG to Compare", row=1))
     testserver_hooks.event_view(view, event)  # TESTSERVER
     return view
 
@@ -258,6 +261,8 @@ class EventButton(discord.ui.DynamicItem[discord.ui.Button], template=r"evt:(?P<
             await handle_delete(interaction, store, event)
         elif self.name == "testreminder":
             await handle_test_reminder(interaction, store, event)
+        elif self.name == "comparelooks":
+            await handle_compare_looks(interaction, event)
 
 
 async def handle_rsvp(interaction: discord.Interaction, store: Store, event: EventRecord, status: str):
@@ -289,6 +294,25 @@ async def handle_test_reminder(interaction: discord.Interaction, store: Store, e
     cfg.enabled = True
     await cog.send_reminder(event, cfg)
     await interaction.followup.send("Die Test-Erinnerung steht im Thread unter dem Event.", ephemeral=True)
+
+
+async def handle_compare_looks(interaction: discord.Interaction, event: EventRecord):
+    """Schickt nur der klickenden Person das Skript-Blatt in der neuen Optik „plain“ und der alten „fancy“."""
+    if not dev_tools_enabled():
+        await interaction.response.send_message("Diese Test-Funktion ist hier nicht aktiv.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True, thinking=True)
+    files = []
+    for look in ("plain", "fancy"):
+        image = await render_script_sheet_for(event.data, look)
+        if image is not None:
+            files.append(discord.File(io.BytesIO(image), filename=f"{look}.jpg"))
+    if not files:
+        await interaction.followup.send("Für dieses Event gibt es kein Skript-Blatt (kein Skript oder zu groß).",
+                                        ephemeral=True)
+        return
+    await interaction.followup.send("Links die neue Optik (plain, Standard), rechts die alte (fancy).",
+                                    files=files, ephemeral=True)
 
 
 async def handle_edit(interaction: discord.Interaction, store: Store, event: EventRecord):

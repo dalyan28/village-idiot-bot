@@ -1,7 +1,7 @@
 """Event-Embed für BotC-Events.
 
 Aufbau: Author → Titel → Storytelling/Kamera/Level (inline) → Co-ST → Beschreibung
-→ Skript → Termin → NPCs → Demons → Spielprägend → RSVP-Listen (inline) → Image → Footer
+→ Skript → Termin → NPCs → RSVP-Listen (inline) → Image → Footer
 
 Nutzer stehen immer als Text im Embed, nie als Mention: Discord löst Mentions in Embeds
 oft nicht auf und zeigt dann die rohe User-ID.
@@ -9,9 +9,7 @@ oft nicht auf und zeigt dann die rohe User-ID.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 from collections.abc import Callable
 from datetime import datetime
 
@@ -30,7 +28,7 @@ from events.schema import (
 from events.service import RsvpLists
 from events.templates import BASE3_SCRIPT_URLS, camera_text, co_st_text, full_description, full_title
 from logic.character_emojis import WAITLIST, ui_emoji, with_emoji
-from logic.script_cache import STATIC_DIR, load_characters
+from logic.script_cache import load_characters
 
 logger = logging.getLogger(__name__)
 
@@ -41,11 +39,7 @@ EMOJI_TENTATIVE = "<:tent_rec:1484978258553471066>"
 EMOJI_WAITLIST = "<:warteliste:1484675744389927193>"
 EMOJI_FILLER = "\U0001f47c"  # 👼 — Engelchen für „Auffüller" bei Academy-Runden
 
-RATING_FILE = os.path.join(STATIC_DIR, "character_rating.json")
-
 FIELD_CHAR_LIMIT = 1024
-HIGHLIGHTS_LIMIT = 5
-HIGHLIGHT_BOLD_SCORE = 9
 
 EMBED_COLORS = {
     "special": 0xF4900C,    # Orange (⭐ Abweichung)
@@ -57,22 +51,6 @@ EMBED_COLORS = {
     RATING_YELLOW_RED: 0xDD2E44,
 }
 DEFAULT_EMBED_COLOR = 0xFDCB58  # Gelb als Fallback (z. B. freie Skriptwahl)
-
-_ratings: dict | None = None
-
-
-def _load_ratings() -> dict:
-    """Character-Scores (handgepflegt, gleiche Datei wie im ScriptRater)."""
-    global _ratings
-    if _ratings is None:
-        if os.path.exists(RATING_FILE):
-            with open(RATING_FILE, "r", encoding="utf-8") as f:
-                _ratings = json.load(f)
-        else:
-            logger.warning("character_rating.json fehlt: %s", RATING_FILE)
-            _ratings = {}
-    return _ratings
-
 
 def embed_color(data: EventData) -> int:
     if data.is_special:
@@ -120,30 +98,6 @@ def _split_field(name: str, text: str, inline: bool = False) -> list[tuple[str, 
     return [(name if i == 0 else "​", chunk, inline) for i, chunk in enumerate(chunks)]
 
 
-def highlight_characters(char_ids: list[str], limit: int = HIGHLIGHTS_LIMIT) -> str | None:
-    """Die Charaktere mit dem höchsten Score, Score 9–10 fett. Ohne Zahlen (für Spieler nicht lesbar)."""
-    ratings = _load_ratings()
-    characters_db = load_characters()
-
-    scored = []
-    for char_id in char_ids:
-        char_info = characters_db.get(char_id)
-        if not char_info:
-            continue
-        name = char_info.get("character_name", char_id)
-        score = ratings.get(name, {}).get("score", 0)
-        if score > 0:
-            scored.append((char_id, name, score))
-    if not scored:
-        return None
-
-    scored.sort(key=lambda x: x[2], reverse=True)
-    return ", ".join(
-        with_emoji(char_id, f"**{name}**" if score >= HIGHLIGHT_BOLD_SCORE else name)
-        for char_id, name, score in scored[:limit]
-    )
-
-
 def npc_characters(char_ids: list[str]) -> str | None:
     """Fabled und Loric des Skripts."""
     characters_db = load_characters()
@@ -153,23 +107,6 @@ def npc_characters(char_ids: list[str]) -> str | None:
         if c in characters_db and characters_db[c].get("character_type", "").lower() in ("fabled", "loric")
     ]
     return ", ".join(npcs) if npcs else None
-
-
-def demon_characters(char_ids: list[str], content: list | None = None) -> str | None:
-    """Dämonen des Skripts (Dalyan, 20.10.2026). Homebrew-Dämonen kommen aus dem Skript-JSON."""
-    characters_db = load_characters()
-    demons, seen = [], set()
-    for c in char_ids:
-        info = characters_db.get(c)
-        if info and info.get("character_type", "").lower() == "demon" and c not in seen:
-            seen.add(c)
-            demons.append(with_emoji(c, info.get("character_name", c)))
-    for entry in content or []:
-        if (isinstance(entry, dict) and str(entry.get("team", "")).lower() == "demon"
-                and entry.get("id") not in seen and entry.get("name")):
-            seen.add(entry.get("id"))
-            demons.append(str(entry["name"]))
-    return ", ".join(demons) if demons else None
 
 
 def _script_value(data: EventData) -> str:
@@ -225,14 +162,6 @@ def _botc_fields(embed: discord.Embed, data: EventData, st: str, name_for, acade
         npcs = npc_characters(char_ids)
         if npcs:
             embed.add_field(name="NPCs", value=npcs, inline=False)
-        # Demons vor „Spielprägend“ (Dalyan, 27.10.2026; Feld hieß vorher „Highlights“); der Abstand vor den Listen hängt am letzten Feld
-        demons = demon_characters(char_ids, data.script.content)
-        if demons:
-            embed.add_field(name="Demons", value=demons[:1024], inline=False)
-        highlights = highlight_characters(char_ids)
-        if highlights:
-            embed.add_field(name="Spielprägend", value=highlights, inline=False)
-
 
 
 def build_event_embed(

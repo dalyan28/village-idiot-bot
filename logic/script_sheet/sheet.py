@@ -1,6 +1,9 @@
 """Seitenaufbau des Skript-Blatts: Exlibris-Kopf, Charaktere zweispaltig je Team, Anhang (Fabled/Loric und
 Jinxes, kleiner), Nachtreihenfolge in einer getönten Fläche, Fußzeile und Musterrahmen.
 
+Optik (style.LOOKS): „plain“ (Standard) ohne Kleckse, Nachtreihenfolge und Goldrand, dafür mehr Jinxes und
+größere Schrift; „fancy“ ist die ursprüngliche Exlibris-Optik.
+
 Ablauf: Layout messen (derselbe Code wie beim Zeichnen, nur ohne Zeichenfläche) → größte Skalierung suchen, bei
 der alles auf A4 passt → Restplatz auf die Abschnittsabstände verteilen → zeichnen. Passt es nicht, wird die
 Seite länger; ab MAX_LENGTH × A4 gibt es kein Bild.
@@ -17,8 +20,8 @@ from logic.script_cache import load_icon  # lokale TPI-Icons und Homebrew-URLs (
 
 from . import assets, ornaments, title
 from .model import DJINN_ID, GRID_TEAMS, NIGHT_SPECIALS, defining
-from .style import (A4_H, A4_W, COMPACT, EXTRAS_SCALE, FRAME, GREY, GUTTER, HAIR, HEAD, INK, JINX_LIMIT, K_MAX,
-                    K_MIN, LONG_K, MARGIN_X, MAX_LENGTH, NAME_COLORS, ORNAMENT_INK, PAPER, SEARCH_STEPS, SZ, THEMES,
+from .style import (A4_H, A4_W, COMPACT, DEFAULT_LOOK, EXTRAS_SCALE, FRAME, GREY, GUTTER, HAIR, HEAD, INK, K_MIN,
+                    LONG_K, LOOKS, MARGIN_X, MAX_LENGTH, NAME_COLORS, ORNAMENT_INK, PAPER, SEARCH_STEPS, SZ, THEMES,
                     TITLE_X)
 
 TEAM_HEAD = {"Townsfolk": "Townsfolk", "Outsider": "Outsiders", "Minion": "Minions", "Demon": "Demons"}
@@ -155,8 +158,9 @@ def _draw_spaced(dr, x, y, text, font, tracking, color):
 class Page:
     """Maße für eine Skalierung k; img/dr sind None, solange nur gemessen wird."""
 
-    def __init__(self, sc, dpi, k, compact, theme, draw, extra=0):
+    def __init__(self, sc, dpi, k, compact, theme, draw, extra=0, look=DEFAULT_LOOK, jinx_limit=None):
         self.S, self.k, self.compact = dpi / 72, k, compact
+        self.look_key, self.look, self.jinx_limit = look, LOOKS[look], jinx_limit
         self.W, self.H = round(A4_W * self.S), round(A4_H * self.S + extra)
         self.x0, self.x1 = self.m(MARGIN_X), self.W - self.m(MARGIN_X)
         self.theme_key, self.theme = theme, THEMES[theme]
@@ -229,7 +233,7 @@ def _draw_entry(pg, e, x, y, h, text_w):
     icon_px = max(1, round(pg.p("icon")))
     iy = y + (h - icon_px) / 2
     if len(e.icons) == 1:
-        if e.score and pg.img is not None:
+        if e.score and pg.look.washes and pg.img is not None:
             ornaments.draw_wash(pg, e.name, e.color, e.score, x, iy, icon_px)
         pg.paste(_char_icon(e.icons[0], icon_px), x, iy)
     elif len(e.icons) == 2:  # Jinx: hinteres Icon kleiner und blasser, vorderes kräftig mit Schatten
@@ -284,7 +288,7 @@ def _has_extras(sc):
 
 def _extras(pg, sc, y):
     """Anhang: Fabled/Loric und Jinxes in einem gemeinsamen Raster, kleiner gesetzt. Der Djinn steht nur als
-    Icon an der Überschrift, solange Jinxes da sind. Mehr als JINX_LIMIT Jinxes werden zusammengefasst."""
+    Icon an der Überschrift, solange Jinxes da sind. Mehr als pg.jinx_limit Jinxes werden zusammengefasst."""
     pg.sub = EXTRAS_SCALE
     djinn = sc.by_id.get(DJINN_ID)
     npcs = [c for c in sc.fabled_loric if not (sc.jinxes and c.id == DJINN_ID)]
@@ -293,7 +297,8 @@ def _extras(pg, sc, y):
     if label:
         y = _section_head(pg, " · ".join(label), y, icon=djinn if sc.jinxes else None, line=False)
         entries = [Entry(c.name, c.ability, NAME_COLORS[c.team], (c,)) for c in npcs]
-        jinxes = sc.jinxes if len(sc.jinxes) <= JINX_LIMIT else sc.jinxes[:JINX_LIMIT - 1]
+        limit = pg.jinx_limit
+        jinxes = sc.jinxes if limit is None or len(sc.jinxes) <= limit else sc.jinxes[:limit - 1]
         entries += [Entry(f"{a.name} & {b.name}", reason, INK, (a, b)) for a, b, reason in jinxes]
         if len(jinxes) < len(sc.jinxes):
             # Englisch wie das restliche Blatt, ohne Erklärtext darunter (Dalyan, 27.10.2026)
@@ -382,17 +387,17 @@ def _footer(pg):
 
 # ── Zusammenbau ──────────────────────────────────────────────────────────────
 
-def _compose(sc, dpi, k, compact, theme, draw, extra=0):
+def _compose(sc, dpi, k, compact, theme, draw, extra=0, look=DEFAULT_LOOK, jinx_limit=None):
     """Ein Durchlauf (messen oder zeichnen); extra = zusätzliche Seitenhöhe in px. Liefert die Page."""
-    pg = Page(sc, dpi, k, compact, theme, draw, extra)
+    pg = Page(sc, dpi, k, compact, theme, draw, extra, look, jinx_limit)
     if draw:  # Restplatz messen und auf die Abschnitte verteilen statt ihn an einer Stelle zu sammeln
-        probe = _compose(sc, dpi, k, compact, theme, False, extra)
+        probe = _compose(sc, dpi, k, compact, theme, False, extra, look, jinx_limit)
         heads = sum(1 for t in GRID_TEAMS if sc.teams.get(t)) + _has_extras(sc)
         pg.spread = min(pg.m(12), max(0.0, probe.slack) / (heads + 1))
     y = title.draw_title(pg.img, pg.m(TITLE_X), pg.W - pg.m(TITLE_X), pg.m(FRAME + 12), sc.name, sc.author,
                          pg.rec, pg.S, ornaments.paper_box(pg)) + pg.m(2)
     y = _characters(pg, sc, y)
-    night_h = _night_height(pg)
+    night_h = _night_height(pg) if pg.look.night else 0
     limit = pg.H - _footer_height(pg)
     extras_h = _extras_panel(pg, sc, 0, draw=False) if _has_extras(sc) else 0
     gap = pg.m(6) if extras_h else 0
@@ -400,24 +405,26 @@ def _compose(sc, dpi, k, compact, theme, draw, extra=0):
     if draw:  # Anhang direkt unter den Charakteren, Nachtreihenfolge unten über der Fußzeile verankert
         if extras_h:
             _extras_panel(pg, sc, y + pg.p("section_gap") + pg.spread, draw=True)
-        _night_block(pg, sc, limit - night_h)
+        if pg.look.night:
+            _night_block(pg, sc, limit - night_h)
         _footer(pg)
         ornaments.frame(pg)
     return pg
 
 
-def _best_fit(sc, dpi, theme):
+def _best_fit(sc, dpi, theme, look=DEFAULT_LOOK, jinx_limit=None):
     """Größte Skalierung, bei der alles auf A4 passt: (k, kompakt) oder None."""
     def fits(k, compact):
-        return _compose(sc, dpi, k, compact, theme, False).slack >= 0
+        return _compose(sc, dpi, k, compact, theme, False, look=look, jinx_limit=jinx_limit).slack >= 0
 
+    k_max = LOOKS[look].k_max
     best = None
     for compact in (False, True):
         if not fits(K_MIN, compact):
             continue
-        lo, hi = K_MIN, K_MAX
-        if fits(K_MAX, compact):
-            lo = K_MAX
+        lo, hi = K_MIN, k_max
+        if fits(k_max, compact):
+            lo = k_max
         else:
             for _ in range(SEARCH_STEPS):
                 mid = (lo + hi) / 2
@@ -429,13 +436,17 @@ def _best_fit(sc, dpi, theme):
     return best
 
 
-def render_sheet(sc, theme="green", dpi=200):
-    """Rendert das Blatt als RGB-Bild (A4, bei Bedarf länger) oder None, wenn es über MAX_LENGTH × A4 bräuchte."""
-    fit = _best_fit(sc, dpi, theme)
-    if fit:
-        return _compose(sc, dpi, *fit, theme, True).img
-    probe = _compose(sc, dpi, LONG_K, False, theme, False)
+def render_sheet(sc, theme="green", dpi=200, look=DEFAULT_LOOK):
+    """Rendert das Blatt als RGB-Bild (A4, bei Bedarf länger) oder None, wenn es über MAX_LENGTH × A4 bräuchte.
+    Jinx-Grenzen der Optik der Reihe nach: so viele Jinxes wie noch auf A4 passen."""
+    limits = [n for n in LOOKS[look].jinx_limits if n is None or n < len(sc.jinxes)] or [None]
+    for limit in limits:
+        fit = _best_fit(sc, dpi, theme, look, limit)
+        if fit:
+            return _compose(sc, dpi, *fit, theme, True, look=look, jinx_limit=limit).img
+    limit = limits[-1]
+    probe = _compose(sc, dpi, LONG_K, False, theme, False, look=look, jinx_limit=limit)
     extra = -probe.slack + probe.m(4)
     if probe.H + extra > probe.H * MAX_LENGTH:
         return None
-    return _compose(sc, dpi, LONG_K, False, theme, True, extra).img
+    return _compose(sc, dpi, LONG_K, False, theme, True, extra, look, limit).img
