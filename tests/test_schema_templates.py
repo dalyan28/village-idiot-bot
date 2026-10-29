@@ -23,6 +23,7 @@ from events.templates import (
     base_title,
     full_description,
     full_title,
+    time_name,
     title_prefix,
 )
 
@@ -31,7 +32,7 @@ NOW = datetime(2026, 10, 19, 12, 0, tzinfo=BERLIN_TZ)
 
 def make(**kw) -> EventData:
     base = dict(
-        start=NOW + timedelta(days=5),
+        start=NOW + timedelta(days=5, hours=8),  # 20:00, keine Srunde
         storyteller=Person("Dalyan", 1),
         script=ScriptRef(kind=SCRIPT_BOTCSCRIPTS, name="Boozling", author="Lau", version="9.0.0",
                          botcscripts_id="173", characters=["noble", "imp"]),
@@ -85,7 +86,7 @@ class TestValidate:
     def test_academy_and_casual_together(self):
         d = normalize(make(is_academy=True, is_casual=True))
         assert validate(d, NOW) == [] and d.is_academy and d.is_casual
-        assert title_prefix(make(is_academy=True, is_casual=True, rating="green")) == "🎓 🕊️ 💚"
+        assert title_prefix(make(is_academy=True, is_casual=True, rating="green")) == "💚 🎓 🕊️"
 
     def test_unknown_values(self):
         assert validate(make(level="Gott"), NOW)
@@ -121,12 +122,12 @@ class TestTemplates:
 
     def test_prefix_order(self):
         d = make(is_recorded=True, is_academy=True, rating="red", is_special=True)
-        assert title_prefix(d) == "🎦 🎓 ⭐ 🟥"
-        assert full_title(d) == "🎦 🎓 ⭐ 🟥 Boozling mit Dalyan"
+        assert title_prefix(d) == "🟥 🎦 🎓 ⭐"
+        assert full_title(d) == "🟥 🎦 🎓 ⭐ Boozling mit Dalyan"
 
     def test_rating_ranges(self):
         assert title_prefix(make(rating="green_yellow")) == "💚/🟡"
-        assert title_prefix(make(rating="yellow_red", is_special=True)) == "⭐ 🟡/🟥"
+        assert title_prefix(make(rating="yellow_red", is_special=True)) == "🟡/🟥 ⭐"
         assert title_prefix(make(rating="any")) == "💚/🟡/🟥"
         assert validate(make(rating="green_yellow"), NOW) == []
         text = academy_description("green_yellow")
@@ -138,7 +139,7 @@ class TestTemplates:
         assert validate(make(title="x" * 201), NOW)
 
     def test_casual_prefix(self):
-        assert title_prefix(make(is_casual=True, rating="green")) == "🕊️ 💚"
+        assert title_prefix(make(is_casual=True, rating="green")) == "💚 🕊️"
 
     def test_no_prefix(self):
         assert full_title(make()) == "Boozling mit Dalyan"
@@ -158,7 +159,7 @@ class TestTemplates:
         assert full_description(make(description="  Hallo  ")) == "Hallo"
 
     def test_long_description_rejected(self):
-        assert validate(make(description="x" * 1001), NOW)
+        assert validate(make(description="x" * 2001), NOW)
 
     def test_camera_off_is_valid(self):
         assert validate(make(camera=CAMERA_OFF), NOW) == []
@@ -171,3 +172,17 @@ def test_custom_academy_template():
     assert "**🟡 bis 120 Runden**" in text and "**💚" not in text and "(hier 120)" in text
     assert "(s. oben)" in academy_description(None, template)
     assert full_description(make(is_academy=True, rating="green", description=""), template).startswith("Hallo")
+
+
+def test_time_name_by_start_hour():
+    """Nachmittag „Srunde“, um Mitternacht „Trunde“, getrennt mit „·“ (Dalyan, 29.10.2026)."""
+    day = datetime(2026, 10, 24, tzinfo=BERLIN_TZ)
+    cases = {12: "Srunde", 15: "Srunde", 16: "Srunde", 17: "", 18: "", 20: "", 22: "", 23: "Trunde", 0: "Trunde",
+             1: "Trunde", 2: ""}
+    for hour, name in cases.items():
+        assert time_name(make(start=day + timedelta(hours=hour))) == name, hour
+    d = make(start=day + timedelta(hours=15), rating="green", is_academy=True)
+    assert full_title(d) == "💚 🎓 Srunde · Boozling mit Dalyan"
+    assert full_title(make(start=day + timedelta(hours=23, minutes=30), title="Geisterstunde")) == \
+        "Trunde · Geisterstunde"
+    assert time_name(make(start=day + timedelta(hours=15), is_other_event=True)) == ""  # nur Runden

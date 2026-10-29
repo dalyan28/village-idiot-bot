@@ -141,3 +141,43 @@ def test_sections_with_missing_items_have_red_buttons(store):
               for s in layout.walk_children() if isinstance(s, discord.ui.Section) and hasattr(s.accessory, "item")}
     assert styles["description"] == discord.ButtonStyle.danger and styles["rating"] == discord.ButtonStyle.danger
     assert styles["people"] == discord.ButtonStyle.secondary and styles["title"] == discord.ButtonStyle.secondary
+
+
+def test_too_long_description_blocks_publish(store):
+    """Bei Academy höchstens 3000 Zeichen zusammen mit dem Academy-Text: sonst Hinweis und „Beschreibung kürzen“
+    statt Veröffentlichen (Dalyan, 29.10.2026)."""
+    from events import service
+    service.set_academy_template(store, make_draft(store, "preview").guild_id, "y" * 2000)
+    draft = make_draft(store, "preview", is_academy=True, description="x" * 1500)
+    layout = layout_for(store, draft)
+    texts = " ".join(getattr(i, "content", "") for i in layout.walk_children())
+    labels = [getattr(i, "item", i).label for i in layout.walk_children()
+              if isinstance(getattr(i, "item", i), discord.ui.Button)]
+    assert service.description_limit(store, draft.guild_id, draft.data) == 1000  # 3000 − 2000 Academy-Text
+    assert "höchstens 3000 Zeichen möglich, für deine Beschreibung bleiben also 1000" in texts
+    assert "Bitte kürze sie um 500 Zeichen" in texts
+    assert "Beschreibung kürzen" in labels and "Veröffentlichen" not in labels
+
+
+def test_description_limit_without_and_with_academy(store):
+    from events import service
+    from events.templates import ACADEMY_TEMPLATE_DEFAULT
+    plain = make_draft(store, "preview", description="x")
+    assert service.description_limit(store, plain.guild_id, plain.data) == 2000
+    academy = make_draft(store, "preview", is_academy=True, description="x")
+    limit = service.description_limit(store, academy.guild_id, academy.data)
+    assert 3000 - len(ACADEMY_TEMPLATE_DEFAULT) - 50 <= limit <= 2000
+
+
+@pytest.mark.parametrize("academy", [False, True])
+def test_missing_description_mark_matches_red_button(store, academy):
+    """„fehlt“ steht nur da, wo der Button auch rot ist; bei Academy ist die Beschreibung freiwillig
+    (Dalyan, 29.10.2026)."""
+    layout = layout_for(store, make_draft(store, "preview", is_academy=academy, description=""))
+    section = next(i for i in layout.walk_children() if isinstance(i, discord.ui.Section)
+                   and "**Beschreibung**" in i.children[0].content)
+    button = getattr(section.accessory, "item", section.accessory)
+    shows_missing = "fehlt" in section.children[0].content
+    assert shows_missing == (button.style == discord.ButtonStyle.danger) == (not academy)
+    if academy:
+        assert "Keine eigene Beschreibung (freiwillig)" in section.children[0].content

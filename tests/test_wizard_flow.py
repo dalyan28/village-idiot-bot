@@ -218,7 +218,7 @@ def screen_text(inter) -> str:
 
 def new_draft(bot):
     actor = Actor(USER, is_admin=True)
-    return service.start_draft(bot.store, GUILD, actor, "Dalyan", EventData(start=NOW + timedelta(days=5)), NOW)
+    return service.start_draft(bot.store, GUILD, actor, "Dalyan", EventData(start=NOW + timedelta(days=5, hours=8)), NOW)
 
 
 def step(bot, draft_id):
@@ -284,7 +284,7 @@ def test_full_flow_publish_rsvp_edit_delete(env):
     assert (d.data.co_st_status, d.data.co_st_note) == ("taken", "Rosanna")
     assert d.data.storyteller.user_id == USER  # Name unverändert → ID bleibt
     assert d.data.duration_minutes == 180 and d.data.camera == "required"
-    assert d.data.start == NOW + timedelta(days=5)  # Termin unverändert
+    assert d.data.start == NOW + timedelta(days=5, hours=8)  # Termin unverändert
 
     # 6. Veröffentlichen
     inter = click(bot, draft.id, "publish")
@@ -832,6 +832,29 @@ def test_long_duration_asks_before_saving(env):
     click(bot, draft.id, "confirm_yes")
     d = bot.store.get_draft(draft.id)
     assert d.data.duration_minutes == 600 and "confirm" not in d.ui
+
+
+def test_invalid_duration_is_rejected_with_own_card(env):
+    """Dauer über 1440: eigene Karte „Nicht übernommen“ statt Hinweis unter der Zusammenfassung; „Nochmal
+    eingeben“ öffnet den Dialog mit den Eingaben, „Verwerfen“ lässt alles beim Alten (Dalyan, 29.10.2026)."""
+    from discord_ui.wizard import FrameModal
+    bot = env
+    draft = new_draft(bot)
+    click(bot, draft.id, "pick", "trouble_brewing")
+    inter = click(bot, draft.id, "edit_field", "frame")
+    modal = inter.response.modal
+    modal.date._value, modal.time._value = modal.prefill
+    modal.duration._value, modal.players._value = "2000", "8"
+    inter = FakeInteraction(bot, bot.guild.get_member(USER))
+    run(modal.on_submit(inter))
+    assert "Nicht übernommen" in screen_text(inter) and "zwischen 15 und 1440 Minuten" in screen_text(inter)
+    d = bot.store.get_draft(draft.id).data
+    assert d.duration_minutes == 150 and d.max_players != 8  # nichts gespeichert
+
+    again = click(bot, draft.id, "confirm_no").response.modal
+    assert isinstance(again, FrameModal) and again.duration.default == "2000"
+    inter = click(bot, draft.id, "confirm_drop")
+    assert "Nicht übernommen" not in screen_text(inter) and "confirm" not in bot.store.get_draft(draft.id).ui
 
 
 def test_far_future_start_asks_in_botc_modal(botc_env):

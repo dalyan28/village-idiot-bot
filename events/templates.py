@@ -63,24 +63,45 @@ ACADEMY_MAX_ROUNDS = {
 
 
 def title_prefix(data: EventData) -> str:
-    """Emoji-Präfix vor dem Titel: [Aufzeichnung] [Academy] [Casual] [⭐ Abweichung] [Schwierigkeit]."""
+    """Emoji-Präfix vor dem Titel: [Schwierigkeit] [Aufzeichnung] [Academy] [Casual] [⭐ Abweichung].
+    Die Schwierigkeit steht immer zuerst (Dalyan, 29.10.2026; vorher zuletzt)."""
     if data.is_other_event:
         return ""  # Event ohne Clocktower: keine Symbole
     parts = []
+    if data.rating in RATING_RANGE:
+        parts.append(LABEL_EMOJI[data.rating])
+    elif data.script is not None and data.script.kind == SCRIPT_FREE:
+        parts.append(FREE_CHOICE_EMOJI)
     if data.is_recorded:
         parts.append(LABEL_EMOJI["recorded"])
     if data.is_academy:
         parts.append(LABEL_EMOJI["academy"])
     if data.is_casual:
         parts.append(LABEL_EMOJI["casual"])
-
     if data.is_special:
         parts.append(LABEL_EMOJI["special"])
-    if data.rating in RATING_RANGE:
-        parts.append(LABEL_EMOJI[data.rating])
-    elif data.script is not None and data.script.kind == SCRIPT_FREE:
-        parts.append(FREE_CHOICE_EMOJI)
     return " ".join(parts)
+
+
+# Insider-Namen nach Startzeit (Dalyan, 29.10.2026): Nachmittagsrunde „Srunde“, Mitternachtsrunde „Trunde“.
+# Stunden der Startzeit (Berliner Zeit); getrennt vom Titel mit einem schmalen Punkt statt Strich oder Doppelpunkt.
+AFTERNOON_HOURS = range(12, 17)   # 12:00–16:59
+MIDNIGHT_HOURS = (23, 0, 1)       # 23:00–01:59
+TIME_NAME_SEPARATOR = " · "
+
+
+def time_name(data: EventData) -> str:
+    """„Srunde“, „Trunde“ oder leer, je nach Startzeit; nur bei Clocktower-Runden."""
+    if data.is_other_event or data.start is None:
+        return ""
+    from events.schema import BERLIN_TZ
+
+    hour = data.start.astimezone(BERLIN_TZ).hour
+    if hour in AFTERNOON_HOURS:
+        return "Srunde"
+    if hour in MIDNIGHT_HOURS:
+        return "Trunde"
+    return ""
 
 
 def base_title(data: EventData) -> str:
@@ -100,10 +121,18 @@ def base_title(data: EventData) -> str:
 
 
 def full_title(data: EventData) -> str:
-    """Titel des Events: Symbole, dann der eigene Titel oder „{Skript} mit {ST}“."""
+    """Titel des Events: Symbole, ggf. „Srunde · “ bzw. „Trunde · “, dann der eigene Titel oder
+    „{Skript} mit {ST}“."""
     prefix = title_prefix(data)
     title = data.title.strip() or base_title(data) or "Neues Event"
+    name = time_name(data)
+    if name:
+        title = f"{name}{TIME_NAME_SEPARATOR}{title}"
     return f"{prefix} {title}" if prefix else title
+
+
+# Academy-Vorlage des Servers (/academy_text): bleibt mit eigener Beschreibung unter Discords 6000 Zeichen je Embed
+ACADEMY_TEMPLATE_MAX_LENGTH = 2000
 
 
 def full_description(data: EventData, academy_template: str | None = None) -> str:

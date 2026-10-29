@@ -149,6 +149,7 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     from discord_ui import wizard as wz  # zirkulären Import vermeiden
     from discord_ui.event_post import build_files
     from events.parse import format_start
+    from events import service
     from events.schema import IMAGE_AUTO, IMAGE_CUSTOM, missing_for_publish
     from events.templates import full_title
     from logic.character_emojis import missing_bar
@@ -161,6 +162,10 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
 
     # Abschnitte mit fehlender Pflichtangabe bekommen einen roten Button (Dalyan, 20.10.2026)
     missing_targets = {MISSING_TARGETS[n][0] for n in missing_for_publish(d) if n in MISSING_TARGETS}
+    # Zu lange Beschreibung (Discord lehnt Posts über 6000 Zeichen ab): wie eine fehlende Angabe behandeln
+    over = service.description_overflow(store, draft.guild_id, d)
+    if over:
+        missing_targets.add("description")
 
     def section(text: str, target: str, label: str = "Ändern") -> discord.ui.Section:
         style = discord.ButtonStyle.danger if target in missing_targets else discord.ButtonStyle.secondary
@@ -185,12 +190,22 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     status = (f"{missing_bar()} **Bevor du veröffentlichen kannst, fehlt noch:** {', '.join(missing)}" if missing
               else "Alle Pflichtangaben sind vollständig. Wenn alles passt, klick auf **"
               + ("Veröffentlichen" if draft.event_id is None else "Änderungen speichern") + "**.")
+    if over:
+        too_long = f"{missing_bar()} {service.description_overflow_text(store, draft.guild_id, d, over)}"
+        status = f"{status}\n{too_long}" if missing else too_long
     if notice:
         status += f"\n{notice}"
     container.add_item(discord.ui.TextDisplay(status))
 
     # Beschreibung (eigener Dialog, nur das Textfeld); Fließtext ohne Code-Markierung
-    description = esc(d.description.strip()) if d.description.strip() else missing_mark()
+    # „fehlt“ nur, wenn sie Pflicht ist (dann ist auch der Button rot); bei Academy ist sie freiwillig
+    # (Dalyan, 29.10.2026)
+    if d.description.strip():
+        description = esc(d.description.strip())
+    elif "Beschreibung" in missing:
+        description = missing_mark()
+    else:
+        description = "Keine eigene Beschreibung (freiwillig)"
     if d.is_academy and not other:
         description += "\n-# Darunter folgt der feste Academy-Text."
     container.add_item(discord.ui.Separator())
@@ -226,9 +241,12 @@ async def summary_layout(bot: discord.Client, store, draft, notice: str | None =
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(container)
     row = discord.ui.ActionRow()
-    if missing:
+    if missing or over:
         # Statt Veröffentlichen: je fehlender Angabe ein roter Button, der direkt dorthin führt
-        for target, label in _missing_buttons(missing):
+        buttons = _missing_buttons(missing)
+        if over and "description" not in {t for t, _ in buttons}:
+            buttons = [("description", "Beschreibung kürzen")] + buttons[:1]
+        for target, label in buttons:
             # eigene Aktion: dieselbe custom_id wie der Ändern-Button am Abschnitt lehnt Discord ab
             row.add_item(wz.WizardButton(draft.id, "fix_field", label, discord.ButtonStyle.danger, arg=target))
     else:
@@ -410,7 +428,8 @@ def cancelled_layout(draft) -> discord.ui.LayoutView:
 
 
 def confirm_layout(bot: discord.Client, draft) -> discord.ui.LayoutView:
-    """Ungewöhnlicher Termin oder ungewöhnliche Dauer: „Ja, weiter“ oder „Nein, zurück“."""
+    """Ungewöhnlicher Termin oder ungewöhnliche Dauer: „Ja, weiter“ oder „Nein, zurück“.
+    Ungültige Eingabe bei „Termin & Rahmen“: „Nochmal eingeben“ oder „Verwerfen“."""
     from discord_ui import wizard as wz  # zirkulären Import vermeiden
 
     esc = discord.utils.escape_markdown
@@ -418,12 +437,22 @@ def confirm_layout(bot: discord.Client, draft) -> discord.ui.LayoutView:
     guild = bot.get_guild(draft.guild_id)
     heading = "Neue Runde" if draft.event_id is None else "Runde bearbeiten"
     head = f"-# {heading} · {esc(guild.name)}" if guild else f"-# {heading}"
-    text = f"{head}\n\n**Kurz prüfen**\n" + "\n".join(pending.get("warnings") or [])
+    error = pending.get("kind") == "frame_error"
+    if error:
+        from logic.character_emojis import missing_bar
+        text = (f"{head}\n\n{missing_bar()} **Nicht übernommen**\n{pending.get('error', '')}\n"
+                "-# Termin und Rahmen bleiben, wie sie vorher waren.")
+    else:
+        text = f"{head}\n\n**Kurz prüfen**\n" + "\n".join(pending.get("warnings") or [])
     layout = discord.ui.LayoutView(timeout=None)
     layout.add_item(discord.ui.Container(discord.ui.TextDisplay(text), accent_colour=WIZARD_COLOR))
     row = discord.ui.ActionRow()
-    row.add_item(wz.WizardButton(draft.id, "confirm_yes", "Ja, weiter", discord.ButtonStyle.primary))
-    row.add_item(wz.WizardButton(draft.id, "confirm_no", "Nein, zurück"))
+    if error:
+        row.add_item(wz.WizardButton(draft.id, "confirm_no", "Nochmal eingeben", discord.ButtonStyle.primary))
+        row.add_item(wz.WizardButton(draft.id, "confirm_drop", "Verwerfen"))
+    else:
+        row.add_item(wz.WizardButton(draft.id, "confirm_yes", "Ja, weiter", discord.ButtonStyle.primary))
+        row.add_item(wz.WizardButton(draft.id, "confirm_no", "Nein, zurück"))
     layout.add_item(row)
     return layout
 

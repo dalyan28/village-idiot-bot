@@ -67,7 +67,10 @@ MAX_PLAYERS = 200
 DURATION_CHOICES = (90, 120, 150, 180, 210, 240)
 MAX_DAYS_AHEAD = 365
 
-DESCRIPTION_MAX_LENGTH = 1000  # eigener Text des Erstellers, passt in ein Embed-Feld
+# Eigener Text des Erstellers (Dalyan, 29.10.2026; vorher 1000). Bei Academy zählt der Academy-Text mit: beide
+# zusammen höchstens DESCRIPTION_TOTAL_MAX_LENGTH, für den eigenen Text bleibt der Rest (service.description_limit).
+DESCRIPTION_MAX_LENGTH = 2000
+DESCRIPTION_TOTAL_MAX_LENGTH = 3000
 
 # ── Defaults (unverändert aus Branch event-creation) ─────────────────────────
 

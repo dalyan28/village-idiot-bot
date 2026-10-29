@@ -21,6 +21,7 @@ import discord
 from discord_ui.members import actor_from_member, fetch_member
 from events import permissions, service, user_settings
 from events.schema import BERLIN_TZ, DESCRIPTION_MAX_LENGTH
+from events.templates import ACADEMY_TEMPLATE_MAX_LENGTH
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +54,7 @@ KINDS = {
              "der Stufe.",
         reset_label="Auf Standard zurücksetzen",
         reset_notice="Der eingebaute Academy-Text gilt wieder.",
-        max_length=4000,
+        max_length=ACADEMY_TEMPLATE_MAX_LENGTH,
     ),
     "description": TextKind(
         title="Standard-Beschreibung",
