@@ -105,8 +105,9 @@ def time_name(data: EventData) -> str:
 
 
 def base_title(data: EventData) -> str:
-    """„{Skript} mit {ST}“ bzw. „… mit {ST} und {Co-ST}“ (ohne Symbole). Beim Event ohne Clocktower
-    gibt es keinen automatischen Titel."""
+    """„{Skript} mit {ST}“ (ohne Symbole), am Nachmittag bzw. um Mitternacht mit „Srunde · “ bzw.
+    „Trunde · “ davor. Das ist Teil des automatischen Titels: Wer einen eigenen Titel schreibt, entscheidet
+    selbst darüber (Dalyan, 29.10.2026). Beim Event ohne Clocktower gibt es keinen automatischen Titel."""
     if data.is_other_event:
         return ""
     script = data.script.display_name if data.script else "BotC"
@@ -114,20 +115,15 @@ def base_title(data: EventData) -> str:
         script = BASE3_FULL_NAMES.get(data.script.base_key, script)
     if data.script and data.script.teensy and "teensy" not in script.lower():
         script = f"Teensy {script}"  # Teensyville im Titel kenntlich machen (Dalyan, 20.10.2026)
-    if data.storyteller is None:
-        return script
-    title = f"{script} mit {data.storyteller.name}"
-    return title
+    title = script if data.storyteller is None else f"{script} mit {data.storyteller.name}"
+    name = time_name(data)
+    return f"{name}{TIME_NAME_SEPARATOR}{title}" if name else title
 
 
 def full_title(data: EventData) -> str:
-    """Titel des Events: Symbole, ggf. „Srunde · “ bzw. „Trunde · “, dann der eigene Titel oder
-    „{Skript} mit {ST}“."""
+    """Titel des Events: Symbole, dann der eigene Titel oder der automatische (base_title)."""
     prefix = title_prefix(data)
     title = data.title.strip() or base_title(data) or "Neues Event"
-    name = time_name(data)
-    if name:
-        title = f"{name}{TIME_NAME_SEPARATOR}{title}"
     return f"{prefix} {title}" if prefix else title
 
 
