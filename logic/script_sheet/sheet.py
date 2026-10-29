@@ -309,7 +309,7 @@ def _extras(pg, sc, y):
             entries.append(Entry(f"+ {more} more jinx{'es' if more != 1 else ''}", "", GREY, (djinn,)))
         y = _entries(pg, entries, y)
     if sc.rules:
-        y = _section_head(pg, "House Rules", y, icon=bootlegger, line=False)
+        y = _section_head(pg, "Bootlegger", y, icon=bootlegger, line=False)  # statt „House Rules“ (Dalyan, 29.10.2026)
         fr, fb = assets.font("text", pg.p("ability")), assets.font("text_bold", pg.p("ability"))
         lh = pg.p("ability") * SZ["lh"]
         for rule in sc.rules:
