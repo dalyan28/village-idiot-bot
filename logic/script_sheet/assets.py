@@ -40,7 +40,11 @@ FONTS = {
 CORNER_RULES = ("m8:-87", "m8:-83", "m8:-88", "m8:-69")           # Eckstücke im Rahmen
 TITLE_RULES = ("m8:-88", "m8:-69", "m8:-70", "mp:-17", "mp:-19", "mp:-23", "m7:-10", "m7:-3")
 SEALS = ("m8:-26", "m8:-64", "m8:-68", "m8:-75", "m8:-86", "m2:-28", "m2:-10")
-DIVIDERS = ("m8:-100", "mu:61", "mu:17", "m2:-47")                 # Trenner zum Anhang
+# Trenner zum Anhang: feine Linienmotive und detaillierte Zeichnungen, keine flächigen Icons; aus einer
+# Shortlist von 25 ausgewählt (Dalyan, 29.10.2026; vorher m8:-100, mu:61, mu:17, m2:-47).
+# Größe, Ausrichtung und Drehung je Motiv in sheet.DIVIDER_STYLE.
+DIVIDERS = ("mu:61", "mu:17", "mp:-27", "m9:-28", "mu:85", "w:59", "m8:-87", "m8:-86", "m8:-69", "mp:-2",
+            "mu:71", "m6:-32", "m6:-54", "m6:-31", "mu:60", "w:103")
 SPARKLE = "mu:82"
 MOTIFS = (  # Tusche-Zeichnungen neben dem Titel (ohne Kerzen und Blattwerk)
     "w:10", "w:101", "w:104", "w:107", "w:11", "w:12", "w:14", "w:16", "w:17", "w:21", "w:23", "w:24", "w:25",
@@ -60,7 +64,7 @@ def set_pack_dir(path):
     """Anderes Asset-Paket verwenden (Tests, Vorschau); leert alle Zwischenspeicher."""
     global PACK_DIR
     PACK_DIR = path
-    for fn in (_mask, ornament, pattern_tile, pack_washes, night_token):
+    for fn in (_mask, ornament, ornament_axis, pattern_tile, pack_washes, night_token):
         fn.cache_clear()
 
 
@@ -88,6 +92,24 @@ def _mask(key):
 
 def has(key):
     return _mask(key) is not None
+
+
+@functools.lru_cache(maxsize=None)
+def ornament_axis(key):
+    """Höhe (0…1 der beschnittenen Form), auf der das Ornament am breitesten ist, z. B. die Reihe der Mondphasen
+    über den Anhängern. Dort setzt der Trenner die Linie an (Dalyan, 29.10.2026); ohne Asset die Mitte."""
+    m = _mask(key)
+    if m is None or m.getbbox() is None:
+        return 0.5
+    m = m.crop(m.getbbox())
+    m = m.resize((max(1, round(m.width * 200 / m.height)), 200)).point(lambda v: 255 if v > 64 else 0)
+    spans = []
+    for y in range(m.height):
+        box = m.crop((0, y, m.width, y + 1)).getbbox()
+        spans.append(box[2] - box[0] if box else 0)
+    widest = max(spans)
+    rows = [y for y, w in enumerate(spans) if w >= widest * 0.97]
+    return (sum(rows) / len(rows) + 0.5) / m.height
 
 
 @functools.lru_cache(maxsize=256)

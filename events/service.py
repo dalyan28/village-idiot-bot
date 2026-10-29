@@ -75,6 +75,47 @@ def set_start_links(store: Store, guild_id: int, guide: str | None = None, rules
     store.set_guild_settings(guild_id, settings)
 
 
+def _with_academy(data: EventData) -> bool:
+    return data.is_academy and not data.is_other_event
+
+
+def description_limit(store: Store, guild_id: int, data: EventData) -> int:
+    """Höchstlänge der eigenen Beschreibung: 2000, bei Academy der Rest von 3000 nach dem Academy-Text des Servers."""
+    from events.schema import DESCRIPTION_MAX_LENGTH, DESCRIPTION_TOTAL_MAX_LENGTH
+    from events.templates import academy_description
+
+    if not _with_academy(data):
+        return DESCRIPTION_MAX_LENGTH
+    academy = academy_description(data.rating, get_academy_template(store, guild_id))
+    return max(0, min(DESCRIPTION_MAX_LENGTH, DESCRIPTION_TOTAL_MAX_LENGTH - len(academy)))
+
+
+def description_overflow(store: Store, guild_id: int, data: EventData) -> int:
+    """Zeichen, um die die Beschreibung zu lang ist (0 = passt): über der Höchstlänge oder, als Sicherung, zu lang
+    für Discords Grenze je Event-Post."""
+    from logic.event_builder import description_overflow as embed_overflow  # zirkulären Import vermeiden
+
+    template = get_academy_template(store, guild_id) if data.is_academy else None
+    return max(len(data.description.strip()) - description_limit(store, guild_id, data),
+               embed_overflow(data, template), 0)
+
+
+def description_limit_text(store: Store, guild_id: int, data: EventData) -> str:
+    """„Bis zu N Zeichen“, bei Academy mit Hinweis auf den Academy-Text."""
+    limit = description_limit(store, guild_id, data)
+    return f"Bis zu {limit} Zeichen (der Rest von 3000 nach dem Academy-Text)" if _with_academy(data) \
+        else f"Bis zu {limit} Zeichen"
+
+
+def description_overflow_text(store: Store, guild_id: int, data: EventData, over: int) -> str:
+    """Hinweis für zu lange Beschreibungen."""
+    if _with_academy(data):
+        limit = description_limit(store, guild_id, data)
+        return (f"Die Beschreibung ist zu lang. Zusammen mit dem Academy-Text sind höchstens 3000 Zeichen möglich, "
+                f"für deine Beschreibung bleiben also {limit}. Bitte kürze sie um {over} Zeichen.")
+    return f"Die Beschreibung ist zu lang für den Event-Post. Bitte kürze sie um {over} Zeichen."
+
+
 def get_academy_template(store: Store, guild_id: int) -> str:
     """Academy-Text des Servers, sonst der eingebaute."""
     from events.templates import ACADEMY_TEMPLATE_DEFAULT
@@ -217,6 +258,9 @@ def publish_draft(store: Store, draft: Draft, actor: Actor, actor_name: str, now
     missing = missing_for_publish(data)
     if missing:
         raise ServiceError("Es fehlt noch: " + ", ".join(missing) + ".")
+    over = description_overflow(store, draft.guild_id, data)
+    if over:
+        raise ServiceError(description_overflow_text(store, draft.guild_id, data, over))
 
     ts = int(now.timestamp())
     access = get_access(store, draft.guild_id)

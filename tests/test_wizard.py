@@ -52,7 +52,7 @@ def tb() -> ScriptRef:
 
 
 def make_draft(store, step, **kw):
-    data = EventData(start=NOW + timedelta(days=3), storyteller=Person("Dalyan", 1), script=tb(),
+    data = EventData(start=NOW + timedelta(days=3, hours=8), storyteller=Person("Dalyan", 1), script=tb(),
                      rating="green", rating_source="fixed", description="Wir spielen TB.")
     for k, v in kw.items():
         setattr(data, k, v)
@@ -108,7 +108,7 @@ async def _rating_modal(data):
 
 def test_special_reasons_shown_in_summary(store):
     layout, _ = render(store, make_draft(store, "preview", is_special=True, special_reasons=["Loric: Bootlegger"]))
-    assert "⭐ Abweichung: `Loric: Bootlegger`" in texts(layout) and "**⭐ 💚 Trouble Brewing" in texts(layout)
+    assert "⭐ Abweichung: `Loric: Bootlegger`" in texts(layout) and "**💚 ⭐ Trouble Brewing" in texts(layout)
 
 
 def test_verdict_text_is_preferred(store):

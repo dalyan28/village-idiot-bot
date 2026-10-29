@@ -648,7 +648,9 @@ async def open_edit(interaction, ctx: WizardContext, choice: str):
         if not d.description.strip():
             await _start_chat_input(interaction, ctx, "description")
         else:
-            await interaction.response.send_modal(DescriptionModal(ctx.draft.id, d.description))
+            await interaction.response.send_modal(DescriptionModal(
+                ctx.draft.id, d.description, service.description_limit(ctx.store, ctx.draft.guild_id, d),
+                service.description_limit_text(ctx.store, ctx.draft.guild_id, d)))
     elif choice == "title":
         # Ein automatischer Titel zählt nicht als leer; leer ist er nur beim Event ohne Clocktower
         if d.is_other_event and not d.title.strip():
@@ -721,8 +723,10 @@ class ScriptModal(_WizardModal):
                                        component=self.query))
         self.add_item(discord.ui.Label(text="Basis-Skript", component=self.kind))
         self.add_item(discord.ui.Label(text="Ohne festes Skript", component=self.open))
+        # Discords eigenen Hinweis „unter 1 GB“ kann der Bot nicht ändern; die echte Grenze steht deshalb hier
+        # (Dalyan, 29.10.2026)
         self.add_item(discord.ui.Label(text="Oder eigenes Skript-JSON anhängen",
-                                       component=self.file))
+                                       description="JSON-Datei, bis 1 MB", component=self.file))
 
     async def handle(self, interaction, ctx: WizardContext):
         if self.file.values:
@@ -804,8 +808,11 @@ def apply_chat_text(ctx: WizardContext, text: str) -> str | None:
             return f"Der Titel ist zu lang ({len(text)} von {TITLE_MAX_LENGTH} Zeichen). Schreib ihn bitte kürzer."
         d.title = _title_from_input(d, text)
     elif field == "description":
-        if len(text) > DESCRIPTION_MAX_LENGTH:
-            return (f"Die Beschreibung ist zu lang ({len(text)} von {DESCRIPTION_MAX_LENGTH} Zeichen). "
+        limit = service.description_limit(ctx.store, ctx.draft.guild_id, d)
+        if len(text) > limit:
+            extra = " Der Academy-Text zählt mit, zusammen sind höchstens 3000 möglich." \
+                if d.is_academy and not d.is_other_event else ""
+            return (f"Die Beschreibung ist zu lang ({len(text)} von {limit} Zeichen).{extra} "
                     "Schreib sie bitte kürzer.")
         d.description = text
     ctx.save(d)
@@ -1022,9 +1029,18 @@ async def _confirm_no(interaction, ctx: WizardContext, arg):
         await interaction.response.send_modal(BotcModal(ctx.store, _allow_academy(ctx), ModalInput(**pending["raw"]),
                                                         guild, ctx.member, origin=interaction.message))
         return
-    if pending.get("kind") == "frame":
+    if pending.get("kind") in ("frame", "frame_error"):
         await interaction.response.send_modal(FrameModal(ctx.draft.id, ctx.data, inputs=pending["inputs"]))
         return
+    ui = ctx.ui
+    ui.pop(CONFIRM_KEY, None)
+    ctx.set_ui(ui)
+    await show(interaction, ctx)
+
+
+@action("confirm_drop")
+async def _confirm_drop(interaction, ctx: WizardContext, arg):
+    """„Verwerfen“ nach einer ungültigen Eingabe: zurück zur Zusammenfassung, es bleibt beim alten Stand."""
     ui = ctx.ui
     ui.pop(CONFIRM_KEY, None)
     ctx.set_ui(ui)
@@ -1054,8 +1070,16 @@ class FrameModal(_WizardModal):
     async def handle(self, interaction, ctx: WizardContext):
         d = ctx.data
         inputs = [self.date.value, self.time.value, self.duration.value, self.players.value]
-        _apply_frame(d, self.prefill, *inputs)
         ui = ctx.ui
+        try:
+            _apply_frame(d, self.prefill, *inputs)
+        except service.ServiceError as e:
+            # Nicht übernehmen und deutlich sagen, statt die Meldung unter der Zusammenfassung zu verstecken
+            # (Dalyan, 29.10.2026); „Nochmal eingeben“ öffnet den Dialog mit diesen Eingaben
+            ui[CONFIRM_KEY] = {"kind": "frame_error", "inputs": inputs, "error": str(e)}
+            ctx.set_ui(ui)
+            await show(interaction, ctx)
+            return
         old = ctx.draft.data
         changed = (d.start, d.duration_minutes) != (old.start, old.duration_minutes)
         warnings = plausibility_warnings(d, now()) if changed else []
@@ -1085,12 +1109,15 @@ def _apply_frame(d: EventData, prefill, date_text, time_text, duration_text, pla
 
 
 class DescriptionModal(_WizardModal):
-    def __init__(self, draft_id: int, current: str):
+    """`limit`: Höchstlänge (bei Academy der Rest nach dem Academy-Text). Ist der bisherige Text schon länger
+    (z. B. nachträglich Academy gewählt), darf das Feld ihn noch fassen; die Zusammenfassung verlangt dann Kürzen."""
+
+    def __init__(self, draft_id: int, current: str, limit: int = DESCRIPTION_MAX_LENGTH, hint: str = ""):
         super().__init__(draft_id, "Beschreibung")
         self.text = discord.ui.TextInput(style=discord.TextStyle.paragraph, default=current or None,
                                          placeholder="Worauf können sich die Mitspieler:innen freuen?",
-                                         required=False, max_length=DESCRIPTION_MAX_LENGTH)
-        self.add_item(discord.ui.Label(text="Beschreibung", description=f"Bis zu {DESCRIPTION_MAX_LENGTH} Zeichen",
+                                         required=False, max_length=max(1, limit, len(current or "")))
+        self.add_item(discord.ui.Label(text="Beschreibung", description=hint or f"Bis zu {limit} Zeichen",
                                        component=self.text))
         self.chat = _chat_checkbox()
         self.add_item(discord.ui.Label(text="Oder im Chat", component=self.chat))
