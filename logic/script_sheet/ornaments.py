@@ -36,7 +36,9 @@ def recipe(name):
     r["sparkles"] = r["title"] == "sparkles" or (r["title"] == "seal" and rnd.random() < 0.7)
     r["dots"] = r["title"] in ("seal", "sparkles") and rnd.random() < 0.5  # Punktzeile · ◆ · als Abschluss
     r["layout"] = rnd.choice(("center", "stacked"))
-    r["divider"] = rnd.choice(assets.DIVIDERS)
+    # Nur Trenner, die das Paket hat (ältere Pakete kennen nicht alle), und nie dasselbe Motiv wie im Titel
+    dividers = [k for k in assets.DIVIDERS if assets.has(k) and k not in (r["seal"], r["title_rule"])]
+    r["divider"] = rnd.choice(dividers or assets.DIVIDERS)
     r["variant"] = rnd.choice(TITLE_VARIANTS)
     return r
 

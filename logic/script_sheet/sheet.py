@@ -323,22 +323,51 @@ def _extras(pg, sc, y):
     return y
 
 
+# Trenner-Emblem je Motiv: Feld in pt, ob die Linie durch die breiteste Zeile läuft (sonst mittig), Drehung.
+# Im Review mit Dalyan abgestimmt (29.10.2026): Mondphasen auf der Mondreihe, Himmels-Linien gedreht.
+DIVIDER_STYLE = {
+    "mu:17": (86, 27, True, 0),      # Mondphasen mit Anhängern
+    "mp:-27": (160, 20, False, 0),   # Planetenreihe
+    "m9:-28": (80, 18, False, 0),    # Schlange
+    "mu:85": (56, 20, False, 0),     # Auge
+    "w:59": (46, 22, False, 0),      # Motte
+    "m8:-87": (100, 14, False, 90),  # Mond-Linie
+    "m8:-86": (100, 16, False, 90),  # Sonnen-Linie
+    "m8:-69": (100, 14, False, 90),  # Mond-Stab
+    "mp:-2": (130, 26, False, 90),   # Hand mit Kristall
+    "mu:71": (100, 18, False, 90),   # Zweig
+    "m6:-32": (60, 22, False, 0),    # Mond mit Strahlen
+    "m6:-54": (56, 22, False, 0),    # Wolke
+    "m6:-31": (70, 26, False, 0),    # Hand mit Pendel
+    "mu:60": (56, 24, False, 0),     # Rose mit Blättern
+    "w:103": (50, 22, False, 0),     # Insekt
+}
+DIVIDER_DEFAULT = (70, 11, False, 0)  # mu:61 (Lotus), wie bisher
+
+
 def _extras_panel(pg, sc, y, draw):
-    """Anhang mit Trenner darüber: Haarlinie mit Emblem in der Mitte (ohne Emblem durchgehend). Liefert die Höhe."""
-    sep = pg.m(14)
+    """Anhang mit Trenner darüber: Haarlinie mit Emblem in der Mitte (ohne Emblem durchgehend). Liefert die Höhe.
+    Mit Achse (DIVIDER_STYLE) läuft die Linie durch die breiteste Zeile des Emblems, Anhänger hängen darunter."""
+    key = pg.rec["divider"]
+    w, h_box, on_axis, rot = DIVIDER_STYLE.get(key, DIVIDER_DEFAULT)
+    emblem = assets.ornament(key, round(pg.m(w)), round(pg.m(h_box)), ORNAMENT_INK, rot=rot)
+    above = emblem.height * (assets.ornament_axis(key) if on_axis else 0.5) if emblem else 0
+    below = emblem.height - above if emblem else 0
+    pad = pg.m(4)
+    line_y = max(pg.m(7), above + pad)          # Linie, gemessen ab y
+    sep = line_y + max(pg.m(7), below + pad)    # ohne Achse: 7 + 7 pt wie bisher
     img, dr = pg.img, pg.dr
     pg.img = pg.dr = None
     h = sep + _extras(pg, sc, 0) - pg.p("section_gap") * EXTRAS_SCALE * 0.5
     pg.img, pg.dr = img, dr
     if draw:
-        cy, cx = y + sep / 2, (pg.x0 + pg.x1) / 2
+        cy, cx = y + line_y, (pg.x0 + pg.x1) / 2
         lw = max(1, round(pg.m(0.6)))
-        emblem = assets.ornament(pg.rec["divider"], round(pg.m(70)), round(pg.m(11)), ORNAMENT_INK)
         half = emblem.width / 2 + pg.m(6) if emblem else 0
         pg.dr.line([(round(pg.x0), round(cy)), (round(cx - half), round(cy))], fill=HAIR, width=lw)
         pg.dr.line([(round(cx + half), round(cy)), (round(pg.x1), round(cy))], fill=HAIR, width=lw)
         if emblem:
-            pg.paste(emblem, cx - emblem.width / 2, cy - emblem.height / 2)
+            pg.paste(emblem, cx - emblem.width / 2, cy - above)
         _extras(pg, sc, y + sep - pg.p("section_gap") * EXTRAS_SCALE * 0.5)
     return h
 

@@ -151,3 +151,8 @@ def test_bootlegger_moves_to_house_rules_heading(no_pack, monkeypatch, rules):
         assert heads["Bootlegger"] == "bootlegger" and "Bootlegger" not in names and "Loric" not in heads
     else:
         assert "Bootlegger" not in heads and "Bootlegger" in names and "Loric" in heads
+
+
+def test_divider_axis_without_pack_is_center(no_pack):
+    """Trenner sitzen mit der breitesten Zeile auf der Linie; ohne Asset-Paket gilt die Mitte (Dalyan, 29.10.2026)."""
+    assert all(assets.ornament_axis(k) == 0.5 for k in assets.DIVIDERS)
