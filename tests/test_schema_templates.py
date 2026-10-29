@@ -183,6 +183,9 @@ def test_time_name_by_start_hour():
         assert time_name(make(start=day + timedelta(hours=hour))) == name, hour
     d = make(start=day + timedelta(hours=15), rating="green", is_academy=True)
     assert full_title(d) == "💚 🎓 Srunde · Boozling mit Dalyan"
-    assert full_title(make(start=day + timedelta(hours=23, minutes=30), title="Geisterstunde")) == \
-        "Trunde · Geisterstunde"
+    assert base_title(make(start=day + timedelta(hours=23, minutes=30))) == "Trunde · Boozling mit Dalyan"
+    # Teil des automatischen Titels: ein eigener Titel bleibt genau so, wie er geschrieben wurde
+    assert full_title(make(start=day + timedelta(hours=15), title="Spukige Nacht")) == "Spukige Nacht"
+    assert full_title(make(start=day + timedelta(hours=15), title="Srunde · Spukige Nacht")) == \
+        "Srunde · Spukige Nacht"
     assert time_name(make(start=day + timedelta(hours=15), is_other_event=True)) == ""  # nur Runden
