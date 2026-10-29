@@ -128,7 +128,7 @@ def test_plain_look_shows_all_jinxes_without_night_and_washes(no_pack, monkeypat
 
 @pytest.mark.parametrize("rules", [["Eine Hausregel."], []])
 def test_bootlegger_moves_to_house_rules_heading(no_pack, monkeypatch, rules):
-    """Mit Hausregeln steht der Bootlegger nur als Icon an „House Rules“; ohne bleibt er ein Loric-Eintrag
+    """Mit Hausregeln steht der Bootlegger nur als Icon an der Überschrift „Bootlegger“; ohne bleibt er ein Loric-Eintrag
     (Dalyan, 28.10.2026)."""
     from logic.script_sheet import sheet
 
@@ -148,6 +148,6 @@ def test_bootlegger_moves_to_house_rules_heading(no_pack, monkeypatch, rules):
     monkeypatch.setattr(sheet, "_entries", spy_entries)
     assert render_sheet(sc) is not None
     if rules:
-        assert heads["House Rules"] == "bootlegger" and "Bootlegger" not in names and "Loric" not in heads
+        assert heads["Bootlegger"] == "bootlegger" and "Bootlegger" not in names and "Loric" not in heads
     else:
-        assert "House Rules" not in heads and "Bootlegger" in names and "Loric" in heads
+        assert "Bootlegger" not in heads and "Bootlegger" in names and "Loric" in heads
