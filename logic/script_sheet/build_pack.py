@@ -21,7 +21,7 @@ from PIL import Image
 
 from . import assets
 
-PACK_VERSION = 1
+PACK_VERSION = 2  # 2: weitere Trenner (29.10.2026)
 MAX_SIDE = 900  # Ornamente werden verkleinert gespeichert (genügt für 200 dpi)
 
 _MYSTIC = "Mystic Ockult Wiccan Symbole"
@@ -29,8 +29,10 @@ SOURCES = {  # Set-Kürzel → Pfad im Etsy-Ordner ({n} = Dateiname ohne Endung)
     "w": "Witchcraft Graphics/WitchCraftGraphicsPNGs (1)/PNGs/WitchCraft Graphics-{n}.png",
     "mu": "Mystical Mushroom/PNG/{n}.png",
     "m2": f"{_MYSTIC}/2/PNG/{{n}}.png",
+    "m6": f"{_MYSTIC}/5-7/6/PNG/{{n}}.png",
     "m7": f"{_MYSTIC}/5-7/7/PNG/{{n}}.png",
     "m8": f"{_MYSTIC}/8/PNG/{{n}}.png",
+    "m9": f"{_MYSTIC}/9/PNG/{{n}}.png",
     "mp": f"{_MYSTIC}/PNG/{{n}}.png",
 }
 WASH_MASK = "Clippign Masks/AWhimAdv-DeckThePalms-PhotoMasks{i}.png"

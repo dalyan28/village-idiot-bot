@@ -56,9 +56,20 @@ def _line_width(words, v, px):
     return total + main.getlength(" ") * (len(words) - 1)
 
 
+def _ink_shift(words, fonts, width):
+    """Versatz, um den die sichtbare Form der Zeile neben ihrer Laufweite liegt. Kursive Buchstaben lehnen
+    nach rechts und ragen über die Laufweite hinaus; ohne Ausgleich wirkt z. B. ein kleines „the“ über
+    „Catacombs“ nicht mittig (Dalyan, 29.10.2026)."""
+    left = fonts[0].getbbox(words[0], anchor="ls")[0]
+    right = width - fonts[-1].getlength(words[-1]) + fonts[-1].getbbox(words[-1], anchor="ls")[2]
+    return (left + right - width) / 2
+
+
 def _draw_line(d, cx, base, words, v, px, color):
     main, filler = _fonts(v, px)
-    x = cx - _line_width(words, v, px) / 2
+    fonts = [filler if is_f else main for _, is_f in words]
+    width = _line_width(words, v, px)
+    x = cx - width / 2 - _ink_shift([w for w, _ in words], fonts, width)
     for w, is_f in words:
         f = filler if is_f else main
         d.text((x, base), w, font=f, fill=color, anchor="ls")
@@ -167,7 +178,10 @@ def draw_title(img, x0, x1, y, name, author, rec, S, clip):
 
     for (kind, words), base in zip(rows, bases):
         if kind == "small":
-            d.text((cx, base), " ".join(w for w, _ in words), font=small, fill=TITLE_INK, anchor="ms")
+            text = " ".join(w for w, _ in words)
+            width = small.getlength(text)
+            x = cx - width / 2 - _ink_shift([text], [small], width)
+            d.text((x, base), text, font=small, fill=TITLE_INK, anchor="ls")
         else:
             _draw_line(d, cx, base, words, v, px, TITLE_INK)
 
