@@ -54,7 +54,7 @@ Die Defaults aus Branch `event-creation` gelten unverändert weiter (Dalyan, 19.
 | `script` | Referenz | – | Wizard Schritt 1 | Basis-3, botcscripts.com (ID + Version), Upload (JSON gespeichert) oder freie Wahl |
 | `rating` | grün / gelb / rot / homebrew | aus ScriptRater | Wizard Schritt 2 | per Button überschreibbar, mit Herkunft (`rater` / `manuell` / `fest`) |
 | Titel | – | – | wird gebaut, nie eingegeben | Symbole, dann „{Skript} mit {ST}[ und {Co-ST}]“ (Dalyan, 19.10.2026) |
-| `description` | Text, max. 1000 Zeichen | leer | Wizard Schritt 4 | schreibt der Ersteller selbst; Pflicht außer bei Academy, dort folgt der feste Academy-Text |
+| `description` | Text, max. 2000 Zeichen; bei Academy mit dem Academy-Text zusammen max. 3000 (sonst Hinweis „kürzen“) | leer | Wizard Schritt 4 | schreibt der Ersteller selbst; Pflicht außer bei Academy, dort folgt der feste Academy-Text |
 | `image_mode` / `custom_image` | auto / eigenes / keins | auto | Wizard Schritt 5 | auto = Skript-Bild (auch für Basis-3), eigenes Bild als PNG auf dem Volume |
 | `reminder_overrides` | Abweichungen vom Server-Default | leer | Wizard Schritt 3 | siehe „Reminder“ |
 

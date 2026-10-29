@@ -124,8 +124,8 @@ def test_too_long_text_keeps_waiting_and_cancel(env):
     member = bot.guild.get_member(2)
     member.dm = with_dm(member)
     assert run(text_edit.start(bot, bot.guild, member, "description"))
-    taken, _, replies = dm(bot, 2, "x" * 1001)
-    assert taken and "erlaubt sind 1000" in replies[0]
+    taken, _, replies = dm(bot, 2, "x" * 3001)
+    assert taken and "erlaubt sind 2000" in replies[0]
     assert user_settings.get(bot.store, GUILD, 2).description == ""
 
     card = next(iter(member.dm.messages.values()))

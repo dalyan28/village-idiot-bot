@@ -161,3 +161,37 @@ def test_waitlist_uses_small_app_emoji_when_uploaded():
         assert "<:vi_waitlist:7> P12" in next(v for k, v in after.items() if "Akzeptiert" in k)
     finally:
         character_emojis.set_emojis([])
+
+
+# ── Länge (Dalyan, 29.10.2026): Felder bis 1024, Embed bis 6000 Zeichen ─────
+
+
+def test_long_paragraph_is_split_at_words():
+    """Ein Absatz ohne Zeilenumbruch über 1024 Zeichen wird an Wortgrenzen auf mehrere Felder verteilt."""
+    text = " ".join(f"wort{i}" for i in range(500))  # rund 3400 Zeichen, eine Zeile
+    embed = build_event_embed(data(description=text[:3000]), "Dalyan", lists())
+    parts = [f.value.removesuffix(SPACER) for f in embed.fields if f.name in ("Beschreibung", "​")]
+    assert len(parts) > 2 and all(len(p) <= 1024 for p in parts)
+    assert " ".join(parts).split() == text[:3000].split()
+
+
+def test_description_overflow_counts_academy_text():
+    from events.templates import ACADEMY_TEMPLATE_MAX_LENGTH
+    from logic.event_builder import description_overflow
+    long_own = "x " * 1500  # 3000 Zeichen
+    assert description_overflow(data(description=long_own)) == 0
+    assert description_overflow(data(description=long_own, is_academy=True)) == 0  # eingebauter Academy-Text
+    template = "y " * (ACADEMY_TEMPLATE_MAX_LENGTH // 2)
+    over = description_overflow(data(description=long_own, is_academy=True), template)
+    assert over > 0
+    assert description_overflow(data(description=long_own[:-over - 2], is_academy=True), template) == 0
+
+
+def test_embed_stays_under_discord_limit():
+    """Auch wenn es zu viel wird (z. B. nach Änderung des Academy-Texts), lehnt Discord den Post nicht ab."""
+    many = [Person(f"Spieler mit sehr langem Namen {i}", i) for i in range(60)]
+    d = data(description="x " * 1500, is_academy=True, max_players=60)
+    embed = build_event_embed(d, "W" * 32, lists(players=many, tentative=many, declined=many),
+                              academy_template="y " * 2000)
+    assert len(embed) <= 6000 and all(len(f.value) <= 1024 for f in embed.fields)
+    assert any("weitere" in f.value for f in embed.fields[-3:])
