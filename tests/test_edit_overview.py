@@ -1,9 +1,9 @@
 """
-Unit-Tests für den Listen Mode in commands/overview.py.
-Testet edit_overview Pagination, Debounce und Sentinel-Handling.
+Unit-Tests für das Editieren der Übersicht in commands/overview.py.
+Testet edit_overview Pagination, Debounce und dass Listener nur editieren.
 
 Ausführen:
-    pytest tests/test_listen_mode.py -v
+    pytest tests/test_edit_overview.py -v
 """
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -225,32 +225,97 @@ class TestDebounce:
         cog.edit_overview.assert_called_once()
 
 
+    @pytest.mark.asyncio
+    async def test_restarts_scheduler_when_event_times_change(self, cog):
+        async def edit(guild_id, *_):
+            cog.smart_dynamic_times[guild_id] = {(19, 30)}
+
+        cog.edit_overview = AsyncMock(side_effect=edit)
+        cog._restart_smart_scheduler = MagicMock()
+        ch1, ch2 = AsyncMock(), AsyncMock()
+        cog._edit_debounce_start[1] = asyncio.get_event_loop().time() - 20
+
+        await cog._schedule_edit(1, ch1, ch2)
+        await cog._edit_debounce_tasks[1]
+
+        cog._restart_smart_scheduler.assert_called_once_with(1, ch1, ch2)
+        assert 1 in cog.last_smart_run
+
+    @pytest.mark.asyncio
+    async def test_no_restart_when_event_times_unchanged(self, cog):
+        cog.edit_overview = AsyncMock()
+        cog._restart_smart_scheduler = MagicMock()
+        cog._edit_debounce_start[1] = asyncio.get_event_loop().time() - 20
+
+        await cog._schedule_edit(1, AsyncMock(), AsyncMock())
+        await cog._edit_debounce_tasks[1]
+
+        cog._restart_smart_scheduler.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
-# Sentinel Handling
+# Smart Mode: nach dem Start wird nur noch editiert
 # ---------------------------------------------------------------------------
 
-class TestListenModeSentinel:
-    def test_stop_recognizes_sentinel(self, cog):
-        """is_running Check erkennt 'listen_mode' Sentinel."""
-        cog.auto_tasks[1] = "listen_mode"
-        existing = cog.auto_tasks.get(1)
-        is_running = (
-            existing == "listen_mode"
-            or (isinstance(existing, asyncio.Task) and not existing.done())
-        )
-        assert is_running is True
+class TestOnlyEdit:
+    @pytest.mark.asyncio
+    async def test_new_event_edits_instead_of_reposting(self, cog):
+        cog.fetch_and_post = AsyncMock()
+        cog._schedule_edit = AsyncMock()
+        cog.auto_tasks[1] = MagicMock()
+        overview_ch = MagicMock()
+        cog.bot.get_channel = MagicMock(return_value=overview_ch)
 
-    def test_sentinel_not_cancellable(self, cog):
-        """Sentinel ist ein String, hat kein .cancel() → kein Fehler."""
-        cog.auto_tasks[1] = "listen_mode"
-        existing = cog.auto_tasks[1]
-        assert not isinstance(existing, asyncio.Task)
-        assert existing == "listen_mode"
+        field = MagicMock()
+        field.name = "Time"
+        message = MagicMock()
+        message.author.bot = True
+        message.guild.id = 1
+        message.channel.id = 10
+        message.embeds = [MagicMock(title="Event", fields=[field])]
 
-    def test_on_message_filter_listen_mode(self, cog):
-        """Listen Mode Guild ist in auto_tasks → Listener laeuft."""
-        cog.auto_tasks[42] = "listen_mode"
-        assert 42 in cog.auto_tasks
+        cfg = {"on_new_event": True, "event_channel_id": 10, "overview_channel_id": 20}
+        with patch("commands.overview.get_guild_config", return_value=cfg):
+            await cog.on_message(message)
+
+        cog._schedule_edit.assert_called_once_with(1, message.channel, overview_ch)
+        cog.fetch_and_post.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_restart_does_not_repost(self, cog):
+        cog._run_smart_scheduler = AsyncMock()
+        old = asyncio.create_task(asyncio.sleep(10))
+        cog.auto_tasks[1] = old
+        ch1, ch2 = AsyncMock(), AsyncMock()
+
+        cog._restart_smart_scheduler(1, ch1, ch2)
+        await cog.auto_tasks[1]
+
+        with pytest.raises(asyncio.CancelledError):
+            await old
+        cog._run_smart_scheduler.assert_called_once_with(1, ch1, ch2, repost=False)
+
+    def test_restart_without_running_automation_does_nothing(self, cog):
+        cog._run_smart_scheduler = AsyncMock()
+        cog._restart_smart_scheduler(1, AsyncMock(), AsyncMock())
+        assert 1 not in cog.auto_tasks
+        cog._run_smart_scheduler.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_edit_updates_dynamic_times(self, cog):
+        cog._update_smart_dynamic_times = MagicMock()
+        msg = AsyncMock()
+        msg.id = 1001
+        channel = AsyncMock()
+        channel.fetch_message = AsyncMock(return_value=msg)
+        event_ch = AsyncMock()
+        event_ch.history = MagicMock(return_value=AsyncIterator([]))
+
+        with patch("commands.overview.get_guild_config", return_value={"last_overview_message_ids": [1001]}), \
+             patch("commands.overview.save_guild_config"):
+            await cog._edit_overview_locked(1, event_ch, channel)
+
+        cog._update_smart_dynamic_times.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

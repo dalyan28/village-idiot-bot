@@ -11,13 +11,19 @@ intents.message_content = True
 intents.messages = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+restored = False
 
 
 @bot.event
 async def on_ready():
+    global restored
     await bot.tree.sync()
     print(f"Synced commands: {[c.name for c in bot.tree.get_commands()]}")
     print(f"Bot ist online als {bot.user}")
+    # on_ready kommt auch bei jedem Reconnect, neu gepostet wird nur beim Start
+    if restored:
+        return
+    restored = True
     from config import cleanup_config
     cleanup_config()
     await asyncio.sleep(3)
@@ -26,7 +32,6 @@ async def on_ready():
 
 async def restore_auto_tasks():
     from config import load_config
-    from discord.ext import tasks
 
     cfg = load_config() #Logging
     print(f"Config beim Start: {cfg}") #
@@ -39,43 +44,30 @@ async def restore_auto_tasks():
     cfg = load_config()
 
     for guild_id_str, guild_cfg in cfg.items():
-        if not guild_cfg.get("auto_active"):
+        # alte Keys auf oberster Ebene (z.B. "auto_interval_hours": 0) überspringen
+        if not isinstance(guild_cfg, dict) or not guild_cfg.get("auto_active"):
             continue
 
         guild_id = int(guild_id_str)
         event_channel = bot.get_channel(guild_cfg.get("event_channel_id"))
         overview_channel = bot.get_channel(guild_cfg.get("overview_channel_id"))
-        frequenz = guild_cfg.get("auto_interval_hours", 2)
 
         if not event_channel or not overview_channel:
             print(f"Channels nicht gefunden für Guild {guild_id}, überspringe")
             continue
 
-        if frequenz == -2:
-            overview_cog.auto_tasks[guild_id] = "listen_mode"
-            await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            label = "Listen Mode"
-        elif frequenz == -1:
-            task = asyncio.create_task(
-                overview_cog._run_smart_scheduler(guild_id, event_channel, overview_channel)
-            )
-            overview_cog.auto_tasks[guild_id] = task
-            label = "Smart Mode"
-        else:
-            @tasks.loop(hours=frequenz)
-            async def auto_job():
-                await overview_cog.fetch_and_post(guild_id, event_channel, overview_channel)
-            overview_cog.auto_tasks[guild_id] = auto_job
-            overview_cog.auto_tasks[guild_id].start()
-            label = f"{frequenz} Stunden"
-
-        print(f"Automatisierung wiederhergestellt für Guild {guild_id} ({label})")
+        task = asyncio.create_task(
+            overview_cog._run_smart_scheduler(guild_id, event_channel, overview_channel)
+        )
+        overview_cog.auto_tasks[guild_id] = task
+        print(f"Automatisierung wiederhergestellt für Guild {guild_id} (Smart Mode)")
 
 
 async def main():
     async with bot:
         await bot.load_extension("commands.settings")
         await bot.load_extension("commands.overview")
+        await bot.load_extension("commands.aaron")
         if os.getenv("ENV") == "dev":
             await bot.load_extension("commands.test_commands")
             print("Dev-Modus: Test-Commands geladen")

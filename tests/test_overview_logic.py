@@ -6,9 +6,10 @@ Ausführen:
     pip install pytest
     pytest tests/
 """
+import asyncio
 import time
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -244,3 +245,36 @@ class TestOnMessageEventFilter:
         field.name = "Description"
         embed.fields = [field]
         assert not any(f.name in ("Time", "Termin") for f in embed.fields)
+
+
+# ---------------------------------------------------------------------------
+# _run_smart_scheduler: neu posten nur beim Start, danach editieren
+# ---------------------------------------------------------------------------
+
+class TestSmartScheduler:
+    async def _run(self, cog, repost):
+        cog.fetch_and_post = AsyncMock()
+        cog.edit_overview = AsyncMock()
+        sleeps = 0
+
+        async def fake_sleep(_):
+            nonlocal sleeps
+            sleeps += 1
+            if sleeps > 1:
+                raise asyncio.CancelledError
+
+        with patch("commands.overview.asyncio.sleep", fake_sleep), \
+             patch("commands.overview.get_guild_config", return_value={}):
+            await cog._run_smart_scheduler(1, MagicMock(), MagicMock(), repost=repost)
+
+    @pytest.mark.asyncio
+    async def test_start_reposts_once(self, cog):
+        await self._run(cog, repost=True)
+        cog.fetch_and_post.assert_called_once()
+        cog.edit_overview.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_scheduled_update_only_edits(self, cog):
+        await self._run(cog, repost=False)
+        cog.fetch_and_post.assert_not_called()
+        cog.edit_overview.assert_called_once()
