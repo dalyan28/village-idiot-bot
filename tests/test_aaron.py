@@ -6,7 +6,7 @@ Ausführen:
 """
 from datetime import date, datetime
 
-from commands.aaron import BERLIN_TZ, split_symbols, todays_lines, to_code_blocks
+from commands.aaron import BERLIN_TZ, HEADER, build_messages, split_symbols, todays_lines, to_code_blocks
 
 
 def _event(title, day, hour, minute=0):
@@ -73,3 +73,12 @@ def test_splits_at_discord_limit_without_breaking_lines():
     assert all(len(b) <= 2000 for b in blocks)
     joined = [line for b in blocks for line in b.removeprefix("```\n").removesuffix("\n```").split("\n")]
     assert joined == lines
+
+
+def test_header_only_above_first_block():
+    lines = [f"`20:00` [Event {i} {'x' * 60}](<https://discord.com/channels/1/2/{i}>)" for i in range(40)]
+    messages = build_messages(lines)
+    assert messages[0].startswith(HEADER + "\n```\n")
+    assert all(not m.startswith(HEADER) for m in messages[1:])
+    assert all(len(m) <= 2000 for m in messages)
+    assert build_messages([]) == []

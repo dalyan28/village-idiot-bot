@@ -9,6 +9,7 @@ from logic.parser import parse_events
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 AARON_ID = 1424409721187729489
+HEADER = "Hier die heutigen Events zum Rauskopieren. Thanks for being the real Town Crier 🥹"
 
 
 def split_symbols(title: str) -> tuple[str, str]:
@@ -49,6 +50,14 @@ def to_code_blocks(lines: list[str], limit: int = 2000) -> list[str]:
     return [f"```\n{b}\n```" for b in blocks]
 
 
+def build_messages(lines: list[str]) -> list[str]:
+    # header steht über dem codeblock, damit er nicht mitkopiert wird
+    messages = to_code_blocks(lines, limit=2000 - len(HEADER) - 1)
+    if messages:
+        messages[0] = f"{HEADER}\n{messages[0]}"
+    return messages
+
+
 class Aaron(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -76,8 +85,8 @@ class Aaron(commands.Cog):
         if not lines:
             await interaction.followup.send("Heute stehen keine Events an.", ephemeral=True)
             return
-        for block in to_code_blocks(lines):
-            await interaction.followup.send(block, ephemeral=True)
+        for message in build_messages(lines):
+            await interaction.followup.send(message, ephemeral=True)
 
 
 async def setup(bot):
