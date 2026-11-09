@@ -9,20 +9,34 @@ from logic.parser import parse_events
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 AARON_ID = 1424409721187729489
-SEPARATOR = " · "
+
+
+def split_symbols(title: str) -> tuple[str, str]:
+    # emojis vorne kommen vor den link, discord mag sie im linktext nicht
+    words = title.split()
+    i = 0
+    while i < len(words) and not any(c.isalnum() for c in words[i]):
+        i += 1
+    if i == len(words):
+        return "", title
+    return " ".join(words[:i]), " ".join(words[i:])
 
 
 def todays_lines(events: list[dict], today: date) -> list[str]:
     lines = []
     for e in events:
-        if datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ).date() != today:
+        start = datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ)
+        if start.date() != today:
             continue
-        lines.append(f"<t:{e['start_ts']}:t>{SEPARATOR}[{e['title']}]({e['url']})")
+        symbols, text = split_symbols(e["title"])
+        prefix = f"{symbols} " if symbols else ""
+        # uhrzeit als code, damit alle zeilen bündig sind. <> um die url verhindert die vorschau
+        lines.append(f"`{start:%H:%M}` {prefix}[{text}](<{e['url']}>)")
     return lines
 
 
 def to_code_blocks(lines: list[str], limit: int = 2000) -> list[str]:
-    # Codeblock, damit Timestamps und Links beim Kopieren roh bleiben
+    # Codeblock, damit Links und Formatierung beim Kopieren roh bleiben
     blocks = []
     current = ""
     for line in lines:

@@ -6,7 +6,7 @@ Ausführen:
 """
 from datetime import date, datetime
 
-from commands.aaron import BERLIN_TZ, todays_lines, to_code_blocks
+from commands.aaron import BERLIN_TZ, split_symbols, todays_lines, to_code_blocks
 
 
 def _event(title, day, hour, minute=0):
@@ -23,9 +23,31 @@ def test_only_todays_events_in_order():
     ]
     lines = todays_lines(events, date(2026, 11, 9))
     assert lines == [
-        f"<t:{events[1]['start_ts']}:t> · [Srunde · Boozling mit Dalyan]({events[1]['url']})",
-        f"<t:{events[2]['start_ts']}:t> · [Trouble Brewing mit Conga]({events[2]['url']})",
+        f"`15:00` [Srunde · Boozling mit Dalyan](<{events[1]['url']}>)",
+        f"`20:00` [Trouble Brewing mit Conga](<{events[2]['url']}>)",
     ]
+
+
+def test_time_in_berlin_summer_and_winter():
+    # sommerzeit (MESZ) und winterzeit (MEZ)
+    summer = int(datetime(2026, 7, 1, 20, 0, tzinfo=BERLIN_TZ).timestamp())
+    winter = int(datetime(2026, 12, 1, 9, 5, tzinfo=BERLIN_TZ).timestamp())
+    assert todays_lines([{"title": "A", "start_ts": summer, "url": "u"}], date(2026, 7, 1)) == ["`20:00` [A](<u>)"]
+    assert todays_lines([{"title": "B", "start_ts": winter, "url": "u"}], date(2026, 12, 1)) == ["`09:05` [B](<u>)"]
+
+
+def test_emojis_before_link():
+    events = [_event("🟥 Srunde Broken Circles mit Doctor", 9, 14, 30), _event("💚/🟡 🎓 🕊️ Boozling mit Dalyan", 9, 20)]
+    assert todays_lines(events, date(2026, 11, 9)) == [
+        f"`14:30` 🟥 [Srunde Broken Circles mit Doctor](<{events[0]['url']}>)",
+        f"`20:00` 💚/🟡 🎓 🕊️ [Boozling mit Dalyan](<{events[1]['url']}>)",
+    ]
+
+
+def test_split_symbols():
+    assert split_symbols("Trouble Brewing mit Conga") == ("", "Trouble Brewing mit Conga")
+    assert split_symbols("⭐ Srunde · Boozling") == ("⭐", "Srunde · Boozling")
+    assert split_symbols("🟥 🎦") == ("", "🟥 🎦")
 
 
 def test_berlin_date_not_utc():
@@ -45,7 +67,7 @@ def test_code_block():
 
 
 def test_splits_at_discord_limit_without_breaking_lines():
-    lines = [f"<t:1762714800:t> · [Event {i} {'x' * 60}](https://discord.com/channels/1/2/{i})" for i in range(40)]
+    lines = [f"`20:00` [Event {i} {'x' * 60}](<https://discord.com/channels/1/2/{i}>)" for i in range(40)]
     blocks = to_code_blocks(lines)
     assert len(blocks) > 1
     assert all(len(b) <= 2000 for b in blocks)

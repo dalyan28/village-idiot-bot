@@ -78,7 +78,7 @@ village-idiot-bot/
 | `/stop_automate` | – | Stoppt die laufende automatische Übersicht |
 | `/set_schedule` | `zeiten` | Setzt den Smart-Mode-Zeitplan (z.B. `05:00 08:00 12:00`) oder `default` |
 | `/see_schedule` | – | Zeigt den aktuellen Zeitplan und dynamische Zeiten |
-| `/aaron` | – | Heutige Events als `Uhrzeit · [Titel](Link)` zum Rauskopieren (nur Aaron und Bot-Owner) |
+| `/aaron` | – | Heutige Events als `Uhrzeit [Titel](Link)` zum Rauskopieren (nur Aaron und Bot-Owner) |
 
 ### Smart Mode
 
@@ -100,9 +100,9 @@ Mit `/set_schedule` kann der Zeitplan individuell angepasst werden.
 
 Gibt die Events von heute (Berliner Zeit) aus dem Event-Channel als Codeblock aus, eine Zeile pro Event:
 ```
-<t:1762714800:t> · [Srunde · Boozling mit Dalyan](https://discord.com/channels/...)
+`15:00` 💚 [Srunde · Boozling mit Dalyan](<https://discord.com/channels/...>)
 ```
-Im Codeblock bleiben Timestamp und Link beim Kopieren erhalten. Nur für die User-ID in `commands/aaron.py` und den Bot-Owner.
+Die Uhrzeit steht als Code (Berliner Zeit), damit alle Zeilen bündig sind. Emojis vorne im Titel stehen vor dem Link, weil Discord sie im Linktext nicht mag. Die URL steht in `<>`, damit Discord keine Vorschau baut. Im Codeblock bleibt der Link beim Kopieren erhalten. Nur für die User-ID in `commands/aaron.py` und den Bot-Owner.
 
 ### Tests
 
@@ -170,7 +170,7 @@ ENV=dev
 | `/stop_automate` | – | Stops the running automated overview |
 | `/set_schedule` | `zeiten` | Sets the Smart Mode schedule (e.g. `05:00 08:00 12:00`) or `default` |
 | `/see_schedule` | – | Shows the current schedule and dynamic times |
-| `/aaron` | – | Today's events as `time · [title](link)` for copying (only Aaron and the bot owner) |
+| `/aaron` | – | Today's events as `time [title](link)` for copying (only Aaron and the bot owner) |
 
 ### Smart Mode
 
@@ -188,7 +188,7 @@ Smart Mode updates the overview on an intelligent schedule instead of a fixed in
 
 ### /aaron
 
-Posts today's events (Berlin time) from the event channel as a code block, one line per event, so timestamps and links survive copying. Only for the user ID in `commands/aaron.py` and the bot owner.
+Posts today's events (Berlin time) from the event channel as a code block, one line per event (time as inline code in Berlin time so the lines align, leading emojis before the link, URL in `<>` so Discord shows no preview), so the links survive copying. Only for the user ID in `commands/aaron.py` and the bot owner.
 
 ### Notes
 
