@@ -57,7 +57,7 @@ class Aaron(commands.Cog):
     @app_commands.guild_only()
     async def aaron(self, interaction: discord.Interaction):
         if interaction.user.id != AARON_ID and not await self.bot.is_owner(interaction.user):
-            await interaction.response.send_message("Dieser Command ist nur für Aaron freigeschaltet.", ephemeral=True)
+            await interaction.response.send_message("Du bist nicht Aaron 👀", ephemeral=True)
             return
 
         cfg = get_guild_config(interaction.guild_id)
