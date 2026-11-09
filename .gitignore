@@ -11,3 +11,9 @@ data/icons/
 images/
 test_output/
 custom_emojis/
+.claude/
+data/
+
+# lizenzierte Grafiken (Skript-Blatt) – NIE committen
+private_assets/
+docs/examples_pretty scripts/
