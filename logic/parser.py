@@ -73,9 +73,7 @@ def build_footer(events: list[dict]) -> str:
     names = {datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ).tzname() for e in events}
     names = names or {datetime.now(tz=BERLIN_TZ).tzname()}
     kuerzel = "/".join(de for en, de in KUERZEL if en in names)
-    return (f"Alle Zeiten und Daten in deutscher Zeit ({kuerzel}).\n"
-            "Die Startzeit in deiner Ortszeit siehst du, wenn du über die Zeitangabe am Ende eines Eintrags hoverst "
-            "oder sie am Handy antippst.")
+    return f"Alle Zeiten und Daten in deutscher Zeit ({kuerzel})."
 
 
 def build_overviews(events: list[dict]) -> list[discord.Embed]:

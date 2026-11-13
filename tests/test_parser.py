@@ -29,14 +29,14 @@ def test_days_grouped_by_berlin_date():
 
 
 def test_footer_with_winter_and_summer_time():
-    assert build_footer([_event("A", 11, 13, 20)]).startswith("Alle Zeiten und Daten in deutscher Zeit (MEZ).\n")
-    assert build_footer([_event("A", 7, 1, 20)]).startswith("Alle Zeiten und Daten in deutscher Zeit (MESZ).\n")
+    assert build_footer([_event("A", 11, 13, 20)]) == "Alle Zeiten und Daten in deutscher Zeit (MEZ)."
+    assert build_footer([_event("A", 7, 1, 20)]) == "Alle Zeiten und Daten in deutscher Zeit (MESZ)."
 
 
 def test_footer_around_time_change():
     # zeitumstellung am 25.10.2026
     events = [_event("Vorher", 10, 24, 20), _event("Nachher", 10, 26, 20)]
-    assert build_footer(events).startswith("Alle Zeiten und Daten in deutscher Zeit (MEZ/MESZ).\n")
+    assert build_footer(events) == "Alle Zeiten und Daten in deutscher Zeit (MEZ/MESZ)."
 
 
 def test_footer_without_events():
