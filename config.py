@@ -32,6 +32,10 @@ VALID_GUILD_KEYS = {
     "auto_active",
     "smart_dynamic",
     "smart_schedule",
+    # temporär: mini-wochenplan
+    "mini_wochenplan",
+    "mini_anchor_id",
+    "mini_bottom_id",
 }
 
 

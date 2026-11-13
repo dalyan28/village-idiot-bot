@@ -53,6 +53,7 @@ village-idiot-bot/
 │   ├── overview.py             # /overview_events, /automate_overview, /stop_automate,
 │   │                           #   /set_schedule, /see_schedule
 │   ├── aaron.py                # /aaron: heutige Events zum Rauskopieren
+│   ├── mini_wochenplan.py      # /mini_wochenplan (temporär)
 │   └── test_commands.py        # Dev-only: /create_test_event, /clear_test_events,
 │                               #   /clear_past_events, /smart_status
 ├── logic/
@@ -61,7 +62,8 @@ village-idiot-bot/
 │   ├── test_overview_logic.py  # Smart-Mode-Zeitplan
 │   ├── test_edit_overview.py   # Übersicht editieren, Debounce
 │   ├── test_parser.py          # Wochenplan-Zeilen, Berliner Zeit
-│   └── test_aaron.py           # /aaron
+│   ├── test_aaron.py           # /aaron
+│   └── test_mini_wochenplan.py # Mini-Wochenplan
 ├── requirements.txt
 ├── requirements-dev.txt        # + pytest
 ├── .env                        # nicht in Git
@@ -80,6 +82,7 @@ village-idiot-bot/
 | `/set_schedule` | `zeiten` | Setzt den Smart-Mode-Zeitplan (z.B. `05:00 08:00 12:00`) oder `default` |
 | `/see_schedule` | – | Zeigt den aktuellen Zeitplan und dynamische Zeiten |
 | `/aaron` | – | Heutige Events als `Uhrzeit [Titel](Link)` zum Rauskopieren (nur Aaron und Bot-Owner) |
+| `/mini_wochenplan` | `aktion`: `an`, `aus`, `status` | Mini-Wochenplan oben und unten im Event-Channel (temporär, nur mit „Server verwalten“) |
 
 ### Smart Mode
 
@@ -104,6 +107,22 @@ Gibt die Events von heute (Berliner Zeit) aus dem Event-Channel als Codeblock au
 `15:00` 💚 [Srunde · Boozling mit Dalyan](<https://discord.com/channels/...>)
 ```
 Die Uhrzeit steht als Code (Berliner Zeit), damit alle Zeilen bündig sind. Emojis vorne im Titel stehen vor dem Link, weil Discord sie im Linktext nicht mag. Die URL steht in `<>`, damit Discord keine Vorschau baut. Im Codeblock bleibt der Link beim Kopieren erhalten. Nur für die User-ID in `commands/aaron.py` und den Bot-Owner.
+
+### Mini-Wochenplan (temporär)
+
+Seit dem 09.11.2026 springen am PC (App und Browser) Links in einen anderen Channel nicht mehr zur Nachricht, Links im selben Channel schon. Deshalb zeigt der Bot die Events von heute, morgen und übermorgen (Berliner Zeit) zusätzlich direkt im Event-Channel, als normale Nachricht ohne Vorschau und ohne Pings:
+```
+**Heute · Freitag, 13.11.**
+`20:00` 🟥 [Srunde Broken Circles mit Doctor](<https://discord.com/channels/...>) **(3/12)**
+```
+Darunter steht das zuletzt gepostete Event als „Neustes Event“.
+
+- **Anker oben:** Wird beim ersten `/mini_wochenplan an` gepostet und danach nur noch editiert, nie neu gepostet. Unter dem Mini-Wochenplan steht ein kurzer Hinweis zum Channel (`/event_classic`). Oben steht er erst, wenn alle älteren Nachrichten im Channel weg sind. `/mini_wochenplan status` zeigt, wie viele noch davor stehen. Wird er gelöscht, postet der Bot ihn nicht von selbst neu.
+- **Beitrag unten:** Bei jeder neuen Nachricht im Event-Channel (außer vom Bot) wird er nach 10 Sekunden Ruhe gelöscht und neu gepostet, sonst nur editiert. Steht nach dem Anker nichts, gibt es keinen.
+- **Aktualisierung:** Läuft mit jedem Update des Wochenplans mit (Smart Mode, neue/geänderte/gelöschte Events). Den Tageswechsel macht die erste Zeit im Zeitplan.
+- **Aus:** Mit `/mini_wochenplan aus` oder `/stop_automate` wird der untere Beitrag gelöscht und der Anker zeigt nur noch den Hinweis zum Channel.
+
+Ausbauen: `commands/mini_wochenplan.py` löschen, die `mini_wochenplan`-Zeilen in `commands/overview.py` und `bot.py` und die `mini_`-Keys in `config.py` entfernen.
 
 ### Tests
 
@@ -173,6 +192,7 @@ ENV=dev
 | `/set_schedule` | `zeiten` | Sets the Smart Mode schedule (e.g. `05:00 08:00 12:00`) or `default` |
 | `/see_schedule` | – | Shows the current schedule and dynamic times |
 | `/aaron` | – | Today's events as `time [title](link)` for copying (only Aaron and the bot owner) |
+| `/mini_wochenplan` | `aktion`: `an`, `aus`, `status` | Mini schedule at the top and bottom of the event channel (temporary, requires "Manage Server") |
 
 ### Smart Mode
 
@@ -191,6 +211,10 @@ Smart Mode updates the overview on an intelligent schedule instead of a fixed in
 ### /aaron
 
 Posts today's events (Berlin time) from the event channel as a code block, one line per event (time as inline code in Berlin time so the lines align, leading emojis before the link, URL in `<>` so Discord shows no preview), so the links survive copying. Only for the user ID in `commands/aaron.py` and the bot owner.
+
+### Mini schedule (temporary)
+
+Since 9 Nov 2026, message links into another channel no longer jump to the message on PC (app and browser), while links within the same channel still do. So the bot also shows today's, tomorrow's and the day after's events (Berlin time) plus the most recently posted event directly in the event channel: once as an anchor at the top (posted once, then only edited, with a short note about the channel below it) and once at the bottom (deleted and reposted 10 seconds after a new message, otherwise edited). It is updated together with the overview. `/mini_wochenplan aus` or `/stop_automate` deletes the bottom post and reduces the anchor to the channel note. To remove it, delete `commands/mini_wochenplan.py` and the `mini_wochenplan` lines in `commands/overview.py`, `bot.py` and the `mini_` keys in `config.py`.
 
 ### Notes
 

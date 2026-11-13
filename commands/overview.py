@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 import discord
 from discord import app_commands
 from discord.ext import commands
+from commands import mini_wochenplan
 from config import get_guild_config, save_guild_config
 from logic.parser import parse_events, build_overviews
 
@@ -73,6 +74,7 @@ class Overview(commands.Cog):
 
         cfg["last_overview_message_ids"] = new_ids
         save_guild_config(guild_id, cfg)
+        mini_wochenplan.overview_updated(self.bot, guild_id, event_channel, messages, events)
 
     async def edit_overview(self, guild_id: int, event_channel: discord.TextChannel, target_channel: discord.TextChannel):
         lock = self._fetch_locks.setdefault(guild_id, asyncio.Lock())
@@ -127,6 +129,7 @@ class Overview(commands.Cog):
 
         cfg["last_overview_message_ids"] = new_ids
         save_guild_config(guild_id, cfg)
+        mini_wochenplan.overview_updated(self.bot, guild_id, event_channel, messages, events)
 
     async def _schedule_edit(self, guild_id: int, event_channel: discord.TextChannel, overview_channel: discord.TextChannel):
         now = asyncio.get_event_loop().time()
@@ -293,6 +296,8 @@ class Overview(commands.Cog):
     async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
         if not payload.guild_id:
             return
+        if mini_wochenplan.is_own_delete(self.bot, payload.message_id):
+            return
 
         cfg = get_guild_config(payload.guild_id)
 
@@ -433,6 +438,7 @@ class Overview(commands.Cog):
             cfg = get_guild_config(guild_id)
             cfg["auto_active"] = False
             save_guild_config(guild_id, cfg)
+            mini_wochenplan.overview_stopped(self.bot, guild_id)
 
             await interaction.response.send_message("Automatische Übersicht gestoppt.", ephemeral=True)
         else:
