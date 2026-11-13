@@ -1,3 +1,5 @@
+import re
+import unicodedata
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
@@ -10,17 +12,55 @@ from logic.parser import parse_events
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
 AARON_ID = 1424409721187729489
 HEADER = "Hier die heutigen Events zum Rauskopieren. Thanks for being the real Town Crier 🥹"
+EMOJI_CODE = re.compile(r"<a?:\w+:\d+>|:[a-z_+][a-z0-9_+-]*:")
+EMOJI_CATEGORIES = {"So", "Sk", "Mn", "Me", "Cf"}
+MIN_LINK_CHARS = 2
 
 
-def split_symbols(title: str) -> tuple[str, str]:
-    # emojis vorne kommen vor den link, discord mag sie im linktext nicht
-    words = title.split()
+def _is_emoji(c: str) -> bool:
+    # ab U+2000, sonst wären umlaut-akzente und © auch emojis
+    return ord(c) >= 0x2000 and unicodedata.category(c) in EMOJI_CATEGORIES
+
+
+def _split_emojis(title: str) -> list[tuple[bool, str]]:
+    parts = []
     i = 0
-    while i < len(words) and not any(c.isalnum() for c in words[i]):
-        i += 1
-    if i == len(words):
-        return "", title
-    return " ".join(words[:i]), " ".join(words[i:])
+    while i < len(title):
+        code = EMOJI_CODE.match(title, i)
+        end = code.end() if code else i + 1
+        is_emoji = bool(code) or _is_emoji(title[i])
+        if parts and parts[-1][0] == is_emoji:
+            parts[-1] = (is_emoji, parts[-1][1] + title[i:end])
+        else:
+            parts.append((is_emoji, title[i:end]))
+        i = end
+    return parts
+
+
+def link_title(title: str, url: str) -> str:
+    # discord baut im nachrichtentext keinen link mit emojis drin, deshalb nur den text dazwischen verlinken
+    pieces = []
+    for is_emoji, text in _split_emojis(title.strip()):
+        if is_emoji or sum(c.isalnum() for c in text) < MIN_LINK_CHARS:
+            pieces.append(("emoji" if is_emoji else "text", text))
+        else:
+            pieces.append(("text", " " if text[0].isspace() else ""))
+            pieces.append(("link", f"[{text.strip()}]({url})"))
+            pieces.append(("text", " " if text[-1].isspace() else ""))
+    if not any(kind == "link" for kind, _ in pieces):
+        return f"[{title.strip()}]({url})"
+
+    out = ""
+    prev = None
+    for kind, text in pieces:
+        if not text:
+            continue
+        # angeklebte emojis bekommen ein leerzeichen zum link
+        if {prev, kind} == {"emoji", "link"}:
+            out += " "
+        out += text
+        prev = kind
+    return " ".join(out.split())
 
 
 def todays_lines(events: list[dict], today: date) -> list[str]:
@@ -29,10 +69,8 @@ def todays_lines(events: list[dict], today: date) -> list[str]:
         start = datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ)
         if start.date() != today:
             continue
-        symbols, text = split_symbols(e["title"])
-        prefix = f"{symbols} " if symbols else ""
         # uhrzeit als code, damit alle zeilen bündig sind. <> um die url verhindert die vorschau
-        lines.append(f"`{start:%H:%M}` {prefix}[{text}](<{e['url']}>)")
+        lines.append(f"`{start:%H:%M}` {link_title(e['title'], '<' + e['url'] + '>')}")
     return lines
 
 

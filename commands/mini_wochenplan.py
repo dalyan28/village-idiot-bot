@@ -5,16 +5,17 @@ from typing import Literal
 import discord
 from discord import app_commands
 from discord.ext import commands
-from commands.aaron import split_symbols
+from commands.aaron import link_title
 from config import get_guild_config, save_guild_config
 from logic.parser import BERLIN_TZ, TAGE, parse_events
 
-# temporär, am PC springen links in andere channels nicht mehr (seit 09.11.). ausbauen: siehe readme
+# temporär, am PC springen links in andere channels nicht mehr (seit 09.11.). ausbauen siehe readme
 
-INFO = "Das ist der Event-Channel: Hier werden alle Runden angekündigt. Neue Events erstellst du mit `/event_classic`."
+INFO = "Das ist der Event-Channel. Hier werden alle Runden angekündigt. Neue Events erstellst du mit /event_classic."
 LABELS = ["Heute", "Morgen", "Übermorgen"]
+COLOR = 0x0083C2
 DEBOUNCE_SECONDS = 10
-MAX_LENGTH = 2000
+MAX_LENGTH = 4096
 COUNT_LIMIT = 1000
 NO_MENTIONS = discord.AllowedMentions.none()
 
@@ -32,10 +33,8 @@ def heading(label: str, day: date) -> str:
 
 
 def event_line(e: dict) -> str:
-    start =datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ)
-    symbols, text = split_symbols(e["title"])
-    prefix = f"{symbols} " if symbols else ""
-    return f"`{start:%H:%M}` {prefix}[{text}](<{e['url']}>) **({e['accepted']}/{e['max_players']})**"
+    start = datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ)
+    return f"`{start:%H:%M}` {link_title(e['title'], e['url'])} **({e['accepted']}/{e['max_players']})**"
 
 
 def newest_event(events: list[dict], today: date) -> dict | None:
@@ -46,7 +45,7 @@ def newest_event(events: list[dict], today: date) -> dict | None:
     return newest if _day(newest) >= today else None
 
 
-def build_content(events: list[dict], today: date, info: bool = False) -> str:
+def build_content(events: list[dict], today: date) -> str:
     groups = []
     for offset, label in enumerate(LABELS):
         day = today + timedelta(days=offset)
@@ -58,10 +57,8 @@ def build_content(events: list[dict], today: date, info: bool = False) -> str:
     newest = newest_event(events, today)
     if newest:
         tail.append(f"{heading('Neustes Event', _day(newest))}\n{event_line(newest)}")
-    if info:
-        tail.append(INFO)
 
-    # zu lang: hinten kürzen
+    # zu lang, dann hinten kürzen
     hidden = 0
     while True:
         body = ["\n".join(g) for g in groups] or ["Keine Runden in den nächsten drei Tagen."]
@@ -76,10 +73,30 @@ def build_content(events: list[dict], today: date, info: bool = False) -> str:
             groups.pop()
 
 
+def build_embed(events: list[dict], today: date, info: bool = False) -> discord.Embed:
+    # kein title und keine fields, sonst hält parse_events das embed für ein event
+    embed = discord.Embed(description=build_content(events, today), color=COLOR)
+    if info:
+        embed.set_footer(text=INFO)
+    return embed
+
+
+def info_embed() -> discord.Embed:
+    return discord.Embed(description=INFO, color=COLOR)
+
+
 def missing_permissions(perms: discord.Permissions) -> list[str]:
     needed = [("Kanäle ansehen", perms.view_channel), ("Nachrichten senden", perms.send_messages),
-              ("Nachrichtenverlauf anzeigen", perms.read_message_history)]
+              ("Nachrichtenverlauf anzeigen", perms.read_message_history),
+              ("Links einbetten", perms.embed_links)]
     return [name for name, ok in needed if not ok]
+
+
+def _unchanged(message, embed: discord.Embed) -> bool:
+    if message is None or message.content or not message.embeds:
+        return False
+    old = message.embeds[0]
+    return old.description == embed.description and old.footer.text == embed.footer.text
 
 
 class MiniWochenplan(commands.Cog):
@@ -112,19 +129,20 @@ class MiniWochenplan(commands.Cog):
             cfg.update(values)
             save_guild_config(guild_id, cfg)
 
-    async def _exists(self, channel: discord.TextChannel, message_id: int) -> bool:
+    async def _fetch(self, channel: discord.TextChannel, message_id: int | None):
+        if not message_id:
+            return None
         try:
-            await channel.fetch_message(message_id)
+            return await channel.fetch_message(message_id)
         except discord.NotFound:
-            return False
-        return True
+            return None
 
-    async def _edit(self, channel: discord.TextChannel, message_id: int, content: str, known: dict) -> bool:
-        old = known.get(message_id)
-        if old is not None and old.content == content:
+    async def _edit(self, channel: discord.TextChannel, message_id: int, embed: discord.Embed, known: dict) -> bool:
+        if _unchanged(known.get(message_id), embed):
             return True
         try:
-            await channel.get_partial_message(message_id).edit(content=content, allowed_mentions=NO_MENTIONS)
+            # content=None räumt alten text weg
+            await channel.get_partial_message(message_id).edit(content=None, embed=embed, allowed_mentions=NO_MENTIONS)
         except discord.NotFound:
             return False
         return True
@@ -158,7 +176,7 @@ class MiniWochenplan(commands.Cog):
         anchor_id = cfg.get("mini_anchor_id")
         bottom_id = cfg.get("mini_bottom_id")
 
-        if anchor_id and not await self._edit(channel, anchor_id, build_content(events, today, info=True), known):
+        if anchor_id and not await self._edit(channel, anchor_id, build_embed(events, today, info=True), known):
             # anker nicht neu posten, der stünde sonst unten
             print(f"[Mini] Guild {guild_id}: Anker {anchor_id} gelöscht, neuer erst mit /mini_wochenplan an")
             anchor_id = None
@@ -172,17 +190,17 @@ class MiniWochenplan(commands.Cog):
                 await self._save(guild_id, mini_bottom_id=None)
             return
 
-        content = build_content(events, today)
+        embed = build_embed(events, today)
         # ids sind zeitlich sortiert, klappt auch mit älterer history
         if bottom_id and max(after_anchor) < bottom_id:
-            if await self._edit(channel, bottom_id, content, known):
+            if await self._edit(channel, bottom_id, embed, known):
                 return
         elif guild_id in self._debounce_tasks:
             # neu posten macht der debounce, sonst wandert der beitrag doppelt
             return
         elif bottom_id:
             await self._delete(channel, bottom_id)
-        new_msg = await channel.send(content, suppress_embeds=True, allowed_mentions=NO_MENTIONS)
+        new_msg = await channel.send(embed=embed, allowed_mentions=NO_MENTIONS)
         await self._save(guild_id, mini_bottom_id=new_msg.id)
 
     async def pause(self, guild_id: int):
@@ -199,39 +217,41 @@ class MiniWochenplan(commands.Cog):
     async def _pause(self, guild_id: int, channel: discord.TextChannel):
         cfg = get_guild_config(guild_id)
         anchor_id = cfg.get("mini_anchor_id")
-        if anchor_id and not await self._edit(channel, anchor_id, INFO, {}):
+        if anchor_id and not await self._edit(channel, anchor_id, info_embed(), {}):
             await self._save(guild_id, mini_anchor_id=None)
         if cfg.get("mini_bottom_id"):
             await self._delete(channel, cfg["mini_bottom_id"])
             await self._save(guild_id, mini_bottom_id=None)
 
     async def _turn_on(self, guild_id: int, channel: discord.TextChannel):
-        anchor_id = get_guild_config(guild_id).get("mini_anchor_id")
-        if not anchor_id or not await self._exists(channel, anchor_id):
-            anchor = await channel.send(INFO, suppress_embeds=True, allowed_mentions=NO_MENTIONS)
-            anchor_id = anchor.id
-        await self._save(guild_id, mini_wochenplan=True, mini_anchor_id=anchor_id)
+        anchor = await self._fetch(channel, get_guild_config(guild_id).get("mini_anchor_id"))
+        if anchor is None:
+            anchor = await channel.send(embed=info_embed(), allowed_mentions=NO_MENTIONS)
+        elif anchor.flags.suppress_embeds:
+            # alter text-anker, mit dem flag würde discord das embed ausblenden
+            await anchor.edit(content=None, embed=info_embed(), suppress=False, allowed_mentions=NO_MENTIONS)
+        await self._save(guild_id, mini_wochenplan=True, mini_anchor_id=anchor.id)
         await self._sync(guild_id, channel)
 
     async def _status(self, guild_id: int, channel: discord.TextChannel) -> str:
         cfg = get_guild_config(guild_id)
         active = cfg.get("mini_wochenplan", False)
-        lines = [f"**Mini-Wochenplan:** {'an' if active else 'aus'} in {channel.mention}"]
+        lines = [f"Der Mini-Wochenplan in {channel.mention} ist {'an' if active else 'aus'}."]
         if active and not self._automation_running(guild_id):
             lines.append("Die automatische Übersicht läuft nicht, deshalb wird er nicht aktualisiert. Erst `/automate_overview` starten.")
 
         anchor_id = cfg.get("mini_anchor_id")
-        if not anchor_id or not await self._exists(channel, anchor_id):
-            lines.append("**Anker:** fehlt. `/mini_wochenplan an` postet einen neuen, der steht dann aber unten.")
+        if await self._fetch(channel, anchor_id) is None:
+            lines.append("Der Anker fehlt. `/mini_wochenplan an` postet einen neuen, der steht dann aber unten.")
             return "\n".join(lines)
 
         first = [msg async for msg in channel.history(limit=1, oldest_first=True)]
         if first and first[0].id == anchor_id:
-            lines.append("**Anker:** ist die erste Nachricht im Channel.")
+            lines.append("Der Anker ist die erste Nachricht im Channel.")
         else:
             before = len([msg async for msg in channel.history(limit=COUNT_LIMIT, before=discord.Object(id=anchor_id))])
             count = f"{before}+" if before >= COUNT_LIMIT else str(before)
-            lines.append(f"**Anker:** Davor stehen noch {count} Nachrichten. Er rückt nach oben, sobald sie gelöscht sind.")
+            lines.append(f"Vor dem Anker stehen noch {count} Nachrichten. Er rückt nach oben, sobald sie gelöscht sind.")
         return "\n".join(lines)
 
     @commands.Cog.listener()
@@ -261,7 +281,7 @@ class MiniWochenplan(commands.Cog):
     @app_commands.describe(aktion="an, aus oder nur den Status anzeigen")
     @app_commands.guild_only()
     async def mini_wochenplan(self, interaction: discord.Interaction, aktion: Literal["an", "aus", "status"]):
-        # TODO workaround: owner hat keine serverrechte, deshalb für alle sichtbar und hier geprüft
+        # TODO workaround, owner hat keine serverrechte. deshalb für alle sichtbar und hier geprüft
         if not interaction.user.guild_permissions.manage_guild and not await self.bot.is_owner(interaction.user):
             await interaction.response.send_message("Dafür brauchst du „Server verwalten“.", ephemeral=True)
             return
@@ -278,7 +298,7 @@ class MiniWochenplan(commands.Cog):
         missing = missing_permissions(channel.permissions_for(interaction.guild.me))
         if aktion == "an" and missing:
             await interaction.response.send_message(
-                f"Mir fehlen in {channel.mention} diese Rechte: {', '.join(missing)}", ephemeral=True
+                f"Mir fehlen in {channel.mention} die Rechte {', '.join(missing)}.", ephemeral=True
             )
             return
 
@@ -292,7 +312,7 @@ class MiniWochenplan(commands.Cog):
                     await self._pause(guild_id, channel)
                 status = await self._status(guild_id, channel)
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Das hat nicht geklappt: {e}", ephemeral=True)
+            await interaction.followup.send(f"Das hat nicht geklappt ({e}).", ephemeral=True)
             return
         await interaction.followup.send(status, ephemeral=True)
 

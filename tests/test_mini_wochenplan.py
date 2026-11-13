@@ -8,7 +8,7 @@ import discord
 import pytest
 
 from commands import mini_wochenplan as mini
-from commands.mini_wochenplan import INFO, MiniWochenplan, build_content
+from commands.mini_wochenplan import INFO, MiniWochenplan, build_content, build_embed
 from commands.overview import Overview
 from logic.parser import BERLIN_TZ, parse_events
 
@@ -25,8 +25,10 @@ def _event(title, day, hour, minute=0, msg_id=None, accepted=3):
             "url": f"https://discord.com/channels/{GUILD}/{CHANNEL}/{msg_id}"}
 
 
-def _msg(msg_id, content="", author_id=1):
-    return SimpleNamespace(id=msg_id, content=content, embeds=[], author=SimpleNamespace(id=author_id, bot=False))
+def _msg(msg_id, embed=None, author_id=1, suppressed=False):
+    return SimpleNamespace(id=msg_id, content="", embeds=[embed] if embed else [],
+                           author=SimpleNamespace(id=author_id, bot=author_id == BOT_ID),
+                           flags=SimpleNamespace(suppress_embeds=suppressed), edit=AsyncMock())
 
 
 def _not_found():
@@ -46,8 +48,8 @@ class FakeChannel:
         self.partials = {}
         self.send = AsyncMock(side_effect=self._send)
 
-    async def _send(self, content, **kwargs):
-        new = _msg(max([m.id for m in self.messages] + [10_000]) + 1, content, BOT_ID)
+    async def _send(self, content=None, **kwargs):
+        new = _msg(max([m.id for m in self.messages] + [10_000]) + 1, kwargs.get("embed"), BOT_ID)
         self.messages.insert(0, new)
         return new
 
@@ -108,18 +110,24 @@ def test_today_tomorrow_day_after():
     u = {i: f"https://discord.com/channels/{GUILD}/{CHANNEL}/{i}" for i in range(1, 7)}
     assert build_content(events, TODAY) == "\n".join([
         "**Heute · Freitag, 13.11.**",
-        f"`14:00` [Nachmittag](<{u[2]}>) **(3/12)**",
-        f"`20:00` 🟥 [Srunde Broken Circles mit Doctor](<{u[3]}>) **(3/12)**",
+        f"`14:00` [Nachmittag]({u[2]}) **(3/12)**",
+        f"`20:00` 🟥 [Srunde Broken Circles mit Doctor]({u[3]}) **(3/12)**",
         "",
         "**Morgen · Samstag, 14.11.**",
-        f"`19:30` [Trouble Brewing](<{u[4]}>) **(0/12)**",
+        f"`19:30` [Trouble Brewing]({u[4]}) **(0/12)**",
         "",
         "**Übermorgen · Sonntag, 15.11.**",
-        f"`20:00` 💚 [Boozling](<{u[6]}>) **(3/12)**",
+        f"`20:00` 💚 [Boozling]({u[6]}) **(3/12)**",
         "",
         "**Neustes Event · Sonntag, 15.11.**",
-        f"`20:00` 💚 [Boozling](<{u[6]}>) **(3/12)**",
+        f"`20:00` 💚 [Boozling]({u[6]}) **(3/12)**",
     ])
+
+
+def test_emoji_codes_stay_out_of_the_link():
+    e = _event("💚 :yellow_circle:Visitors - Besuch mit Freuderl und Bonbonfrosch", 13, 20)
+    assert build_content([e], TODAY).startswith(
+        f"**Heute · Freitag, 13.11.**\n`20:00` 💚 :yellow_circle: [Visitors - Besuch mit Freuderl und Bonbonfrosch]({e['url']})")
 
 
 def test_empty_days_are_left_out():
@@ -130,7 +138,6 @@ def test_empty_days_are_left_out():
 
 def test_no_events():
     assert build_content([], TODAY) == "Keine Runden in den nächsten drei Tagen."
-    assert build_content([], TODAY, info=True) == f"Keine Runden in den nächsten drei Tagen.\n\n{INFO}"
 
 
 def test_days_in_berlin_time():
@@ -143,7 +150,7 @@ def test_newest_event_is_last_posted_not_last_starting():
     events = [_event("Bald", 13, 20, msg_id=50), _event("Später gepostet", 20, 20, msg_id=60)]
     content = build_content(events, TODAY)
     assert content.endswith("**Neustes Event · Freitag, 20.11.**\n"
-                            f"`20:00` [Später gepostet](<{events[1]['url']}>) **(3/12)**")
+                            f"`20:00` [Später gepostet]({events[1]['url']}) **(3/12)**")
 
 
 def test_newest_event_in_the_past_is_left_out():
@@ -151,32 +158,47 @@ def test_newest_event_in_the_past_is_left_out():
     assert "Neustes Event" not in build_content(events, TODAY)
 
 
-def test_anchor_has_info_at_the_end():
-    content = build_content([_event("A", 13, 20)], TODAY, info=True)
-    assert content.endswith(f"\n\n{INFO}")
-    assert content.index("Neustes Event") < content.index(INFO)
+def test_info_only_in_anchor_footer():
+    events = [_event("A", 13, 20)]
+    assert build_embed(events, TODAY, info=True).footer.text == INFO
+    assert build_embed(events, TODAY).footer.text is None
+    assert INFO == "Das ist der Event-Channel. Hier werden alle Runden angekündigt. Neue Events erstellst du mit /event_classic."
 
 
-def test_shortened_at_discord_limit():
-    events = [_event(f"Event {i} {'x' * 60}", 13 + i % 3, 20, msg_id=i + 1) for i in range(40)]
-    content = build_content(events, TODAY, info=True)
-    assert len(content) <= 2000
-    assert content.endswith(INFO)
+def test_shortened_at_embed_limit():
+    events = [_event(f"Event {i} {'x' * 60}", 13 + i % 3, 20, msg_id=i + 1) for i in range(80)]
+    content = build_content(events, TODAY)
+    assert len(content) <= 4096
     assert "**Neustes Event" in content
     shown = sum(1 for line in content.split("\n") if line.startswith("`20:00`")) - 1
     hidden = int(content.split("… und ")[1].split(" ")[0])
-    assert shown + hidden == 40
+    assert shown + hidden == 80
 
 
 def test_mini_post_is_no_event():
-    post = SimpleNamespace(author=SimpleNamespace(bot=True), embeds=[], content=build_content([], TODAY))
+    post = SimpleNamespace(author=SimpleNamespace(bot=True), content="",
+                           embeds=[build_embed([_event("A", 13, 20)], TODAY, info=True)])
     assert parse_events([post]) == []
+
+
+@pytest.mark.asyncio
+async def test_overview_ignores_mini_edits():
+    overview_cog = Overview(MagicMock())
+    overview_cog.auto_tasks[GUILD] = MagicMock()
+    overview_cog._schedule_edit = AsyncMock()
+    payload = SimpleNamespace(guild_id=GUILD, channel_id=CHANNEL,
+                              data={"embeds": [build_embed([_event("A", 13, 20)], TODAY, info=True).to_dict()]})
+
+    with patch("commands.overview.get_guild_config", return_value={"event_channel_id": CHANNEL}):
+        await overview_cog.on_raw_message_edit(payload)
+
+    overview_cog._schedule_edit.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_bottom_is_last_only_edits(cog, store):
     store.update(mini_anchor_id=100, mini_bottom_id=300)
-    ch = FakeChannel([_msg(300, "alt"), _msg(200), _msg(100, "alt")])
+    ch = FakeChannel([_msg(300, discord.Embed(description="alt")), _msg(200), _msg(100, discord.Embed(description="alt"))])
 
     await cog.sync(GUILD, ch, ch.messages, [])
 
@@ -196,7 +218,8 @@ async def test_new_message_moves_bottom_down(cog, store):
     ch.get_partial_message(300).delete.assert_called_once()
     ch.send.assert_called_once()
     kwargs = ch.send.call_args.kwargs
-    assert kwargs["suppress_embeds"] is True
+    assert kwargs["embed"].footer.text is None
+    assert "suppress_embeds" not in kwargs
     assert kwargs["allowed_mentions"].to_dict() == discord.AllowedMentions.none().to_dict()
     assert store["mini_bottom_id"] == ch.messages[0].id
     assert mini.is_own_delete(cog.bot, 300)
@@ -247,14 +270,14 @@ async def test_deleted_anchor_is_not_reposted(cog, store):
 
     assert store["mini_anchor_id"] is None
     ch.send.assert_called_once()
-    assert INFO not in ch.send.call_args.args[0]
+    assert ch.send.call_args.kwargs["embed"].footer.text is None
 
 
 @pytest.mark.asyncio
 async def test_unchanged_content_is_not_edited(cog, store):
     today = datetime.now(tz=BERLIN_TZ).date()
     store.update(mini_anchor_id=100, mini_bottom_id=300)
-    ch = FakeChannel([_msg(300, build_content([], today)), _msg(200), _msg(100, build_content([], today, info=True))])
+    ch = FakeChannel([_msg(300, build_embed([], today)), _msg(200), _msg(100, build_embed([], today, info=True))])
 
     await cog.sync(GUILD, ch, ch.messages, [])
 
@@ -311,7 +334,9 @@ async def test_pause_leaves_only_info(cog, store):
 
     await cog.pause(GUILD)
 
-    ch.get_partial_message(100).edit.assert_called_once_with(content=INFO, allowed_mentions=mini.NO_MENTIONS)
+    kwargs = ch.get_partial_message(100).edit.call_args.kwargs
+    assert kwargs["content"] is None
+    assert kwargs["embed"].description == INFO
     ch.get_partial_message(300).delete.assert_called_once()
     assert store["mini_bottom_id"] is None
 
@@ -338,7 +363,7 @@ async def test_turn_on_posts_anchor_only_once(cog, store):
     anchor_id = store["mini_anchor_id"]
     assert store["mini_wochenplan"] is True
     assert ch.messages[0].id == anchor_id
-    assert ch.send.call_args.args[0] == INFO
+    assert ch.send.call_args.kwargs["embed"].description == INFO
 
     await cog._turn_on(GUILD, ch)
     assert ch.send.call_count == 1
@@ -346,10 +371,25 @@ async def test_turn_on_posts_anchor_only_once(cog, store):
 
 
 @pytest.mark.asyncio
+async def test_turn_on_shows_embed_in_old_text_anchor(cog, store):
+    store.update(mini_wochenplan=False, mini_anchor_id=100)
+    old_anchor = _msg(100, suppressed=True)
+    ch = FakeChannel([old_anchor])
+
+    await cog._turn_on(GUILD, ch)
+
+    kwargs = old_anchor.edit.call_args.kwargs
+    assert kwargs["suppress"] is False
+    assert kwargs["content"] is None
+    ch.send.assert_not_called()
+    assert store["mini_anchor_id"] == 100
+
+
+@pytest.mark.asyncio
 async def test_status_counts_messages_before_anchor(cog, store):
     store.update(mini_anchor_id=100)
     ch = FakeChannel([_msg(200), _msg(100), _msg(50), _msg(40), _msg(30)])
-    assert "Davor stehen noch 3 Nachrichten" in await cog._status(GUILD, ch)
+    assert "Vor dem Anker stehen noch 3 Nachrichten." in await cog._status(GUILD, ch)
 
     ch.messages = [_msg(200), _msg(100)]
     assert "ist die erste Nachricht" in await cog._status(GUILD, ch)
@@ -358,14 +398,14 @@ async def test_status_counts_messages_before_anchor(cog, store):
 @pytest.mark.asyncio
 async def test_status_reports_missing_anchor(cog, store):
     store.update(mini_anchor_id=100)
-    assert "**Anker:** fehlt" in await cog._status(GUILD, FakeChannel([_msg(200)]))
+    assert "Der Anker fehlt." in await cog._status(GUILD, FakeChannel([_msg(200)]))
 
 
 def test_missing_permissions():
     assert mini.missing_permissions(discord.Permissions(view_channel=True, send_messages=True,
-                                                        read_message_history=True)) == []
+                                                        read_message_history=True, embed_links=True)) == []
     assert mini.missing_permissions(discord.Permissions(view_channel=True)) == [
-        "Nachrichten senden", "Nachrichtenverlauf anzeigen"]
+        "Nachrichten senden", "Nachrichtenverlauf anzeigen", "Links einbetten"]
 
 
 @pytest.mark.asyncio
