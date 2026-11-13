@@ -260,8 +260,12 @@ class MiniWochenplan(commands.Cog):
     @app_commands.command(name="mini_wochenplan", description="Mini-Wochenplan oben und unten im Event-Channel (temporär)")
     @app_commands.describe(aktion="an, aus oder nur den Status anzeigen")
     @app_commands.guild_only()
-    @app_commands.default_permissions(manage_guild=True)
     async def mini_wochenplan(self, interaction: discord.Interaction, aktion: Literal["an", "aus", "status"]):
+        # TODO workaround: owner hat keine serverrechte, deshalb für alle sichtbar und hier geprüft
+        if not interaction.user.guild_permissions.manage_guild and not await self.bot.is_owner(interaction.user):
+            await interaction.response.send_message("Dafür brauchst du „Server verwalten“.", ephemeral=True)
+            return
+
         guild_id = interaction.guild_id
         cfg = get_guild_config(guild_id)
         channel = self.bot.get_channel(cfg["event_channel_id"]) if cfg.get("event_channel_id") else None

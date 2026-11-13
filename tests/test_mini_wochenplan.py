@@ -368,6 +368,22 @@ def test_missing_permissions():
         "Nachrichten senden", "Nachrichtenverlauf anzeigen"]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("manage_guild, owner, allowed", [(True, False, True), (False, True, True), (False, False, False)])
+async def test_command_only_for_server_managers_and_owner(cog, store, manage_guild, owner, allowed):
+    cog.bot.is_owner = AsyncMock(return_value=owner)
+    del store["event_channel_id"]
+    interaction = MagicMock()
+    interaction.guild_id = GUILD
+    interaction.user.guild_permissions = discord.Permissions(manage_guild=manage_guild)
+    interaction.response.send_message = AsyncMock()
+
+    await cog.mini_wochenplan.callback(cog, interaction, "status")
+
+    text = interaction.response.send_message.call_args.args[0]
+    assert ("Server verwalten" in text) is not allowed
+
+
 def _incoming(author_id=1, channel_id=CHANNEL):
     return SimpleNamespace(guild=SimpleNamespace(id=GUILD), author=SimpleNamespace(id=author_id),
                            channel=SimpleNamespace(id=channel_id))
