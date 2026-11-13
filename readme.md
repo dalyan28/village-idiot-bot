@@ -137,7 +137,7 @@ pytest tests/ -v
 - Der Bot editiert nur seine eigene Übersicht und löscht sie nur beim Neu-Posten, nie andere Nachrichten
 - Apollo-Events müssen als Embeds mit einem `Time`- oder `Termin`-Feld vorliegen
 - Die Übersicht zeigt Tagesnamen und Monate immer auf Deutsch an
-- Uhrzeiten in der Übersicht stehen in Berliner Zeit. Die eigene Ortszeit zeigt Discord beim Zeigen auf die relative Angabe am Zeilenende (z. B. „in 7 Tagen“)
+- Uhrzeiten in der Übersicht stehen in Berliner Zeit. Die eigene Ortszeit sieht man beim Hovern über die relative Angabe am Ende des Eintrags, am Handy durch Antippen
 - `.env` und `config.json` niemals in Git committen
 
 ---
@@ -220,5 +220,5 @@ Since 9 Nov 2026, message links into another channel no longer jump to the messa
 
 - The bot only edits its own overview and only deletes it when reposting, never other messages
 - Apollo events must be posted as embeds with a `Time` or `Termin` field
-- Times in the overview are shown in Berlin time. Hovering over the relative time at the end of the line (e.g. "in 7 Tagen") shows your local time
+- Times in the overview are shown in Berlin time. Hovering over the relative time at the end of the entry, or tapping it on mobile, shows your local time
 - Never commit `.env` or `config.json` to Git

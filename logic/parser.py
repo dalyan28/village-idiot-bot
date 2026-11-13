@@ -9,7 +9,7 @@ MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
-FOOTER = "Uhrzeiten in Berliner Zeit. Deine Ortszeit siehst du, wenn du auf die Angabe am Zeilenende zeigst (z. B. „in 7 Tagen“)."
+FOOTER = "Uhrzeiten in Berliner Zeit. Die eigene Ortszeit sieht man beim Hovern über die relative Angabe am Ende des Eintrags, am Handy durch Antippen."
 
 FIELD_CHAR_LIMIT = 1024
 EMBED_CHAR_LIMIT = 5500
