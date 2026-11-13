@@ -1,7 +1,7 @@
 """Tests für die Wochenplan-Zeilen in logic/parser.py"""
 from datetime import datetime
 
-from logic.parser import BERLIN_TZ, FOOTER, build_overviews
+from logic.parser import BERLIN_TZ, build_footer, build_overviews
 
 
 def _event(title, month, day, hour, minute=0, accepted=3):
@@ -28,13 +28,23 @@ def test_days_grouped_by_berlin_date():
     assert embed.fields[0].value.startswith("> `00:30` ")
 
 
-def test_footer_explains_berlin_time():
-    assert all(e.footer.text == FOOTER for e in build_overviews([_event("A", 11, 13, 20)]))
-    assert build_overviews([])[0].footer.text == FOOTER
+def test_footer_with_winter_and_summer_time():
+    assert build_footer([_event("A", 11, 13, 20)]).startswith("Alle Zeiten und Daten in deutscher Zeit (MEZ).\n")
+    assert build_footer([_event("A", 7, 1, 20)]).startswith("Alle Zeiten und Daten in deutscher Zeit (MESZ).\n")
+
+
+def test_footer_around_time_change():
+    # zeitumstellung am 25.10.2026
+    events = [_event("Vorher", 10, 24, 20), _event("Nachher", 10, 26, 20)]
+    assert build_footer(events).startswith("Alle Zeiten und Daten in deutscher Zeit (MEZ/MESZ).\n")
+
+
+def test_footer_without_events():
+    assert build_overviews([])[0].footer.text.startswith("Alle Zeiten und Daten in deutscher Zeit (ME")
 
 
 def test_footer_on_every_page():
     events = [_event(f"Event {i} {'x' * 30}", 11, 13 + i % 7, 20) for i in range(80)]
     embeds = build_overviews(events)
     assert len(embeds) > 1
-    assert all(e.footer.text == FOOTER for e in embeds)
+    assert all(e.footer.text == build_footer(events) for e in embeds)

@@ -9,7 +9,7 @@ MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
 BERLIN_TZ = ZoneInfo("Europe/Berlin")
-FOOTER = "Uhrzeiten in Berliner Zeit. Die eigene Ortszeit sieht man beim Hovern über die relative Angabe am Ende des Eintrags, am Handy durch Antippen."
+KUERZEL = (("CET", "MEZ"), ("CEST", "MESZ"))
 
 FIELD_CHAR_LIMIT = 1024
 EMBED_CHAR_LIMIT = 5500
@@ -68,11 +68,22 @@ def parse_events(messages: list[discord.Message]) -> list[dict]:
     return events
 
 
+def build_footer(events: list[dict]) -> str:
+    # kürzel der angezeigten termine, um die zeitumstellung herum beide
+    names = {datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ).tzname() for e in events}
+    names = names or {datetime.now(tz=BERLIN_TZ).tzname()}
+    kuerzel = "/".join(de for en, de in KUERZEL if en in names)
+    return (f"Alle Zeiten und Daten in deutscher Zeit ({kuerzel}).\n"
+            "Die Startzeit in deiner Ortszeit siehst du, wenn du über die Zeitangabe am Ende eines Eintrags hoverst "
+            "oder sie am Handy antippst.")
+
+
 def build_overviews(events: list[dict]) -> list[discord.Embed]:
+    footer = build_footer(events)
     if not events:
         embed = new_embed()
         embed.description = "Keine Events gefunden."
-        embed.set_footer(text=FOOTER)
+        embed.set_footer(text=footer)
         return [embed]
 
     # events nach tag gruppieren
@@ -113,7 +124,7 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
                 # prüfen ob neuer embed nötig
                 projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
                 if projected > EMBED_CHAR_LIMIT and current_embed.fields:
-                    current_embed.set_footer(text=FOOTER)
+                    current_embed.set_footer(text=footer)
                     embeds.append(current_embed)
                     current_embed = new_embed()
                     first_field = True
@@ -126,13 +137,13 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         if field_text.strip():
             projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
             if projected > EMBED_CHAR_LIMIT and current_embed.fields:
-                current_embed.set_footer(text=FOOTER)
+                current_embed.set_footer(text=footer)
                 embeds.append(current_embed)
                 current_embed = new_embed()
                 first_field = True
             current_embed.add_field(name=label if first_field else "\u200b", value=field_text.rstrip(), inline=False)
 
-    current_embed.set_footer(text=FOOTER)
+    current_embed.set_footer(text=footer)
     embeds.append(current_embed)
 
     return embeds
