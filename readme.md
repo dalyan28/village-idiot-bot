@@ -60,6 +60,7 @@ village-idiot-bot/
 ├── tests/                      # Unit-Tests (pytest)
 │   ├── test_overview_logic.py  # Smart-Mode-Zeitplan
 │   ├── test_edit_overview.py   # Übersicht editieren, Debounce
+│   ├── test_parser.py          # Wochenplan-Zeilen, Berliner Zeit
 │   └── test_aaron.py           # /aaron
 ├── requirements.txt
 ├── requirements-dev.txt        # + pytest
@@ -117,6 +118,7 @@ pytest tests/ -v
 - Der Bot editiert nur seine eigene Übersicht und löscht sie nur beim Neu-Posten, nie andere Nachrichten
 - Apollo-Events müssen als Embeds mit einem `Time`- oder `Termin`-Feld vorliegen
 - Die Übersicht zeigt Tagesnamen und Monate immer auf Deutsch an
+- Uhrzeiten in der Übersicht stehen in Berliner Zeit. Die eigene Ortszeit zeigt Discord beim Zeigen auf die relative Angabe am Zeilenende (z. B. „in 7 Tagen“)
 - `.env` und `config.json` niemals in Git committen
 
 ---
@@ -194,4 +196,5 @@ Posts today's events (Berlin time) from the event channel as a code block, one l
 
 - The bot only edits its own overview and only deletes it when reposting, never other messages
 - Apollo events must be posted as embeds with a `Time` or `Termin` field
+- Times in the overview are shown in Berlin time. Hovering over the relative time at the end of the line (e.g. "in 7 Tagen") shows your local time
 - Never commit `.env` or `config.json` to Git

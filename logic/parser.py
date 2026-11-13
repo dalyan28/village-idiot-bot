@@ -1,11 +1,15 @@
 import re
 import discord
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 
 TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
 MONATE = ["Januar", "Februar", "März", "April", "Mai", "Juni",
           "Juli", "August", "September", "Oktober", "November", "Dezember"]
+
+BERLIN_TZ = ZoneInfo("Europe/Berlin")
+FOOTER = "Uhrzeiten in Berliner Zeit. Deine Ortszeit siehst du, wenn du auf die Angabe am Zeilenende zeigst (z. B. „in 7 Tagen“)."
 
 FIELD_CHAR_LIMIT = 1024
 EMBED_CHAR_LIMIT = 5500
@@ -68,14 +72,14 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
     if not events:
         embed = new_embed()
         embed.description = "Keine Events gefunden."
-        embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+        embed.set_footer(text=FOOTER)
         return [embed]
 
     # events nach tag gruppieren
     days: dict[str, list] = {}
     day_labels: dict[str, str] = {}
     for e in events:
-        dt = datetime.fromtimestamp(e["start_ts"], tz=timezone.utc)
+        dt = datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ)
         day_key = dt.strftime("%Y-%m-%d")
         if day_key not in days:
             days[day_key] = []
@@ -95,7 +99,9 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
             title = e["title"]
             if len(title) > 40:
                 title = title[:38] + ".."
-            line = f"> <t:{e['start_ts']}:t> [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
+            # uhrzeit in berliner zeit, ortszeit per hover auf <t:..:R>
+            start = datetime.fromtimestamp(e["start_ts"], tz=BERLIN_TZ)
+            line = f"> `{start:%H:%M}` [{title}]({e['url']}) **({e['accepted']}/{e['max_players']})** <t:{e['start_ts']}:R>\n"
             chunks.append(line)
 
         # chunks zu fields zusammenfassen, dabei event-blöcke nicht trennen
@@ -107,7 +113,7 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
                 # prüfen ob neuer embed nötig
                 projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
                 if projected > EMBED_CHAR_LIMIT and current_embed.fields:
-                    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                    current_embed.set_footer(text=FOOTER)
                     embeds.append(current_embed)
                     current_embed = new_embed()
                     first_field = True
@@ -120,13 +126,13 @@ def build_overviews(events: list[dict]) -> list[discord.Embed]:
         if field_text.strip():
             projected = embed_char_count(current_embed) + len(label if first_field else "\u200b") + len(field_text)
             if projected > EMBED_CHAR_LIMIT and current_embed.fields:
-                current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+                current_embed.set_footer(text=FOOTER)
                 embeds.append(current_embed)
                 current_embed = new_embed()
                 first_field = True
             current_embed.add_field(name=label if first_field else "\u200b", value=field_text.rstrip(), inline=False)
 
-    current_embed.set_footer(text="Zeiten werden in deiner lokalen Zeitzone angezeigt.")
+    current_embed.set_footer(text=FOOTER)
     embeds.append(current_embed)
 
     return embeds
