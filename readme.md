@@ -82,7 +82,7 @@ village-idiot-bot/
 | `/set_schedule` | `zeiten` | Setzt den Smart-Mode-Zeitplan (z.B. `05:00 08:00 12:00`) oder `default` |
 | `/see_schedule` | – | Zeigt den aktuellen Zeitplan und dynamische Zeiten |
 | `/aaron` | – | Heutige Events als `Uhrzeit [Titel](Link)` zum Rauskopieren (nur Aaron und Bot-Owner) |
-| `/mini_wochenplan` | `aktion`: `an`, `aus`, `status` | Mini-Wochenplan oben und unten im Event-Channel (temporär, nur mit „Server verwalten“) |
+| `/mini_wochenplan` | `aktion`: `an`, `aus`, `status` | Mini-Wochenplan oben und unten im Event-Channel (temporär, nur mit „Server verwalten“ und für den Bot-Owner) |
 
 ### Smart Mode
 
@@ -192,7 +192,7 @@ ENV=dev
 | `/set_schedule` | `zeiten` | Sets the Smart Mode schedule (e.g. `05:00 08:00 12:00`) or `default` |
 | `/see_schedule` | – | Shows the current schedule and dynamic times |
 | `/aaron` | – | Today's events as `time [title](link)` for copying (only Aaron and the bot owner) |
-| `/mini_wochenplan` | `aktion`: `an`, `aus`, `status` | Mini schedule at the top and bottom of the event channel (temporary, requires "Manage Server") |
+| `/mini_wochenplan` | `aktion`: `an`, `aus`, `status` | Mini schedule at the top and bottom of the event channel (temporary, requires "Manage Server" or bot owner) |
 
 ### Smart Mode
 
